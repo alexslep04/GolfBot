@@ -4,12 +4,14 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 from game import GolfGame, RULE_OPTIONS
 from rule_help import load_rule_help
+from scoring import active_rule_effects
 
 
 class GolfUI:
     def __init__(self, engine=None):
         pygame.init()
-        self.screen = pygame.display.set_mode((1080, 850))
+        self.window = pygame.display.set_mode((1080, 850), pygame.RESIZABLE)
+        self.screen = pygame.Surface((1080, 850))
         pygame.display.set_caption("GolfBot - 52-card Golf")
         self.clock = pygame.time.Clock()
         self.game = engine if engine is not None else GolfGame()
@@ -40,6 +42,20 @@ class GolfUI:
         self.pass_rect = pygame.Rect(458, 510, 164, 40)
         self.arrange_rects = {columns: pygame.Rect(292 + i * 170, 391, 155, 45)
                               for i, columns in enumerate(((0, 1), (0, 2), (1, 2)))}
+
+    def viewport(self):
+        width, height = self.window.get_size()
+        scale = min(width / 1080, height / 850)
+        size = (max(1, round(1080 * scale)), max(1, round(850 * scale)))
+        return pygame.Rect((width - size[0]) // 2, (height - size[1]) // 2, *size)
+
+    def table_position(self, position):
+        viewport = self.viewport()
+        return ((position[0] - viewport.x) * 1080 / viewport.width,
+                (position[1] - viewport.y) * 850 / viewport.height)
+
+    def mouse_position(self):
+        return self.table_position(pygame.mouse.get_pos())
 
     def text(self, value, x, y, size=18, color=None):
         self.screen.blit(self.fonts[size].render(value, True, color or self.white), (x, y))
@@ -201,7 +217,7 @@ class GolfUI:
                 return
 
     def button(self, label, rect, enabled=True):
-        hover = rect.collidepoint(pygame.mouse.get_pos())
+        hover = rect.collidepoint(self.mouse_position())
         color = (74, 125, 94) if enabled and hover else (49, 97, 75) if enabled else (28, 54, 46)
         pygame.draw.rect(self.screen, color, rect, border_radius=9)
         text = self.fonts[16].render(label, True, self.white if enabled else (101, 127, 113))
@@ -222,7 +238,7 @@ class GolfUI:
                 line = candidate
         lines.append(line)
         height = 58 + 20 * len(lines)
-        mouse = pygame.mouse.get_pos()
+        mouse = self.mouse_position()
         rect = pygame.Rect(max(12, mouse[0] - 434), min(mouse[1] + 15, 836 - height), 428, height)
         pygame.draw.rect(self.screen, (9, 29, 24), rect.move(4, 4), border_radius=10)
         pygame.draw.rect(self.screen, (39, 69, 54), rect, border_radius=10)
@@ -294,6 +310,12 @@ class GolfUI:
             self.card(rect, slot.card if slot.visible else None, ref in self.selected,
                       bonus or ref in trade_targets or (player == 0 and index in targets),
                       slot.visible and slot.card in game.locked_cards)
+        for player, y in ((1, 352), (0, 682)):
+            effects = active_rule_effects(game.players[player], game.rules, game.gambler_earned[player], game.locked_cards)
+            score = game.score(player, game.phase != "over")
+            label = "Score" if game.phase == "over" else "Visible"
+            self.text(f"{label}: {score}", 349, y, 14)
+            self.wrap("Effects: " + (", ".join(effects) if effects else "None"), 349, y + 19, 326, 14, self.gold)
         self.text("Rules in play", 728, 100, 20, self.gold)
         self.text("Choose before your second opening flip." if game.phase == "setup" else "New game to change rules.", 728, 128, 14, self.muted)
         for key, label in RULE_OPTIONS:
@@ -336,9 +358,12 @@ class GolfUI:
         if game.phase in ("guess", "arrange") and game.decision_player == 0:
             self.draw_modal()
         else:
-            tooltip = self.tooltip_key(pygame.mouse.get_pos())
+            tooltip = self.tooltip_key(self.mouse_position())
             if tooltip and tooltip in self.rule_help:
                 self.draw_tooltip(tooltip)
+        viewport = self.viewport()
+        self.window.fill(self.bg)
+        self.window.blit(pygame.transform.smoothscale(self.screen, viewport.size), viewport)
         pygame.display.flip()
 
 
@@ -355,7 +380,8 @@ def run(screenshot=None, engine=None):
                 elif event.key == pygame.K_RETURN:
                     app.activate("End turn")
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                app.click(event.pos)
+                if app.viewport().collidepoint(event.pos):
+                    app.click(app.table_position(event.pos))
         game = app.game
         if game.decision_player == 1 and game.phase not in ("setup", "over"):
             if app.opponent_due is None:

@@ -12,6 +12,23 @@ def cards(ranks, suits="SHDCSH"):
 
 
 class FeatureTests(unittest.TestCase):
+    def test_roman_fives_sum_ten_both_orientations(self):
+        from scoring import active_rule_effects
+        for pattern in V_PATTERNS:
+            game = GolfGame(1, Rules(roman_fives=True))
+            hand = [Slot(c, True) for c in cards([8, 9, 10, 11, 12, 13])]
+            for index, rank in zip(pattern, (6, 1, 3)):
+                hand[index] = Slot(Card(rank, "H"), True)
+            game.players[0] = hand
+            self.assertEqual(score_adjustments(hand, game.rules)[1], 3)
+            self.assertEqual(game.score(0), (game.score(0, True) + 2) // 3)
+            self.assertIn("Roman 5s /3", active_rule_effects(hand, game.rules))
+            hand[pattern[1]].visible = False
+            self.assertNotIn("Roman 5s /3", active_rule_effects(hand, game.rules))
+            self.assertEqual(score_adjustments(hand, game.rules, True)[1], 1)
+            game.rules.roman_fives = False
+            self.assertEqual(score_adjustments(hand, game.rules)[1], 1)
+
     def start(self, rules):
         game = GolfGame(4, rules)
         game.reveal(0)
@@ -56,12 +73,12 @@ class FeatureTests(unittest.TestCase):
                 for index, rank in zip(pattern, ranks):
                     hand[index] = Slot(Card(rank, "S"), True)
                 adjustment, divisor = score_adjustments(hand, Rules(v10=True, roman_fives=True))
-                self.assertEqual((adjustment, divisor), (0, 15))
+                self.assertEqual((adjustment, divisor), (0, 5))
                 self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True), True)[1], 1)
         hand = [Slot(c, True) for c in cards([10, 11, 12, 10, 11, 12], "SHDCHS")]
-        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 15)
+        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 5)
         hand = [Slot(c, True) for c in cards([11, 1, 11, 5, 11, 6])]
-        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 3)
+        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 1)
 
     def test_tricky_rows_use_rank_order_and_golf_points_on_rightmost(self):
         hand = [Slot(c, True) for c in cards([1, 2, 3, 5, 4, 3])]
@@ -80,7 +97,7 @@ class FeatureTests(unittest.TestCase):
         game = GolfGame(1, Rules(v10=True, roman_fives=True, gamblers_row=True))
         game.players[0] = [Slot(c, True) for c in cards([10, 1, 12, 5, 11, 13])]
         game.gambler_earned[0] = True
-        self.assertEqual(game.score(0), 1)  # 39 / (5 * 3 * 7), rounded up.
+        self.assertEqual(game.score(0), 2)  # 39 / (5 * 7), rounded up.
         game = GolfGame(1, Rules(holdem=True, ripped_five=True))
         game.players[0] = [Slot(c, True) for c in cards([5, 5, 13, 5, 5, 13], "SHSDCH")]
         self.assertEqual(game.score(0), -15)  # Three zero columns, full-house + four-kind + ripped 5.
