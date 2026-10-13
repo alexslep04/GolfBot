@@ -43,6 +43,20 @@ class MouseFlowTests(unittest.TestCase):
         self.assertEqual(self.engine.visible_count(0), 0)
         self.assertFalse(self.app.available("Draw"))
 
+    def test_resize_preserves_card_clicks_and_aspect_ratio(self):
+        for size in ((540, 425), (1400, 900), (800, 1000)):
+            self.app.window = pygame.display.set_mode(size, pygame.RESIZABLE)
+            viewport = self.app.viewport()
+            self.assertLessEqual(abs(viewport.width / viewport.height - 1080 / 850), .005)
+            x, y = self.app.cards[(0, 0)].center
+            position = (viewport.x + x * viewport.width / 1080,
+                        viewport.y + y * viewport.height / 850)
+            self.app.click(self.app.table_position(position))
+            self.assertIn((0, 0), self.app.selected)
+            self.app.click(self.app.table_position(position))
+            self.assertNotIn((0, 0), self.app.selected)
+            self.app.render()
+
     def test_rules_checkboxes_and_new_game_persistence(self):
         self.app.click(self.app.rule_rects["queen_swap"].center)
         self.assertTrue(self.engine.rules.queen_swap)

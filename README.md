@@ -8,6 +8,8 @@ On Windows, double-click `play.bat`. Python must be installed; the launcher crea
 
 Alternatively:
 
+The window can be resized or maximized. The table scales to fit while preserving its proportions.
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt

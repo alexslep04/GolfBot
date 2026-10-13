@@ -90,7 +90,7 @@ A 5 of diamonds and at least one other 5 anywhere in the layout subtract 5 point
 ### Roman 5s
 <!-- rule: roman_fives -->
 
-Three cards each worth 10 Golf points occupying either V orientation divide the final score by 3, rounding upward. Eligible ranks are 10, Jack, and Queen; they may repeat or differ. Both top-left + bottom-middle + top-right and bottom-left + top-middle + bottom-right count. Apply the modifier once, even if both Vs qualify. Evaluate the final layout. This is separate from V10 and can stack with it.
+Three cards whose Golf points sum to 10 occupying either V orientation divide the final score by 3, rounding upward. For example, 6 + Ace (1) + 3 qualifies. Use Golf points, including 2 = -2 and King = 0. Both top-left + bottom-middle + top-right and bottom-left + top-middle + bottom-right count. Apply the modifier once, even if both Vs qualify. Evaluate the final layout. This is separate from V10 and can stack with it.
 
 ### Beggars Will be Choosers
 <!-- rule: beggars -->
