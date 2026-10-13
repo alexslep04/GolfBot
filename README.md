@@ -29,11 +29,9 @@ For an enabled Queen-Queen or Jack-Jack bonus, select **two** table cards and pr
 
 ## Rules
 
-[PLAYING_RULES.md](PLAYING_RULES.md) is the current implemented specification, including the turn paths and the conventions used for special-rule interactions. All optional rules start disabled, and the panel shows their state throughout the round.
+[RULES.md](RULES.md) is the single source of truth for the rules, including turn paths, selectable rules, and interaction conventions. All optional rules start disabled, and the panel shows their state throughout the round.
 
-The supplied documents [RULES.md](RULES.md) and [RULES_UPDATED.md](RULES_UPDATED.md) are preserved as references. The latest requested numbered turn paths take precedence over the intermediate blind-swap version.
-
-The current selectable rules are Queen-Queen bonus swaps, Jack-Jack bonus swaps, 666 locks, 777 final-score division, and King-Queen color scoring. The more extensive draft house-rule ideas in RULES_UPDATED.md are not selectable yet.
+The current selectable rules are Queen-Queen bonus swaps, Jack-Jack bonus swaps, 666 locks, 777 final-score division, and King-Queen color scoring. Earlier rule documents remain recoverable in Git history; prospective additions are recorded at the end of RULES.md.
 
 ## Development
 
