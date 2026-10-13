@@ -8,7 +8,7 @@ import itertools
 import unittest
 from unittest.mock import patch
 import pygame
-from game import Card, GolfGame, Rules, run
+from game import Card, GolfGame, Rules, Slot, run
 from ui import GolfUI
 from test_game import place_cards
 
@@ -111,6 +111,39 @@ class MouseFlowTests(unittest.TestCase):
         self.assertEqual(self.engine.turns, 1)
         self.assertIsNone(self.engine.held_card)
         self.assertFalse(self.app.available("Discard"))
+
+    def test_draw_first_swap_button_rejects_hidden_targets(self):
+        self.opening()
+        self.press("Draw")
+        held = self.engine.held_card
+        self.card(0, 5)
+        self.assertFalse(self.app.available("Swap"))
+        self.press("Swap")
+        self.assertEqual(self.engine.held_card, held)
+        self.press("Flip")
+        self.assertTrue(self.app.available("Swap"))
+        self.press("Swap")
+        self.assertEqual(self.engine.players[0][5].card, held)
+
+    def test_many_effects_are_clipped_and_scroll_outside_turn_prompt(self):
+        self.engine.rules = Rules(holdem=True, king_queen=True, gamblers_row=True)
+        self.engine.gambler_earned = [True, True]
+        for player in range(2):
+            self.engine.players[player] = [Slot(Card(rank, suit), True)
+                for rank, suit in [(13, 'H'), (13, 'S'), (13, 'C'), (12, 'D'), (12, 'H'), (12, 'S')]
+            ]
+        self.assertFalse(self.app.effects_rect.colliderect(self.app.prompt_rect))
+        self.assertTrue(all(not rect.colliderect(self.app.prompt_rect) for rect in self.app.buttons.values()))
+        self.app.screen.fill(self.app.bg)
+        before = pygame.image.tobytes(self.app.screen.subsurface(self.app.prompt_rect), "RGB")
+        self.app.draw_effects()
+        after = pygame.image.tobytes(self.app.screen.subsurface(self.app.prompt_rect), "RGB")
+        self.assertEqual(before, after)
+        self.assertGreater(len(self.app.effects_lines()) * 20, self.app.effects_rect.height)
+        self.app.scroll_effects(-50)
+        self.assertGreater(self.app.effects_scroll, 0)
+        self.app.scroll_effects(50)
+        self.assertEqual(self.app.effects_scroll, 0)
 
     def test_flip_draw_swap_targets_only_newly_revealed_card(self):
         self.opening()

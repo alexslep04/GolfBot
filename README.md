@@ -21,7 +21,7 @@ Choose optional rules in the **Rules in play** sidebar before your second openin
 The four main actions are **Flip**, **Swap**, **Draw**, and **Discard**. Click a card to select or unselect it. Buttons are enabled only when their action is legal.
 
 - **Flip:** reveal a selected hidden card of your own. You can do this before or after drawing. Selecting the draw pile and pressing Flip also reveals a draw, equivalent to Draw.
-- **Swap:** select one own card. It takes your drawn card if you have one, otherwise the top discard. After flipping your own card, only that newly flipped card may be replaced. Otherwise any own card may be replaced, including a hidden card.
+- **Swap:** select one own card. It takes your drawn card if you have one, otherwise the top discard. After drawing first, choose an already face-up card or flip a hidden card before replacing it. After flipping, only that newly flipped card may be replaced. A direct swap from the discard pile may replace any own card.
 - **Draw:** reveal the top deck card and hold it for your decision, before or after flipping your own card. You cannot draw twice in one turn.
 - **Discard:** discard your held draw and end the normal part of your turn. You can do this immediately after drawing as your first action, keeping all six layout cards and their visibility unchanged, or after flipping one of your own cards, keeping that revealed card in place.
 
@@ -36,6 +36,8 @@ For an enabled Queen-Queen or Jack-Jack bonus, select **two** table cards and pr
 [RULES.md](RULES.md) is the single source of truth for the rules, including turn paths, selectable rules, and interaction conventions. All optional rules start disabled, and the panel shows their state throughout the round.
 
 Selectable rules include Queen-Queen and Jack-Jack bonus swaps, 666 locks, 777 division, King-Queen scoring, Hold 'em, V10, Tricky straights, The ripped 5, Roman 5s, Beggars Will be Choosers, and 4 of a Kind. Both V orientations count. See RULES.md for stacking, rounding, and information conventions. Earlier rule documents remain recoverable in Git history.
+
+Active effects have a separate scrollable sidebar panel. Each effect shows its value, including individual row and column adjustments. Its provisional total applies only effects proven by visible cards; hidden cards are excluded. Hold 'em now gives one -5 bonus for any qualifying hand, and The ripped 5 cancels a diamond 5 and one unmatched 5 in the opposite row.
 
 ## Development
 

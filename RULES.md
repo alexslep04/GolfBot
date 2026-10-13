@@ -1,116 +1,150 @@
-# Rules implemented in GolfBot
+# Golf rules
 
-## Deck and opening
+The single source of truth for this 52-card game. Optional rules are selected before the second opening flip and stay fixed for the round. Hover help reads the short marked descriptions below.
 
-Use a shuffled 52-card deck without physical jokers. Each player receives six face-down cards in two rows of three. The remainder is the face-down draw pile; its top card starts the face-up discard pile. Each player reveals any two of their own cards. The dealer plays first and turns alternate.
+## Base version
 
-## Turn paths
+**Terms:** each player has a **6-card hand**. Drawing from the **go-fish pile** is called **going fish**. Discards go face up onto the top of the **discard pile**.
 
-There are three ways to begin a turn. All discarded cards go face up onto the top of the discard pile; all normal replacements enter the layout face up. Players cannot inspect hidden cards beforehand.
+**Start:** shuffle 52 cards. Deal each player six face-down cards in two rows of three. The rest form the go-fish pile; flip its top card to start the discard pile. Each player reveals any two of their own cards. The dealer plays first; turns alternate.
 
-### 1. Flip one of your own hidden cards
+### 1. Flip one of your hidden cards
 
-- **1.1:** End your turn, leaving the card face up.
-- **1.2:** Swap that newly revealed card with the top discard, then end your turn.
-- **1.3:** Reveal the top draw-pile card, then:
-  - **1.3.1:** Discard the drawn card and keep the revealed layout card, ending your turn.
-  - **1.3.2:** Replace the newly revealed layout card with the drawn card and discard the replaced card, ending your turn.
+- **1.1:** Swap the revealed card with the top discard; end the turn.
+- **1.2:** Keep the revealed card and end the turn.
+- **1.3:** Go fish, then either replace the revealed card with the draw or discard the draw and keep the revealed card. End the turn.
 
-### 2. Draw and reveal the top draw-pile card
+### 2. Go fish first
 
-- **2.1:** Replace any one of your own six cards with the draw, discarding the replaced card and ending your turn. The target can be face up or face down.
-- **2.2:** Reveal one of your own hidden cards, then:
-  - **2.2.1:** Discard that revealed layout card and replace it with your draw, ending your turn.
-  - **2.2.2:** Discard your draw and keep the revealed layout card in place, ending your turn.
-- **2.3:** Discard the drawn card immediately without revealing or replacing any layout card, ending your turn.
+- **2.1:** Swap the draw with a card already face up in your hand; discard the replaced card and end the turn.
+- **2.2:** Reveal one hidden card, then either replace that card with the draw or discard the draw and keep the revealed card. End the turn.
+- **2.3:** Discard the draw immediately and end the turn, leaving your hand unchanged.
 
-After path 2.2, only the card just revealed can be replaced. The two cards do not leave an empty position in the layout. Drawing alone does not end a turn. Discarding that draw ends the normal part of the turn immediately and leaves all layout cards as they are, followed by any earned bonus swaps.
+Path 2.1 follows the author's clarification: the swap uses the go-fish card, not the discard pile. Path 2.3 retains the previously approved immediate-discard option.
 
-### 3. Take the top discard
+### 3. Swap with the discard pile first
 
-Swap the top discard with any one of your own six cards, including a hidden card. Discard the replaced card and end your turn.
+Replace any one of your cards with the top discard, discard the replaced card, and end the turn.
+
+Normal replacements enter face up. After flipping a card during a turn, only that newly revealed card may be replaced. A swap, discard, or End turn completes the normal action; resolve earned bonus swaps afterward. Drawing alone does not end a turn.
 
 ## Ending and scoring
 
-Once either player has all six cards face up, their opponent receives exactly one final turn after the current player completes all decisions and bonus swaps. If a bonus reveals the non-acting player's sixth card, the acting player gets a new, complete final turn after finishing the current turn. A bonus that introduces another hidden card cannot cancel an already-triggered ending. At the end of the final turn, including its bonus swaps, reveal remaining hidden cards for scoring. These final scoring reveals do not activate new abilities. A tie is a draw.
+When either player has all six cards face up, finish the current turn and its bonuses, then give the other player one final turn. An already-triggered ending cannot be canceled. If a bonus reveals the non-acting player's sixth card, the acting player receives a fresh final turn. Finally reveal all hidden cards and score; these scoring reveals do not activate abilities. Lowest score wins; equal scores tie.
 
-Two cards of the same rank in a column score zero, regardless of suit. Otherwise sum their points: Ace = 1; 2 = -2; 3 through 10 = rank; Jack and Queen = 10; King = 0. Pair cancellation is temporary and stops when the pair is broken.
+| Card | Points |
+| --- | ---: |
+| Ace | 1 |
+| 2 | -2 |
+| 3–10 | Rank |
+| Jack, Queen | 10 |
+| King | 0 |
 
-When the draw pile is empty, shuffle the discard pile except for its current top card to replenish it. Visible subtotals omit hidden cards and final-score division.
+Two cards of the same rank in a column score zero, regardless of suit. Breaking the pair restores their normal points. Empty go-fish piles are refilled by shuffling the discards except the current top card. Round every division upward, including negative scores.
 
 ## Selectable rules
-
-All optional rules start disabled. Select them during the opening reveal, before the second human opening card is flipped. Rule choices are shared by both players, fixed during a round, and carried into New game.
 
 ### Queen-Queen and Jack-Jack bonus swaps
 <!-- rule: queen_swap, jack_swap -->
 
-These are independently selectable Joker substitutes for the 52-card deck. An enabled same-rank pair in a column grants a bonus swap at the end of its owner's normal turn, provided both cards are visible.
+A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end, including either hand and both pile tops. Overrides locks. Each physical pair triggers once per round; different pairs can earn separate swaps.
 
-For this implementation, each physical pair grants its bonus **once per round**, across both players. Keeping, breaking, moving, or rebuilding that same pair cannot repeatedly earn it. Multiple eligible pairs grant separate bonus swaps; forming a different unused pair during a bonus can earn another. These conventions complete the unspecified repeated-trigger behavior in the supplied rules.
-
-For each bonus, swap any two distinct existing table cards: either player's layout, the top discard, or the top draw-pile card. An empty pile has no top card to select. The bonus overrides 666 locks. No hidden card is inspected before selecting it.
-
-Visibility follows the incoming card into a layout. Thus a face-down layout or draw-pile card stays face down when moved into a layout; a visible card stays visible. Draw-pile cards are always displayed face down and discard-pile cards face up. Previously observed identities can still be remembered.
-
-### 666: Devil's Row
+### Devil's Row (666)
 <!-- rule: devils_row -->
 
-Three visible 6s in one row lock those three physical cards for the rest of the round. A normal swap cannot replace a locked card. A bonus swap can move it; its existing lock follows it and remains even after the row breaks. Hidden rows do not activate locks.
+Three visible 6s in a row lock those cards for the round. Only a bonus swap may move them; the locks remain.
 
-### 777: Gambler's Row
+### Gambler's Row (777)
 <!-- rule: gamblers_row -->
 
-Three visible 7s in one row earn final-score division by 7, rounded upward. Earn it once per player per round; it persists after the row is broken. Apply it after column scoring. Dice variations are not used in this 52-card prototype.
+Three visible 7s in a row earn final score /7, rounded up. Earn once per player; the benefit remains if the row breaks.
 
-### King-Queen column
+### King-Queen Column
 <!-- rule: king_queen -->
 
-A King and Queen in a column score 5 together when their suits share a color, or 15 when their suits have different colors. Hearts and diamonds are red; clubs and spades are black. Visible subtotals apply this only when both cards are visible; final scoring applies it to the fully revealed layout.
+A King-Queen column scores 5 if the suits share a color, or 15 if their colors differ.
 
 ### Hold 'em
 <!-- rule: holdem -->
 
-Check every five-card subset of the six-card layout. A flush (five cards of the same suit) subtracts 2 points; a straight (five distinct consecutive ranks) subtracts 2; a full house (three of one rank and two of a different rank) subtracts 5; four of a kind subtracts 5; a royal flush (same-suit 10, Jack, Queen, King, Ace) subtracts 10. Aces can be low in A-2-3-4-5 or high in 10-J-Q-K-A; straights cannot wrap around. Each qualifying category applies once and categories stack, so a royal flush earns a total reduction of 14. Six matching-suit cards do not earn multiple flush reductions. Visible subtotals include a bonus only if enough visible cards prove it; the final score checks all six cards.
+A five-card flush, straight, full house, or four of a kind subtracts 5 points. Apply once, even with multiple qualifying combinations. Aces may be low or high; straights do not wrap.
 
 ### V10
 <!-- rule: v10 -->
 
-A Queen, Jack, and 10 in any order occupying a V divide the final score by 5, rounding upward. Both V orientations count: top-left + bottom-middle + top-right, or bottom-left + top-middle + bottom-right. This modifier applies once even when both orientations qualify. Evaluate the final layout; revealing or breaking a V earlier does not permanently earn the effect.
+A Queen, Jack, and 10 in any order forming either V divide the final score by 5, rounded up. Apply once.
 
 ### Tricky straights
 <!-- rule: tricky_straights -->
 
-Three consecutive ranks in ascending order from left to right in a row add the rightmost card's Golf point value to the score. Descending order subtracts that value. Evaluate each row separately. Aces can be low or high, but sequences cannot wrap around; Q-K-A and A-K-Q count, K-A-2 does not. Ranks determine the sequence (Jack = 11, Queen = 12, King = 13); ordinary Golf points determine the adjustment (2 = -2, King = 0, Ace = 1). Visible subtotals include a row only when all three cards are visible.
+A row of ascending consecutive ranks adds the rightmost card's points. Descending ranks subtract its points. Each row counts separately; Aces may be low or high.
 
 ### The ripped 5
 <!-- rule: ripped_five -->
 
-A 5 of diamonds and at least one other 5 anywhere in the layout subtract 5 points. Apply this once per player, even with three or four 5s. The final layout determines the effect; both required cards must be visible to include it in a visible subtotal.
+A 5 of diamonds and one other 5 in the opposite row cancel to zero, even in different columns. Use each card only once; ordinary column pairs cancel first.
 
 ### Roman 5s
 <!-- rule: roman_fives -->
 
-Three cards whose Golf points sum to 10 occupying either V orientation divide the final score by 3, rounding upward. For example, 6 + Ace (1) + 3 qualifies. Use Golf points, including 2 = -2 and King = 0. Both top-left + bottom-middle + top-right and bottom-left + top-middle + bottom-right count. Apply the modifier once, even if both Vs qualify. Evaluate the final layout. This is separate from V10 and can stack with it.
+A V whose cards total 10 points divides the final score by 3, rounded up. Either V orientation counts. Apply once.
 
 ### Beggars Will be Choosers
 <!-- rule: beggars -->
 
-Before a player flips a chosen hidden layout card during a normal turn, compare each player's highest visible Golf point value. If one player has a strictly higher value and is the opponent of the player flipping, they may guess the selected card's rank (Ace through King) or pass. Equal highest values grant neither player a guess. The chosen card stays hidden until the guess is submitted. A correct rank guess reveals the card, then the guesser selects one of their highest-value visible cards and one of the opponent's lowest-value visible cards to trade. The newly revealed card is included when finding the opponent's lowest value. Tied eligible cards are chosen by the guesser. Normal 666 locks apply; if no legal highest/lowest trade is possible, the reveal continues without a trade. Wrong guesses and passes simply continue the reveal. The trade does not consume the acting player's turn; they continue their original flip-first or draw-first path. Initial opening reveals and final scoring reveals do not prompt guesses. The bot guesses without accessing the hidden card.
+The player with the highest visible card value may guess an opponent's chosen hidden card before it flips. A correct rank guess trades their highest visible card for the opponent's lowest visible card. Tied highest values give no guess; tied trade choices belong to the guesser. Locks apply.
 
 ### 4 of a Kind
 <!-- rule: four_kind -->
 
-When four cards of the same rank are visible anywhere in a player's layout, immediately offer that player the choice to put those four cards into any two selected columns or to keep the layout. The two remaining cards fill the unused column and retain their visibility. The choice applies once per rank per player per round. A reveal, normal replacement, or bonus swap can trigger the offer, but final scoring reveals cannot. Rearrangement does not itself end the acting player's turn. After rearranging a newly revealed card, that same physical card remains the only legal replacement target for the flip-first or draw-then-flip path. This ability cannot move any 666-locked card; column choices that would do so are unavailable. The Hold 'em four-of-a-kind score reduction is a separate selectable rule.
+Four visible cards of one rank may immediately be moved into any two columns, or left in place. Offer once per rank per player. Preserve hidden cards and locks; resume the turn afterward.
 
-## Combined scoring
+## Shared conventions
 
-First score the columns, including same-rank cancellation and optional King-Queen scoring. Then add the Tricky straights adjustments and subtract qualifying Hold 'em and ripped-5 reductions. Finally apply earned 777 division, Roman 5s, and V10. Every division rounds upward; applying these positive integer divisors successively is equivalent to dividing by their product and rounding upward once. Modifiers can produce negative final scores. Column cancellation does not erase a card's rank or suit for other patterns. Visible subtotals include provable additive adjustments, but omit hidden-card effects and all final-score divisions.
+- Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
+- Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Then apply Tricky straights and the single Hold 'em reduction. Finally apply earned 777, Roman 5s, and V10 divisions. Modifiers may produce negative scores.
+- Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
+- A ripped-5 cross-row pair uses the first unmatched opposite-row 5 from left to right. No card can be canceled twice.
+- Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.
+- Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips and final scoring reveals do not activate interactive abilities.
+- A bonus swap carries visibility into a hand; the go-fish pile stays face down and the discard pile face up. Unused pairs created by a bonus may earn another bonus. Empty piles have no card to select.
+- Roman 5s keeps the approved **V total of 10** interpretation from the merged game, rather than three cards each worth 10.
 
-## Hover help and draft ideas
+## Revised draft rules — not selectable yet
 
-Every selectable rule has a question-mark icon. Its hover explanation is read directly from the marked rule section of this document, so RULES.md remains the only authoritative rules document.
+### Joker Swap (54-card version)
 
-Two conventions used on the features branch remain open to feedback: stacking Hold 'em categories once each, and using visible Golf point values plus rank-only guesses for Beggars. Both V orientations were explicitly confirmed by the author.
+A joker grants one swap of any two table cards, overriding locks. Resolve the swap, then continue a normal turn. A dealt joker is removed from the game and replaced from either pile before resolving its swap. This prototype uses 52 cards and the Queen/Jack substitutes instead.
 
-Undeveloped ideas remain drafts: **Suited Rows** makes three cards of one suit in a row each worth the second-largest card's value; **Colorblind** begins with a hand containing all four suits but has no defined effect; a **single immovable card** has no specified trigger. Physical-joker and dice variations are outside this 52-card game. These unfinished drafts are not selectable.
+### UNO
+
+When a hand totals 1, opponents can call Uno to skip its owner's next turn. Calling Uno first protects the owner.
+
+### Go Fish side hand
+
+Deal each player four additional cards they may inspect. Before a turn, ask for a specific opponent side-hand card. If present, exchange it for a side-hand card of your choice; the trade consumes the turn. Otherwise play normally. A normal swap may exchange a main-hand card with a side-hand card.
+
+### Black Out
+
+Each card may be inspected once and marked as seen; showing it to opponents is optional. Claiming an ability reveals its cards for the round. Incorrect claims have no specified penalty. Reveal everything for final scoring.
+
+### Socialism
+
+After dealing the next round, the previous worst-scoring player may swap one of their two revealed cards with one of the previous best-scoring opponent's two revealed cards.
+
+### Field Goal
+
+A player finishing within 3 points of an opponent may try a paper-football field goal from 3 ft. Success changes their score to the opponent's, creating a tie.
+
+### Suited Rows
+
+Three cards of one suit in a row each take the middle card's face value.
+
+### Gambler's Row dice variants
+
+After 777, one die subtracts twice its result; two dice subtract their sum. Dice are not used in the prototype.
+
+### Unfinished ideas
+
+Colorblind starts with a hand containing all four suits, but its effect is unspecified. Other ideas include a single immovable card, turning cards face down again, and inspecting an opponent's hidden card.

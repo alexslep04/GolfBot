@@ -4,7 +4,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 from game import GolfGame, RULE_OPTIONS
 from rule_help import load_rule_help
-from scoring import active_rule_effects
+from scoring import active_rule_effects, visible_effect_total
 
 
 class GolfUI:
@@ -42,6 +42,9 @@ class GolfUI:
         self.pass_rect = pygame.Rect(458, 510, 164, 40)
         self.arrange_rects = {columns: pygame.Rect(292 + i * 170, 391, 155, 45)
                               for i, columns in enumerate(((0, 1), (0, 2), (1, 2)))}
+        self.effects_rect = pygame.Rect(724, 516, 305, 140)
+        self.prompt_rect = pygame.Rect(30, 704, 826, 38)
+        self.effects_scroll = 0
 
     def viewport(self):
         width, height = self.window.get_size()
@@ -150,6 +153,7 @@ class GolfUI:
             self.game = GolfGame(rules=game.rules)
             self.opponent_due = None
             self.selected = []
+            self.effects_scroll = 0
         elif name == "End turn":
             game.end_turn()
             self.selected = []
@@ -226,6 +230,49 @@ class GolfUI:
     def tooltip_key(self, pos):
         return next((key for key, rect in self.help_rects.items() if rect.collidepoint(pos)), None)
 
+    def effects_lines(self):
+        lines = []
+        game = self.game
+        for player, label in ((0, "You"), (1, "Opponent")):
+            value = game.score(player) if game.phase == "over" else visible_effect_total(game.players[player], game.rules, game.gambler_earned[player])
+            lines.append((f"{label}: {'final' if game.phase == 'over' else 'visible with effects'} {value}", self.green if player == 0 else self.white))
+            effects = active_rule_effects(game.players[player], game.rules, game.gambler_earned[player], game.locked_cards)
+            for effect in effects or ["None"]:
+                line = ""
+                for word in effect.split():
+                    candidate = (line + " " + word).strip()
+                    if self.fonts[14].size(candidate)[0] > self.effects_rect.width - 12 and line:
+                        lines.append((line, self.gold if effects else self.muted))
+                        line = word
+                    else:
+                        line = candidate
+                lines.append((line, self.gold if effects else self.muted))
+            lines.append(("", self.muted))
+        return lines
+
+    def scroll_effects(self, steps):
+        maximum = max(0, len(self.effects_lines()) * 20 - self.effects_rect.height)
+        self.effects_scroll = max(0, min(maximum, self.effects_scroll - steps * 40))
+
+    def draw_effects(self):
+        self.text("Active effects", 728, 484, 20, self.gold)
+        lines = self.effects_lines()
+        maximum = max(0, len(lines) * 20 - self.effects_rect.height)
+        self.effects_scroll = min(self.effects_scroll, maximum)
+        if maximum:
+            self.text("Scroll for more", 944, 488, 14, self.muted)
+        previous_clip = self.screen.get_clip()
+        self.screen.set_clip(self.effects_rect)
+        for i, (line, color) in enumerate(lines):
+            self.text(line, self.effects_rect.x, self.effects_rect.y + i * 20 - self.effects_scroll, 14, color)
+        self.screen.set_clip(previous_clip)
+        if maximum:
+            track = pygame.Rect(1035, self.effects_rect.y, 4, self.effects_rect.height)
+            pygame.draw.rect(self.screen, (43, 75, 58), track, border_radius=2)
+            thumb_height = max(20, track.height * track.height // (len(lines) * 20))
+            thumb_y = track.y + round((track.height - thumb_height) * self.effects_scroll / maximum)
+            pygame.draw.rect(self.screen, self.gold, (track.x, thumb_y, 4, thumb_height), border_radius=2)
+
     def draw_tooltip(self, key):
         title, body = self.rule_help[key]
         lines, line = [], ""
@@ -288,7 +335,7 @@ class GolfUI:
                if game.phase == "bonus" and game.current == 0 else
                "Select your card and Swap to take the discard. Draw reveals a card before you decide.")
         self.wrap(tip, 52, 174, 207, color=self.gold if game.phase == "bonus" and game.current == 0 else self.muted)
-        self.text("Draw pile", 53, 309, 16, self.muted)
+        self.text("Go-fish pile", 53, 309, 16, self.muted)
         self.text("Discard", 165, 309, 16, self.muted)
         bonus = game.current == 0 and game.phase == "bonus"
         self.card(self.deck_rect, picked=("draw", None) in self.selected, eligible=bonus and bool(game.draw_pile))
@@ -311,11 +358,9 @@ class GolfUI:
                       bonus or ref in trade_targets or (player == 0 and index in targets),
                       slot.visible and slot.card in game.locked_cards)
         for player, y in ((1, 352), (0, 682)):
-            effects = active_rule_effects(game.players[player], game.rules, game.gambler_earned[player], game.locked_cards)
             score = game.score(player, game.phase != "over")
             label = "Score" if game.phase == "over" else "Visible"
             self.text(f"{label}: {score}", 349, y, 14)
-            self.wrap("Effects: " + (", ".join(effects) if effects else "None"), 349, y + 19, 326, 14, self.gold)
         self.text("Rules in play", 728, 100, 20, self.gold)
         self.text("Choose before your second opening flip." if game.phase == "setup" else "New game to change rules.", 728, 128, 14, self.muted)
         for key, label in RULE_OPTIONS:
@@ -333,20 +378,12 @@ class GolfUI:
             pygame.draw.circle(self.screen, self.muted, help_rect.center, 9, 1)
             self.text("?", help_rect.x + 7, help_rect.y, 14, self.gold)
         self.text("Hover over ? for the rule explanation.", 728, 431, 14, self.muted)
-        heading = "Opening reveal" if game.phase == "setup" else "Bonus swap" if game.phase == "bonus" else "Round over" if game.phase == "over" else "Your turn" if game.current == 0 else "Opponent's turn"
-        if game.phase in ("guess", "guess_trade", "arrange"):
-            heading = "Your rule decision" if game.decision_player == 0 else "Opponent's rule decision"
-        elif game.is_final_turn:
-            heading = "Your final turn" if game.current == 0 else "Opponent's final turn"
-        self.text(heading, 728, 484, 20, self.green if game.decision_player == 0 else self.gold)
-        self.wrap(game.message, 728, 517, 292, 14, self.white)
-        if game.phase == "over":
-            self.text(f"You: {game.score(0)}   Opponent: {game.score(1)}", 728, 592, 20)
-        else:
-            self.text("Visible only (not final scores):", 728, 587, 14, self.muted)
-            self.text(f"You: {game.score(0, True)}   Opponent: {game.score(1, True)}", 728, 607, 18)
-        self.wrap(game.last_move, 728, 646, 292, 14)
-        self.text(game.message, 30, 705, 16)
+        self.draw_effects()
+        # The turn prompt has its own horizontal strip, outside every effects box.
+        previous_clip = self.screen.get_clip()
+        self.screen.set_clip(self.prompt_rect)
+        self.wrap(game.message, self.prompt_rect.x, self.prompt_rect.y, self.prompt_rect.width, 16, self.white)
+        self.screen.set_clip(previous_clip)
         if self.available("End turn"):
             self.button("End turn  [Enter]", self.end_rect)
         for name, rect in self.buttons.items():
@@ -382,6 +419,8 @@ def run(screenshot=None, engine=None):
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if app.viewport().collidepoint(event.pos):
                     app.click(app.table_position(event.pos))
+            elif event.type == pygame.MOUSEWHEEL and app.effects_rect.collidepoint(app.mouse_position()):
+                app.scroll_effects(event.y)
         game = app.game
         if game.decision_player == 1 and game.phase not in ("setup", "over"):
             if app.opponent_due is None:

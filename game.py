@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 from collections import Counter
 import random
-from scoring import score_adjustments
+from scoring import score_adjustments, column_score
 
 
 @dataclass(frozen=True)
@@ -100,19 +100,7 @@ class GolfGame:
         return sum(slot.visible for slot in self.players[player])
 
     def score(self, player, visible_only=False):
-        total = 0
-        for column in range(3):
-            pair = [self.players[player][column], self.players[player][column + 3]]
-            if visible_only:
-                pair = [slot for slot in pair if slot.visible]
-            if len(pair) == 2:
-                first, second = (slot.card for slot in pair)
-                if first.rank == second.rank:
-                    continue
-                if self.rules.king_queen and {first.rank, second.rank} == {12, 13}:
-                    total += 5 if first.red == second.red else 15
-                    continue
-            total += sum(slot.card.points for slot in pair)
+        total = column_score(self.players[player], self.rules, visible_only)
         adjustment, divisor = score_adjustments(self.players[player], self.rules, visible_only)
         total += adjustment
         if not visible_only:
@@ -317,11 +305,13 @@ class GolfGame:
         self.phase = "drawn_revealed" if self.flipped is not None else "drawn"
         self.message = ("Swap the revealed card with your draw, or Discard the draw."
                         if self.flipped is not None else
-                        "Swap your draw with any own card, Flip a hidden card, or Discard.")
+                        "Swap your draw with a face-up card, Flip a hidden card, or Discard.")
 
     def targets(self):
-        if self.phase in ("choose", "drawn"):
+        if self.phase == "choose":
             indexes = range(6)
+        elif self.phase == "drawn":
+            indexes = [i for i, slot in enumerate(self.players[self.current]) if slot.visible]
         elif self.phase in ("revealed", "drawn_revealed"):
             indexes = [self.flipped]
         else:
