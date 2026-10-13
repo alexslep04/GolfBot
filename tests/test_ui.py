@@ -148,6 +148,56 @@ class MouseFlowTests(unittest.TestCase):
         self.assertEqual(engine.visible_count(0), 6)
         self.assertEqual(engine.visible_count(1), 6)
 
+    def test_question_mark_hover_explains_each_rule_without_toggling(self):
+        for key, rect in self.app.help_rects.items():
+            self.assertEqual(self.app.tooltip_key(rect.center), key)
+            self.assertIn(key, self.app.rule_help)
+            self.app.click(rect.center)
+            self.assertFalse(getattr(self.engine.rules, key))
+        with patch.object(pygame.mouse, "get_pos", return_value=self.app.help_rects["holdem"].center), \
+             patch.object(self.app, "draw_tooltip", wraps=self.app.draw_tooltip) as tooltip:
+            self.app.render()
+            tooltip.assert_called_once_with("holdem")
+
+    def test_four_kind_popup_choice_rearranges_and_resumes_flip(self):
+        self.engine.set_rule("four_kind", True)
+        self.opening()
+        place_cards(self.engine, 0, {0: Card(9, "S"), 1: Card(9, "H"), 2: Card(9, "D"), 4: Card(9, "C")})
+        self.engine.players[0][2].visible = True
+        self.card(0, 4)
+        self.press("Flip")
+        self.assertEqual(self.engine.phase, "arrange")
+        self.assertFalse(self.app.available("Draw"))
+        self.app.render()
+        self.app.click(self.app.arrange_rects[(0, 2)].center)
+        self.assertEqual(self.engine.phase, "revealed")
+        self.assertEqual(self.engine.players[0][self.engine.flipped].card, Card(9, "C"))
+        for index in (0, 3, 2, 5):
+            self.assertEqual(self.engine.players[0][index].card.rank, 9)
+
+    def test_beggars_rank_popup_and_highest_lowest_trade(self):
+        self.engine.set_rule("beggars", True)
+        self.opening()
+        place_cards(self.engine, 0, {0: Card(12, "S"), 1: Card(11, "S")})
+        place_cards(self.engine, 1, {0: Card(8, "H"), 1: Card(6, "H"), 4: Card(3, "H")})
+        for index, slot in enumerate(self.engine.players[1]):
+            slot.visible = index in (0, 1)
+        self.engine.current = 1
+        self.engine.reveal(4)
+        self.assertEqual(self.engine.phase, "guess")
+        self.assertFalse(self.engine.players[1][4].visible)
+        self.app.render()
+        self.app.click(self.app.guess_rects[3].center)
+        self.assertEqual(self.engine.phase, "guess_trade")
+        self.card(0, 1)
+        self.card(1, 4)
+        self.assertTrue(self.app.available("Swap"))
+        self.press("Swap")
+        self.assertEqual(self.engine.phase, "revealed")
+        self.assertEqual(self.engine.players[0][1].card, Card(3, "H"))
+        self.assertEqual(self.engine.players[1][4].card, Card(11, "S"))
+        self.assertEqual(self.engine.current, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

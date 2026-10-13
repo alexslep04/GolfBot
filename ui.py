@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 from game import GolfGame, RULE_OPTIONS
+from rule_help import load_rule_help
 
 
 class GolfUI:
@@ -29,8 +30,16 @@ class GolfUI:
                         for i, name in enumerate(("Flip", "Swap", "Draw", "Discard"))}
         self.new_rect = pygame.Rect(894, 20, 156, 38)
         self.end_rect = pygame.Rect(884, 696, 166, 32)
-        self.rule_rects = {key: pygame.Rect(724, 147 + i * 43, 300, 36)
+        self.rule_rects = {key: pygame.Rect(724, 147 + i * 23, 300, 22)
                            for i, (key, _) in enumerate(RULE_OPTIONS)}
+        self.help_rects = {key: pygame.Rect(1008, rect.y + 1, 22, 21) for key, rect in self.rule_rects.items()}
+        self.rule_help = load_rule_help()
+        self.modal_rect = pygame.Rect(265, 224, 550, 385)
+        self.guess_rects = {rank: pygame.Rect(292 + (rank - 1) % 7 * 69, 374 + (rank - 1) // 7 * 54, 59, 43)
+                            for rank in range(1, 14)}
+        self.pass_rect = pygame.Rect(458, 510, 164, 40)
+        self.arrange_rects = {columns: pygame.Rect(292 + i * 170, 391, 155, 45)
+                              for i, columns in enumerate(((0, 1), (0, 2), (1, 2)))}
 
     def text(self, value, x, y, size=18, color=None):
         self.screen.blit(self.fonts[size].render(value, True, color or self.white), (x, y))
@@ -84,7 +93,7 @@ class GolfUI:
         game = self.game
         if name == "New game":
             return True
-        if game.current != 0 or game.phase == "over":
+        if game.decision_player != 0 or game.phase == "over":
             return False
         if name == "End turn":
             return game.phase == "revealed"
@@ -98,6 +107,11 @@ class GolfUI:
             return (game.phase in ("setup", "choose", "drawn") and self.selected_own()
                     and not game.players[0][self.selected[0][1]].visible)
         if name == "Swap":
+            if game.phase == "guess_trade":
+                own, other = game.guess_trade_targets()
+                return (len(self.selected) == 2 and
+                        ((self.selected[0] in own and self.selected[1] in other) or
+                         (self.selected[1] in own and self.selected[0] in other)))
             if game.phase == "bonus":
                 return len(self.selected) == 2 and all(ref in game.table_refs() for ref in self.selected)
             return self.selected_own() and self.selected[0][1] in game.targets()
@@ -106,7 +120,7 @@ class GolfUI:
     def select(self, ref):
         if ref in self.selected:
             self.selected.remove(ref)
-        elif self.game.phase == "bonus" and self.game.current == 0:
+        elif self.game.phase in ("bonus", "guess_trade") and self.game.decision_player == 0:
             if ref in self.game.table_refs():
                 self.selected = (self.selected + [ref])[-2:]
         else:
@@ -133,7 +147,9 @@ class GolfUI:
             game.draw()
             self.selected = []
         elif name == "Swap":
-            if game.phase == "bonus":
+            if game.phase == "guess_trade":
+                game.guess_trade(*self.selected)
+            elif game.phase == "bonus":
                 game.bonus_swap(*self.selected)
             else:
                 game.swap(self.selected[0][1])
@@ -143,6 +159,27 @@ class GolfUI:
             self.selected = []
 
     def click(self, pos):
+        game = self.game
+        if game.decision_player == 0 and game.phase in ("guess", "arrange"):
+            if self.pass_rect.collidepoint(pos):
+                game.submit_guess() if game.phase == "guess" else game.arrange_four()
+                self.selected = []
+                return
+            if game.phase == "guess":
+                for rank, rect in self.guess_rects.items():
+                    if rect.collidepoint(pos):
+                        game.submit_guess(rank)
+                        self.selected = []
+                        return
+            else:
+                for columns, rect in self.arrange_rects.items():
+                    if rect.collidepoint(pos) and game.arrangement_plan(game.arrange_pending["player"], game.arrange_pending["rank"], columns):
+                        game.arrange_four(columns)
+                        self.selected = []
+                        return
+            return
+        if any(rect.collidepoint(pos) for rect in self.help_rects.values()):
+            return
         for key, rect in self.rule_rects.items():
             if rect.collidepoint(pos):
                 if self.game.phase == "setup":
@@ -170,6 +207,54 @@ class GolfUI:
         text = self.fonts[16].render(label, True, self.white if enabled else (101, 127, 113))
         self.screen.blit(text, text.get_rect(center=rect.center))
 
+    def tooltip_key(self, pos):
+        return next((key for key, rect in self.help_rects.items() if rect.collidepoint(pos)), None)
+
+    def draw_tooltip(self, key):
+        title, body = self.rule_help[key]
+        lines, line = [], ""
+        for word in body.split():
+            candidate = (line + " " + word).strip()
+            if self.fonts[14].size(candidate)[0] > 396 and line:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        lines.append(line)
+        height = 58 + 20 * len(lines)
+        mouse = pygame.mouse.get_pos()
+        rect = pygame.Rect(max(12, mouse[0] - 434), min(mouse[1] + 15, 836 - height), 428, height)
+        pygame.draw.rect(self.screen, (9, 29, 24), rect.move(4, 4), border_radius=10)
+        pygame.draw.rect(self.screen, (39, 69, 54), rect, border_radius=10)
+        pygame.draw.rect(self.screen, self.gold, rect, 1, border_radius=10)
+        self.text(title, rect.x + 15, rect.y + 12, 16, self.gold)
+        for i, line in enumerate(lines):
+            self.text(line, rect.x + 15, rect.y + 42 + i * 20, 14)
+
+    def draw_modal(self):
+        game = self.game
+        veil = pygame.Surface((1080, 850), pygame.SRCALPHA)
+        veil.fill((0, 0, 0, 155))
+        self.screen.blit(veil, (0, 0))
+        pygame.draw.rect(self.screen, (29, 61, 48), self.modal_rect, border_radius=15)
+        pygame.draw.rect(self.screen, self.gold, self.modal_rect, 1, border_radius=15)
+        if game.phase == "guess":
+            self.text("Beggars Will be Choosers", 292, 251, 24, self.gold)
+            target = game.guess_pending["target"]
+            self.wrap(f"Guess the rank of the opponent's selected card: row {target // 3 + 1}, column {target % 3 + 1}. It is still face down.", 292, 298, 492, 18)
+            for rank, rect in self.guess_rects.items():
+                label = {1: "A", 11: "J", 12: "Q", 13: "K"}.get(rank, str(rank))
+                self.button(label, rect)
+            self.button("Pass", self.pass_rect)
+        else:
+            self.text("4 of a Kind", 292, 251, 24, self.gold)
+            self.wrap("Choose two columns for the four matching cards. Other cards move into the remaining column; hidden cards stay hidden. You can keep your current layout.", 292, 298, 492, 18)
+            pending = game.arrange_pending
+            for columns, rect in self.arrange_rects.items():
+                allowed = game.arrangement_plan(pending["player"], pending["rank"], columns) is not None
+                self.button(f"Columns {columns[0] + 1} + {columns[1] + 1}", rect, allowed)
+            self.button("Keep layout", self.pass_rect)
+
     def render(self):
         game = self.game
         self.screen.fill(self.bg)
@@ -177,11 +262,13 @@ class GolfUI:
         self.text("52 cards  /  lowest score wins", 140, 30, 16, self.muted)
         self.button("New game", self.new_rect)
         pygame.draw.rect(self.screen, self.panel, (30, 83, 250, 595), border_radius=16)
-        pygame.draw.rect(self.screen, self.panel, (704, 83, 346, 311), border_radius=16)
-        pygame.draw.rect(self.screen, self.panel, (704, 410, 346, 268), border_radius=16)
+        pygame.draw.rect(self.screen, self.panel, (704, 83, 346, 373), border_radius=16)
+        pygame.draw.rect(self.screen, self.panel, (704, 469, 346, 209), border_radius=16)
         self.text("THE TABLE", 52, 105, 16, self.gold)
         self.text("Two rows. Three columns.", 52, 139, 16)
-        tip = ("BONUS: select two cards anywhere, including either player's layout and both pile tops, then Swap."
+        tip = ("BEGGARS: select one highlighted highest card of yours and one highlighted lowest opponent card, then Swap."
+               if game.phase == "guess_trade" and game.decision_player == 0 else
+               "BONUS: select two cards anywhere, including either player's layout and both pile tops, then Swap."
                if game.phase == "bonus" and game.current == 0 else
                "Select your card and Swap to take the discard. Draw reveals a card before you decide.")
         self.wrap(tip, 52, 174, 207, color=self.gold if game.phase == "bonus" and game.current == 0 else self.muted)
@@ -200,43 +287,58 @@ class GolfUI:
         self.text("Opponent", 349, 68, 20)
         self.text("Your cards", 349, 399, 20, self.green)
         targets = game.targets() if game.current == 0 else []
+        trade_targets = sum(game.guess_trade_targets(), []) if game.phase == "guess_trade" and game.decision_player == 0 else []
         for ref, rect in self.cards.items():
             player, index = ref
             slot = game.players[player][index]
             self.card(rect, slot.card if slot.visible else None, ref in self.selected,
-                      bonus or (player == 0 and index in targets),
+                      bonus or ref in trade_targets or (player == 0 and index in targets),
                       slot.visible and slot.card in game.locked_cards)
         self.text("Rules in play", 728, 100, 20, self.gold)
         self.text("Choose before your second opening flip." if game.phase == "setup" else "New game to change rules.", 728, 128, 14, self.muted)
         for key, label in RULE_OPTIONS:
             rect = self.rule_rects[key]
             enabled = getattr(game.rules, key)
-            checkbox = pygame.Rect(rect.x + 3, rect.y + 7, 20, 20)
+            checkbox = pygame.Rect(rect.x + 3, rect.y + 3, 17, 17)
             pygame.draw.rect(self.screen, (48, 85, 67), checkbox, border_radius=4)
             pygame.draw.rect(self.screen, self.green if enabled else self.muted, checkbox, width=1, border_radius=4)
             if enabled:
                 pygame.draw.lines(self.screen, self.green, False,
-                                  [(checkbox.x + 4, checkbox.y + 10), (checkbox.x + 8, checkbox.y + 15),
-                                   (checkbox.x + 16, checkbox.y + 5)], 2)
-            self.text(label, rect.x + 34, rect.y + 6, 16, self.white if enabled else self.muted)
-        self.text("Bonus: once per physical pair per round.", 728, 367, 14, self.muted)
+                                  [(checkbox.x + 3, checkbox.y + 8), (checkbox.x + 6, checkbox.y + 12),
+                                   (checkbox.x + 13, checkbox.y + 4)], 2)
+            self.text(label, rect.x + 30, rect.y + 1, 14, self.white if enabled else self.muted)
+            help_rect = self.help_rects[key]
+            pygame.draw.circle(self.screen, self.muted, help_rect.center, 9, 1)
+            self.text("?", help_rect.x + 7, help_rect.y, 14, self.gold)
+        self.text("Hover over ? for the rule explanation.", 728, 431, 14, self.muted)
         heading = "Opening reveal" if game.phase == "setup" else "Bonus swap" if game.phase == "bonus" else "Round over" if game.phase == "over" else "Your turn" if game.current == 0 else "Opponent's turn"
-        self.text(heading, 728, 427, 20, self.green if game.current == 0 else self.gold)
-        self.wrap(game.message, 728, 461, 292, 16, self.white)
+        if game.phase in ("guess", "guess_trade", "arrange"):
+            heading = "Your rule decision" if game.decision_player == 0 else "Opponent's rule decision"
+        elif game.is_final_turn:
+            heading = "Your final turn" if game.current == 0 else "Opponent's final turn"
+        self.text(heading, 728, 484, 20, self.green if game.decision_player == 0 else self.gold)
+        self.wrap(game.message, 728, 517, 292, 14, self.white)
         if game.phase == "over":
-            self.text(f"You: {game.score(0)}   Opponent: {game.score(1)}", 728, 537, 20)
+            self.text(f"You: {game.score(0)}   Opponent: {game.score(1)}", 728, 592, 20)
         else:
-            self.text("Visible only (not final scores):", 728, 537, 14, self.muted)
-            self.text(f"You: {game.score(0, True)}   Opponent: {game.score(1, True)}", 728, 561, 18)
-            if game.finisher is not None:
-                self.text("Final turn is pending / in progress.", 728, 592, 14, self.gold)
-        self.wrap(game.last_move, 728, 623, 292, 14)
+            self.text("Visible only (not final scores):", 728, 587, 14, self.muted)
+            self.text(f"You: {game.score(0, True)}   Opponent: {game.score(1, True)}", 728, 607, 18)
+        self.wrap(game.last_move, 728, 646, 292, 14)
         self.text(game.message, 30, 705, 16)
         if self.available("End turn"):
             self.button("End turn  [Enter]", self.end_rect)
         for name, rect in self.buttons.items():
             self.button(name, rect, self.available(name))
-        self.text("Click to select / unselect. Swap uses your drawn card, otherwise the discard. Bonus swaps need two selections.", 30, 811, 14, self.muted)
+        hint = ("Correct guess: select one of your highest visible cards and one of the opponent's lowest, then Swap."
+                if game.phase == "guess_trade" else
+                "Click to select / unselect. Swap uses your drawn card, otherwise the discard. Bonus swaps need two selections.")
+        self.text(hint, 30, 811, 14, self.muted)
+        if game.phase in ("guess", "arrange") and game.decision_player == 0:
+            self.draw_modal()
+        else:
+            tooltip = self.tooltip_key(pygame.mouse.get_pos())
+            if tooltip and tooltip in self.rule_help:
+                self.draw_tooltip(tooltip)
         pygame.display.flip()
 
 
@@ -255,7 +357,7 @@ def run(screenshot=None, engine=None):
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 app.click(event.pos)
         game = app.game
-        if game.current == 1 and game.phase in ("choose", "bonus"):
+        if game.decision_player == 1 and game.phase not in ("setup", "over"):
             if app.opponent_due is None:
                 app.opponent_due = pygame.time.get_ticks() + 1000
             elif pygame.time.get_ticks() >= app.opponent_due:

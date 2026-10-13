@@ -25,17 +25,19 @@ The four main actions are **Flip**, **Swap**, **Draw**, and **Discard**. Click a
 
 After flipping your own card without drawing, **End turn** appears beside the turn prompt; Enter does the same thing. This implements path 1.1 without adding another main action button. Swapping, discarding, or End turn finishes the normal part of your turn, followed by any earned bonus swaps.
 
-For an enabled Queen-Queen or Jack-Jack bonus, select **two** table cards and press the same **Swap** button. Either layout and both pile tops are eligible. The bot also follows the enabled rules.
+For an enabled Queen-Queen or Jack-Jack bonus, select **two** table cards and press the same **Swap** button. Either layout and both pile tops are eligible. The bot also follows the enabled rules. Hover over the **?** beside any rule for its explanation, loaded directly from RULES.md.
+
+**Beggars Will be Choosers** pauses an opponent reveal for your rank guess when you qualify. Choose a rank or Pass. A correct guess highlights your highest and their lowest eligible visible cards: select one of each and press Swap. **4 of a Kind** offers a popup with the three column-pair choices and Keep layout; choosing an arrangement preserves hidden-card visibility and resumes the interrupted turn.
 
 ## Rules
 
 [RULES.md](RULES.md) is the single source of truth for the rules, including turn paths, selectable rules, and interaction conventions. All optional rules start disabled, and the panel shows their state throughout the round.
 
-The current selectable rules are Queen-Queen bonus swaps, Jack-Jack bonus swaps, 666 locks, 777 final-score division, and King-Queen color scoring. Earlier rule documents remain recoverable in Git history; prospective additions are recorded at the end of RULES.md.
+Selectable rules include Queen-Queen and Jack-Jack bonus swaps, 666 locks, 777 division, King-Queen scoring, Hold 'em, V10, Tricky straights, The ripped 5, Roman 5s, Beggars Will be Choosers, and 4 of a Kind. Both V orientations count. See RULES.md for stacking, rounding, and information conventions. Earlier rule documents remain recoverable in Git history.
 
 ## Development
 
-`game.py` contains the rules engine without UI dependencies; `ui.py` contains the Pygame table. Run checks with:
+`game.py` contains the rules engine without UI dependencies, `scoring.py` contains optional scoring helpers, and `ui.py` contains the Pygame table. `rule_help.py` reads descriptions from RULES.md. Run checks with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
