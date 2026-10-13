@@ -22,8 +22,9 @@ There are three ways to begin a turn. All discarded cards go face up onto the to
 - **2.2:** Reveal one of your own hidden cards, then:
   - **2.2.1:** Discard that revealed layout card and replace it with your draw, ending your turn.
   - **2.2.2:** Discard your draw and keep the revealed layout card in place, ending your turn.
+- **2.3:** Discard the drawn card immediately without revealing or replacing any layout card, ending your turn.
 
-After path 2.2, only the card just revealed can be replaced. The two cards do not leave an empty position in the layout. Drawing alone does not end a turn. Rejecting a draw requires a layout reveal, as in path 2.2.
+After path 2.2, only the card just revealed can be replaced. The two cards do not leave an empty position in the layout. Drawing alone does not end a turn. Discarding that draw ends the normal part of the turn immediately and leaves all layout cards as they are, followed by any earned bonus swaps.
 
 ### 3. Take the top discard
 

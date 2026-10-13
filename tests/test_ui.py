@@ -87,7 +87,6 @@ class MouseFlowTests(unittest.TestCase):
         self.assertIsNone(self.engine.held_card)
         self.press("Draw")
         held, size = self.engine.held_card, len(self.engine.draw_pile)
-        self.press("Discard")
         self.assertEqual(self.engine.phase, "drawn")
         self.card(0, 4)
         self.press("Flip")
@@ -97,6 +96,21 @@ class MouseFlowTests(unittest.TestCase):
         self.assertEqual(len(self.engine.draw_pile), size)
         self.assertTrue(self.engine.players[0][4].visible)
         self.assertEqual(self.engine.current, 1)
+
+    def test_draw_first_discard_button_ends_turn_without_revealing_layout(self):
+        self.opening()
+        before = [(slot.card, slot.visible) for slot in self.engine.players[0]]
+        self.press("Draw")
+        held, size = self.engine.held_card, len(self.engine.draw_pile)
+        self.assertTrue(self.app.available("Discard"))
+        self.press("Discard")
+        self.assertEqual(self.engine.discard_pile[-1], held)
+        self.assertEqual(len(self.engine.draw_pile), size)
+        self.assertEqual([(slot.card, slot.visible) for slot in self.engine.players[0]], before)
+        self.assertEqual(self.engine.current, 1)
+        self.assertEqual(self.engine.turns, 1)
+        self.assertIsNone(self.engine.held_card)
+        self.assertFalse(self.app.available("Discard"))
 
     def test_flip_draw_swap_targets_only_newly_revealed_card(self):
         self.opening()
