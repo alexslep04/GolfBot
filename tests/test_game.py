@@ -138,8 +138,6 @@ class GolfTests(unittest.TestCase):
             own = game.players[0][5].card
             game.draw()
             drawn, size = game.held_card, len(game.draw_pile)
-            with self.assertRaises(ValueError):
-                game.discard()  # Path 2.2 requires the layout reveal before rejecting the draw.
             game.reveal(5)
             self.assertEqual(game.targets(), [5])
             with self.assertRaises(ValueError):
@@ -156,6 +154,43 @@ class GolfTests(unittest.TestCase):
                 self.assertEqual(game.discard_pile[-1], drawn)
             self.assertEqual(len(game.draw_pile), size)
             self.assert_conservation(game)
+
+    def test_draw_first_discard_ends_turn_and_preserves_layout(self):
+        game = self.start()
+        before = [(slot.card, slot.visible) for slot in game.players[0]]
+        size = len(game.draw_pile)
+        drawn = game.draw_pile[-1]
+        with self.assertRaises(ValueError):
+            game.discard()
+        game.draw()
+        game.discard()
+        self.assertEqual([(slot.card, slot.visible) for slot in game.players[0]], before)
+        self.assertEqual(game.discard_pile[-1], drawn)
+        self.assertEqual(len(game.draw_pile), size - 1)
+        self.assertIsNone(game.held_card)
+        self.assertEqual(game.turns, 1)
+        self.assertEqual(game.current, 1)
+        self.assertEqual(game.phase, "choose")
+        self.assert_conservation(game)
+
+    def test_draw_first_discard_still_resolves_bonus_and_final_turn(self):
+        game = self.prepare_pair()
+        game.draw()
+        game.discard()
+        self.assertEqual(game.phase, "bonus")
+        self.assertEqual(game.current, 0)
+        game.bonus_swap(("draw", None), ("discard", None))
+        self.assertEqual(game.current, 1)
+        self.assertEqual(game.turns, 1)
+        self.assert_conservation(game)
+        game = self.start()
+        game.current, game.final_player, game.finisher, game.is_final_turn = 0, 0, 1, True
+        game.draw()
+        game.discard()
+        self.assertEqual(game.phase, "over")
+        self.assertEqual(game.visible_count(0), 6)
+        self.assertEqual(game.visible_count(1), 6)
+        self.assert_conservation(game)
 
     def test_rank_matching_negative_twos_and_visible_subtotals(self):
         game = GolfGame(1)

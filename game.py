@@ -317,7 +317,7 @@ class GolfGame:
         self.phase = "drawn_revealed" if self.flipped is not None else "drawn"
         self.message = ("Swap the revealed card with your draw, or Discard the draw."
                         if self.flipped is not None else
-                        "Swap your draw with any own card, or Flip a hidden card to decide.")
+                        "Swap your draw with any own card, Flip a hidden card, or Discard.")
 
     def targets(self):
         if self.phase in ("choose", "drawn"):
@@ -342,8 +342,8 @@ class GolfGame:
         self._finish_turn()
 
     def discard(self):
-        if self.phase != "drawn_revealed":
-            raise ValueError("Flip one of your own cards before discarding the draw.")
+        if self.phase not in ("drawn", "drawn_revealed"):
+            raise ValueError("Draw a card before discarding it.")
         card = self.held_card
         self.discard_pile.append(card)
         self.held_card = None
@@ -542,8 +542,10 @@ class GolfGame:
             targets = self.targets()
             if targets:
                 best = max(targets, key=lambda i: self._visible_column(1, i) - self._visible_column(1, i, self.held_card))
-                self.swap(best)
-                return
+                if self._visible_column(1, best, self.held_card) < self._visible_column(1, best):
+                    self.swap(best)
+                    return
+            self.discard()
 
 
 def run(screenshot=None, engine=None):

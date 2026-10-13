@@ -116,7 +116,7 @@ class GolfUI:
         if name == "Draw":
             return game.phase in ("choose", "revealed")
         if name == "Discard":
-            return game.phase == "drawn_revealed"
+            return game.phase in ("drawn", "drawn_revealed")
         if name == "Flip":
             if self.selected == [("draw", None)]:
                 return game.phase in ("choose", "revealed")
