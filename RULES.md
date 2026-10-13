@@ -1,12 +1,14 @@
 # Golf rules
 
-The single source of truth for this 52-card game. Optional rules are selected before the second opening flip and stay fixed for the round. Hover help reads the short marked descriptions below.
+The single source of truth for this 52-card game. In solo play, select optional rules before the second opening flip. In multiplayer, the host selects rules before creating the lobby; they stay fixed for the match. Hover help reads the short marked descriptions below.
 
 ## Base version
 
 **Terms:** each player has a **6-card hand**. Drawing from the **go-fish pile** is called **going fish**. Discards go face up onto the top of the **discard pile**.
 
 **Start:** shuffle 52 cards. Deal each player six face-down cards in two rows of three. The rest form the go-fish pile; flip its top card to start the discard pile. Each player reveals any two of their own cards. The dealer plays first; turns alternate.
+
+In browser lobbies, the host chooses who goes first: host, guest, alternate, random, previous winner, or previous loser. Alternate starts with the host and changes each round. Winner/loser uses the previous round's result, falling back to alternate after a tie. Solo starts with you.
 
 ### 1. Flip one of your hidden cards
 
@@ -41,6 +43,8 @@ When either player has all six cards face up, finish the current turn and its bo
 | King | 0 |
 
 Two cards of the same rank in a column score zero, regardless of suit. Breaking the pair restores their normal points. Empty go-fish piles are refilled by shuffling the discards except the current top card. Round every division upward, including negative scores.
+
+**Matches:** best of N means first to (N + 1) / 2 wins. Tied rounds give no wins and may extend the match. Both players mark ready for each new round. After a finished match the host may offer a rematch, with the guest marking ready again.
 
 ## Selectable rules
 
