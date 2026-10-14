@@ -1,8 +1,22 @@
 """Optional score adjustments; ranks stay distinct from Golf point values."""
 from collections import Counter
 from itertools import combinations
+from math import prod
 
 V_PATTERNS = ((0, 4, 2), (3, 1, 5))
+
+
+def v_pattern_effects(layout, rules, visible_only=False):
+    """Detect Vs from immutable card values, independently of all score effects."""
+    patterns = [[layout[i] for i in pattern] for pattern in V_PATTERNS]
+    cards = [[slot.card for slot in pattern] for pattern in patterns
+             if not visible_only or all(slot.visible for slot in pattern)]
+    effects = []
+    if rules.roman_fives and any(sum(card.base_points for card in pattern) == 10 for pattern in cards):
+        effects.append(("Roman 5s", 3))
+    if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in cards):
+        effects.append(("V10", 5))
+    return effects
 
 
 def holdem_categories(cards):
@@ -45,14 +59,10 @@ def score_adjustments(layout, rules, visible_only=False):
     if rules.tricky_straights:
         for row in (layout[:3], layout[3:]):
             if not visible_only or all(slot.visible for slot in row):
-                adjustment += straight_direction([slot.card for slot in row]) * row[-1].card.points
+                adjustment += straight_direction([slot.card for slot in row]) * row[-1].card.base_points
     # Divisions are final-score operations, never included in visible subtotals.
     if not visible_only:
-        patterns = [[layout[i].card for i in pattern] for pattern in V_PATTERNS]
-        if rules.roman_fives and any(sum(card.points for card in pattern) == 10 for pattern in patterns):
-            divisor *= 3
-        if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in patterns):
-            divisor *= 5
+        divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules))
     return adjustment, divisor
 
 
@@ -80,7 +90,7 @@ def column_score(layout, rules, visible_only=False):
             if rules.king_queen and {first.rank, second.rank} == {12, 13}:
                 total += 5 if first.red == second.red else 15
                 continue
-        total += sum(layout[i].card.points for i in indexes)
+        total += sum(layout[i].card.base_points for i in indexes)
     return total
 
 
@@ -88,16 +98,11 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=()):
     """Report effects proven by visible cards, without exposing hidden cards."""
     effects = []
     cards = [slot.card for slot in layout if slot.visible]
-    patterns = [[layout[i] for i in pattern] for pattern in V_PATTERNS]
-    patterns = [[slot.card for slot in pattern] for pattern in patterns if all(slot.visible for slot in pattern)]
     for pair, source in cancellation_pairs(layout, rules, True):
-        reduction = -sum(layout[i].card.points for i in pair)
+        reduction = -sum(layout[i].card.base_points for i in pair)
         label = "Ripped 5" if source == "ripped" else f"Column {pair[0] + 1} pair"
         effects.append(f"{label}: 0 ({reduction:+d})")
-    if rules.roman_fives and any(sum(card.points for card in pattern) == 10 for pattern in patterns):
-        effects.append("Roman 5s /3")
-    if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in patterns):
-        effects.append("V10 /5")
+    effects.extend(f"{name} /{divisor}" for name, divisor in v_pattern_effects(layout, rules, True))
     if rules.gamblers_row and gambler_earned:
         effects.append("777 /7")
     if rules.devils_row and any(card in locked_cards for card in cards):
@@ -111,7 +116,7 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=()):
             if all(slot.visible for slot in row):
                 direction = straight_direction([slot.card for slot in row])
                 if direction:
-                    effects.append(f"Straight row {row_index + 1}: {direction * row[-1].card.points:+d}")
+                    effects.append(f"Straight row {row_index + 1}: {direction * row[-1].card.base_points:+d}")
     if rules.king_queen:
         for i in range(3):
             if layout[i].visible and layout[i + 3].visible and {layout[i].card.rank, layout[i + 3].card.rank} == {12, 13}:
@@ -122,11 +127,6 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=()):
 
 def visible_effect_total(layout, rules, gambler_earned=False):
     subtotal = column_score(layout, rules, True) + score_adjustments(layout, rules, True)[0]
-    patterns = [[layout[i] for i in pattern] for pattern in V_PATTERNS]
-    patterns = [[slot.card for slot in pattern] for pattern in patterns if all(slot.visible for slot in pattern)]
     divisor = 7 if rules.gamblers_row and gambler_earned else 1
-    if rules.roman_fives and any(sum(card.points for card in pattern) == 10 for pattern in patterns):
-        divisor *= 3
-    if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in patterns):
-        divisor *= 5
+    divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules, True))
     return (subtotal + divisor - 1) // divisor

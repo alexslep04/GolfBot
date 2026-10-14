@@ -91,7 +91,7 @@ A 5 of diamonds and one other 5 in the opposite row cancel to zero, even in diff
 ### Roman 5s
 <!-- rule: roman_fives -->
 
-A V whose cards total 10 points divides the final score by 3, rounded up. Either V orientation counts. Apply once.
+A V totaling 10 **base Golf points** earns final score /3, rounded up. A=1, 2=-2, J/Q=10, K=0. Ignore column cancellations and other effects when checking the V. Either orientation counts; apply once.
 
 ### Beggars Will be Choosers
 <!-- rule: beggars -->
@@ -106,6 +106,7 @@ Four visible cards of one rank may immediately be moved into any two columns, or
 ## Shared conventions
 
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
+- **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
 - Score columns first, including ripped-5 cancellation and King-Queen values. Then apply Tricky straights and the single Hold 'em reduction. Finally apply earned 777, Roman 5s, and V10 divisions. Modifiers may produce negative scores.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
@@ -114,6 +115,8 @@ Four visible cards of one rank may immediately be moved into any two columns, or
 - Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips and final scoring reveals do not activate interactive abilities.
 - A bonus swap carries visibility into a hand; the go-fish pile stays face down and the discard pile face up. Unused pairs created by a bonus may earn another bonus. Empty piles have no card to select.
 - Roman 5s keeps the approved **V total of 10** interpretation from the merged game, rather than three cards each worth 10.
+
+Roman 5s examples: `A-4-A / 5-J-A` qualifies via the bottom-left, top-middle, and bottom-right cards: 5+4+1=10, despite the right-column Aces canceling. `8-4-2 / 3-4-10` qualifies via top-left, bottom-middle, and top-right: 8+4+(-2)=10, despite the middle-column 4s canceling. With only Roman 5s enabled, both final scores are 7 (20/3 and 19/3, rounded up).
 
 ## Revised draft rules — not selectable yet
 

@@ -150,7 +150,7 @@ def parse_rules(values):
 
 
 def card_view(card):
-    return {"rank": card.rank, "label": card.label, "suit": card.suit, "points": card.points}
+    return {"rank": card.rank, "label": card.label, "suit": card.suit, "points": card.base_points}
 
 
 def public_room(room):

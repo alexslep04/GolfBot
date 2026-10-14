@@ -8,6 +8,7 @@ from scoring import score_adjustments, column_score
 
 @dataclass(frozen=True)
 class Card:
+    """Immutable face rank/suit; scoring effects never change a card's base points."""
     rank: int
     suit: str
 
@@ -16,8 +17,14 @@ class Card:
         return {1: "A", 11: "J", 12: "Q", 13: "K"}.get(self.rank, str(self.rank))
 
     @property
-    def points(self):
+    def base_points(self):
+        """Intrinsic Golf value: A=1, 2=-2, J/Q=10, K=0."""
         return -2 if self.rank == 2 else 0 if self.rank == 13 else min(self.rank, 10)
+
+    @property
+    def points(self):
+        """Compatibility alias for base_points, never an adjusted layout value."""
+        return self.base_points
 
     @property
     def red(self):
@@ -142,7 +149,7 @@ class GolfGame:
             raise ValueError("Choose a face-down card to flip.")
         if self.phase != "setup" and self.rules.beggars:
             visible = [[i for i, card_slot in enumerate(layout) if card_slot.visible] for layout in self.players]
-            highest = [max((self.players[p][i].card.points for i in visible[p]), default=None) for p in range(2)]
+            highest = [max((self.players[p][i].card.base_points for i in visible[p]), default=None) for p in range(2)]
             other = 1 - self.current
             if highest[other] is not None and (highest[self.current] is None or highest[other] > highest[self.current]):
                 self.guess_pending = {"player": other, "target": index, "phase": self.phase}
@@ -215,10 +222,10 @@ class GolfGame:
         other = [(1 - player, i) for i, slot in enumerate(self.players[1 - player]) if slot.visible]
         if not own or not other:
             return [], []
-        highest = max(self.table_slot(ref).card.points for ref in own)
-        lowest = min(self.table_slot(ref).card.points for ref in other)
-        return ([ref for ref in own if self.table_slot(ref).card.points == highest and self.table_slot(ref).card not in self.locked_cards],
-                [ref for ref in other if self.table_slot(ref).card.points == lowest and self.table_slot(ref).card not in self.locked_cards])
+        highest = max(self.table_slot(ref).card.base_points for ref in own)
+        lowest = min(self.table_slot(ref).card.base_points for ref in other)
+        return ([ref for ref in own if self.table_slot(ref).card.base_points == highest and self.table_slot(ref).card not in self.locked_cards],
+                [ref for ref in other if self.table_slot(ref).card.base_points == lowest and self.table_slot(ref).card not in self.locked_cards])
 
     def guess_trade(self, first, second):
         if self.phase != "guess_trade":
@@ -464,7 +471,7 @@ class GolfGame:
             return 0
         if partner.visible and self.rules.king_queen and {card.rank, partner.card.rank} == {12, 13}:
             return 5 if card.red == partner.card.red else 15
-        return card.points + (partner.card.points if partner.visible else 0)
+        return card.base_points + (partner.card.base_points if partner.visible else 0)
 
     def opponent_turn(self):
         """A basic bot that only evaluates public cards and its actual revealed draw."""

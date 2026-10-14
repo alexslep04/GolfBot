@@ -114,6 +114,27 @@ class WebTests(unittest.TestCase):
         info = self.outsider.get(f'/api/lobbies/{self.id}').json()
         self.assertNotIn('game', info)
 
+    def test_roman_fives_public_state_agrees_with_final_scores(self):
+        self.start(rules={'roman_fives': True, 'king_queen': True, 'ripped_five': True, 'holdem': True, 'tricky_straights': True})
+        for ranks, cancelled_column in (([1, 4, 1, 5, 11, 1], 3), ([8, 4, 2, 3, 4, 10], 2)):
+            with self.subTest(ranks=ranks):
+                self.room.game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip(ranks, 'SHDCSH')]
+                public = self.state()['game']
+                self.assertIn('Roman 5s /3', public['effects'][0])
+                self.assertTrue(any(effect.startswith(f'Column {cancelled_column} pair: 0') for effect in public['effects'][0]))
+                self.assertEqual(public['effect_totals'][0], 7)
+                for rank, slot in zip(ranks, public['players'][0]):
+                    self.assertEqual(slot['card']['rank'], rank)
+                    self.assertEqual(slot['card']['points'], -2 if rank == 2 else min(rank, 10))
+                self.room.game.phase = 'over'
+                self.room.record_result()
+                final = self.state()['game']
+                self.assertEqual(final['scores'][0], 7)
+                self.assertEqual(final['effect_totals'][0], 7)
+                self.room.game.phase = 'choose'
+                self.room.status = 'playing'
+                self.room.round_recorded = False
+
     def test_draw_discard_and_visible_swap_paths(self):
         self.start()
         old_hand = self.state()['game']['players'][0]
