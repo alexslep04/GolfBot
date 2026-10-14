@@ -1,9 +1,9 @@
-"""Rules and turn state for 52-card Golf; importing this module needs no Pygame."""
+"""UI-independent rules and turn state for 52-card Golf."""
 from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 from collections import Counter
 import random
-from scoring import score_adjustments
+from scoring import score_adjustments, column_score
 
 
 @dataclass(frozen=True)
@@ -63,14 +63,18 @@ RULE_OPTIONS = [
 
 
 class GolfGame:
-    def __init__(self, seed=None, rules=None):
+    def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0):
+        if first_player not in (0, 1):
+            raise ValueError("First player must be seat 0 or 1.")
+        self.multiplayer = multiplayer
+        self.first_player = first_player
         self.rules = replace(rules) if rules else Rules()
         self.rng = random.Random(seed)
         self.draw_pile = [Card(rank, suit) for suit in "SHDC" for rank in range(1, 14)]
         self.rng.shuffle(self.draw_pile)
         self.players = [[Slot(self.draw_pile.pop()) for _ in range(6)] for _ in range(2)]
         self.discard_pile = [self.draw_pile.pop()]
-        self.current = 0
+        self.current = first_player
         self.phase = "setup"
         self.flipped = None
         self.held_card = None
@@ -86,7 +90,7 @@ class GolfGame:
         self.arrange_pending = None
         self.guess_pending = None
         self.message = "Select one of your cards and Flip. Reveal two to start."
-        self.last_move = "You are the dealer and play first."
+        self.last_move = "Reveal two cards each to start."
 
     def set_rule(self, key, enabled):
         if self.phase != "setup" or key not in {key for key, _ in RULE_OPTIONS}:
@@ -100,19 +104,7 @@ class GolfGame:
         return sum(slot.visible for slot in self.players[player])
 
     def score(self, player, visible_only=False):
-        total = 0
-        for column in range(3):
-            pair = [self.players[player][column], self.players[player][column + 3]]
-            if visible_only:
-                pair = [slot for slot in pair if slot.visible]
-            if len(pair) == 2:
-                first, second = (slot.card for slot in pair)
-                if first.rank == second.rank:
-                    continue
-                if self.rules.king_queen and {first.rank, second.rank} == {12, 13}:
-                    total += 5 if first.red == second.red else 15
-                    continue
-            total += sum(slot.card.points for slot in pair)
+        total = column_score(self.players[player], self.rules, visible_only)
         adjustment, divisor = score_adjustments(self.players[player], self.rules, visible_only)
         total += adjustment
         if not visible_only:
@@ -140,6 +132,9 @@ class GolfGame:
                     break
 
     def reveal(self, index):
+        if self.phase == "setup":
+            self.opening_reveal(self.current, index)
+            return
         if self.phase not in ("setup", "choose", "drawn") or index not in range(6):
             raise ValueError("You cannot flip a layout card right now.")
         slot = self.players[self.current][index]
@@ -160,21 +155,30 @@ class GolfGame:
         slot = self.players[self.current][index]
         slot.visible = True
         self._update_combos()
-        if self.phase == "setup":
-            if self.visible_count(0) == 2:
-                for other_index in self.rng.sample(range(6), 2):
-                    self.players[1][other_index].visible = True
-                self.phase = "choose"
-                self.message = "Your turn: Flip your card, Draw, or Swap with the discard."
-            else:
-                self.message = "Reveal one more of your cards to start."
+        self.flipped = index
+        self.phase = "drawn_revealed" if self.held_card else "revealed"
+        self._mark_finish()
+        self.message = ("Swap the revealed card with your draw, or Discard the draw."
+                        if self.held_card else "Swap with the discard, Draw, or End turn.")
+        self._offer_four(self.phase)
+
+    def opening_reveal(self, player, index):
+        if (self.phase != "setup" or player not in (0, 1) or index not in range(6)
+                or self.visible_count(player) >= 2 or (not self.multiplayer and player != 0)):
+            raise ValueError("Reveal exactly two of your own cards to start.")
+        slot = self.players[player][index]
+        if slot.visible:
+            raise ValueError("Choose a face-down card to flip.")
+        slot.visible = True
+        if not self.multiplayer and self.visible_count(0) == 2:
+            for other_index in self.rng.sample(range(6), 2):
+                self.players[1][other_index].visible = True
+        if all(self.visible_count(p) == 2 for p in (0, 1)):
+            self.phase = "choose"
+            self.current = self.first_player
+            self.message = "Your turn: Flip your card, Draw, or Swap with the discard."
         else:
-            self.flipped = index
-            self.phase = "drawn_revealed" if self.held_card else "revealed"
-            self._mark_finish()
-            self.message = ("Swap the revealed card with your draw, or Discard the draw."
-                            if self.held_card else "Swap with the discard, Draw, or End turn.")
-            self._offer_four(self.phase)
+            self.message = "Both players reveal two cards before play starts."
 
     @property
     def decision_player(self):
@@ -317,11 +321,13 @@ class GolfGame:
         self.phase = "drawn_revealed" if self.flipped is not None else "drawn"
         self.message = ("Swap the revealed card with your draw, or Discard the draw."
                         if self.flipped is not None else
-                        "Swap your draw with any own card, Flip a hidden card, or Discard.")
+                        "Swap your draw with a face-up card, Flip a hidden card, or Discard.")
 
     def targets(self):
-        if self.phase in ("choose", "drawn"):
+        if self.phase == "choose":
             indexes = range(6)
+        elif self.phase == "drawn":
+            indexes = [i for i, slot in enumerate(self.players[self.current]) if slot.visible]
         elif self.phase in ("revealed", "drawn_revealed"):
             indexes = [self.flipped]
         else:
@@ -548,14 +554,10 @@ class GolfGame:
             self.discard()
 
 
-def run(screenshot=None, engine=None):
-    from ui import run as run_ui
-    run_ui(screenshot=screenshot, engine=engine)
+def run():
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, workers=1)
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Play 52-card Golf against a simple bot.")
-    parser.add_argument("--screenshot", help="Render the opening screen to a PNG and exit.")
-    args = parser.parse_args()
-    run(args.screenshot)
+    run()

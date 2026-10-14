@@ -116,8 +116,8 @@ class GolfTests(unittest.TestCase):
                 self.assertEqual(game.discard_pile[-1], drawn)
             self.assert_conservation(game)
 
-    def test_draw_first_can_immediately_swap_any_own_card(self):
-        for index in (0, 5):
+    def test_draw_first_can_immediately_swap_visible_own_card(self):
+        for index in (0, 1):
             game = self.start()
             drawn, old = game.draw_pile[-1], game.players[0][index].card
             game.draw()
@@ -131,6 +131,19 @@ class GolfTests(unittest.TestCase):
             self.assertEqual(game.discard_pile[-1], old)
             self.assertIsNone(game.held_card)
             self.assert_conservation(game)
+
+    def test_draw_first_hidden_target_requires_reveal(self):
+        game = self.start()
+        game.draw()
+        drawn = game.held_card
+        with self.assertRaises(ValueError):
+            game.swap(5)
+        self.assertEqual(game.phase, "drawn")
+        self.assertEqual(game.held_card, drawn)
+        game.reveal(5)
+        game.swap(5)
+        self.assertEqual(game.players[0][5], Slot(drawn, True))
+        self.assert_conservation(game)
 
     def test_draw_then_flip_keep_or_discard(self):
         for keep in (False, True):
@@ -396,7 +409,7 @@ class GolfTests(unittest.TestCase):
                                 game.discard()
                     elif path == 1 or not game.targets():
                         game.draw()
-                        if hidden and game.rng.randrange(2):
+                        if hidden and (not game.targets() or game.rng.randrange(2)):
                             game.reveal(game.rng.choice(hidden))
                             if game.targets() and game.rng.randrange(2):
                                 game.swap(game.targets()[0])

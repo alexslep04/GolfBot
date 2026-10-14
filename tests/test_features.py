@@ -1,7 +1,7 @@
 import unittest
 from itertools import permutations
 from game import Card, GolfGame, Rules, Slot, RULE_OPTIONS
-from scoring import holdem_categories, score_adjustments, straight_direction, V_PATTERNS
+from scoring import holdem_categories, score_adjustments, straight_direction, V_PATTERNS, column_score, active_rule_effects, visible_effect_total
 from rule_help import load_rule_help
 from test_game import place_cards
 import test_game
@@ -38,16 +38,16 @@ class FeatureTests(unittest.TestCase):
     def assert_cards(self, game):
         test_game.GolfTests.assert_conservation(self, game)
 
-    def test_holdem_categories_stack_once_with_six_card_subsets(self):
+    def test_holdem_single_five_point_bonus_with_six_card_subsets(self):
         royal = cards([1, 10, 11, 12, 13, 9], "HHHHHS")
         self.assertEqual(holdem_categories(royal), {"flush", "straight", "royal_flush"})
         adjustment, divisor = score_adjustments([Slot(c, True) for c in royal], Rules(holdem=True))
-        self.assertEqual((adjustment, divisor), (-14, 1))
+        self.assertEqual((adjustment, divisor), (-5, 1))
         six_same_suit = cards([1, 3, 5, 8, 10, 13], "SSSSSS")
-        self.assertEqual(score_adjustments([Slot(c, True) for c in six_same_suit], Rules(holdem=True))[0], -2)
+        self.assertEqual(score_adjustments([Slot(c, True) for c in six_same_suit], Rules(holdem=True))[0], -5)
         four_and_pair = cards([8, 8, 8, 8, 2, 2], "SHDCSH")
         self.assertEqual(holdem_categories(four_and_pair), {"full_house", "four_kind"})
-        self.assertEqual(score_adjustments([Slot(c, True) for c in four_and_pair], Rules(holdem=True))[0], -10)
+        self.assertEqual(score_adjustments([Slot(c, True) for c in four_and_pair], Rules(holdem=True))[0], -5)
 
     def test_straights_ace_low_high_no_wrap_and_distinct_ranks(self):
         for ranks in ([1, 2, 3, 4, 5], [10, 11, 12, 13, 1]):
@@ -61,10 +61,11 @@ class FeatureTests(unittest.TestCase):
     def test_holdem_and_ripped_five_do_not_use_hidden_cards_for_subtotals(self):
         hand = [Slot(c, i != 4) for i, c in enumerate(cards([1, 10, 11, 12, 13, 9], "HHHHHS"))]
         self.assertEqual(score_adjustments(hand, Rules(holdem=True), True)[0], 0)
-        self.assertEqual(score_adjustments(hand, Rules(holdem=True), False)[0], -14)
-        hand = [Slot(c, i != 2) for i, c in enumerate(cards([5, 5, 5, 13, 4, 8], "HSDCSH"))]
-        self.assertEqual(score_adjustments(hand, Rules(ripped_five=True), True)[0], 0)
-        self.assertEqual(score_adjustments(hand, Rules(ripped_five=True), False)[0], -5)
+        self.assertEqual(score_adjustments(hand, Rules(holdem=True), False)[0], -5)
+        hand = [Slot(c, i != 4) for i, c in enumerate(cards([5, 1, 3, 13, 5, 8], "DSHCHS"))]
+        self.assertEqual(column_score(hand, Rules(ripped_five=True), True), 17)
+        self.assertEqual(column_score(hand, Rules(ripped_five=True), False), 12)
+        self.assertFalse(any("Ripped" in effect for effect in active_rule_effects(hand, Rules(ripped_five=True))))
 
     def test_both_v_orientations_all_permutations_and_stacked_divisions(self):
         for pattern in V_PATTERNS:
@@ -87,11 +88,18 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(score_adjustments(hand, Rules(tricky_straights=True), True)[0], 3)
         self.assertEqual(score_adjustments([Slot(c, True) for c in cards([4, 3, 2, 10, 11, 12])], Rules(tricky_straights=True))[0], 12)
 
-    def test_ripped_five_once_and_only_with_diamonds(self):
-        hand = [Slot(c, True) for c in cards([5, 5, 5, 5, 1, 13], "SHDCSH")]
-        self.assertEqual(score_adjustments(hand, Rules(ripped_five=True))[0], -5)
-        hand = [Slot(c, True) for c in cards([5, 5, 1, 3, 4, 13], "SHDCSH")]
-        self.assertEqual(score_adjustments(hand, Rules(ripped_five=True))[0], 0)
+    def test_ripped_five_opposite_row_and_no_double_cancellation(self):
+        rules = Rules(ripped_five=True)
+        opposite = [Slot(c, True) for c in cards([5, 1, 3, 13, 5, 8], "DSHCHS")]
+        self.assertEqual(column_score(opposite, rules), 12)
+        self.assertIn("Ripped 5: 0 (-10)", active_rule_effects(opposite, rules))
+        same_row = [Slot(c, True) for c in cards([5, 5, 3, 13, 1, 8], "DHSCHS")]
+        self.assertEqual(column_score(same_row, rules), 22)
+        paired_column = [Slot(c, True) for c in cards([5, 1, 3, 5, 13, 8], "DSHHCS")]
+        self.assertEqual(column_score(paired_column, rules), 12)
+        self.assertFalse(any("Ripped" in effect for effect in active_rule_effects(paired_column, rules)))
+        multiple = [Slot(c, True) for c in cards([5, 1, 3, 8, 5, 5], "DHCSSH")]
+        self.assertEqual(column_score(multiple, rules), 17)
 
     def test_final_scoring_additions_before_divisions_and_negative_rounding(self):
         game = GolfGame(1, Rules(v10=True, roman_fives=True, gamblers_row=True))
@@ -100,10 +108,10 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(game.score(0), 2)  # 39 / (5 * 7), rounded up.
         game = GolfGame(1, Rules(holdem=True, ripped_five=True))
         game.players[0] = [Slot(c, True) for c in cards([5, 5, 13, 5, 5, 13], "SHSDCH")]
-        self.assertEqual(game.score(0), -15)  # Three zero columns, full-house + four-kind + ripped 5.
+        self.assertEqual(game.score(0), -5)  # Three zero columns; one Hold 'em bonus, no reused fives.
         game.rules.gamblers_row = True
         game.gambler_earned[0] = True
-        self.assertEqual(game.score(0), -2)
+        self.assertEqual(game.score(0), 0)
 
     def setup_four(self, rank=9, with_draw=False):
         game = self.start(Rules(four_kind=True))
@@ -240,9 +248,26 @@ class FeatureTests(unittest.TestCase):
     def test_help_for_every_rule_comes_from_single_rules_file(self):
         help_text = load_rule_help()
         self.assertEqual(set(help_text), {key for key, _ in RULE_OPTIONS})
-        self.assertIn("top-left + bottom-middle + top-right", help_text["v10"][1])
-        self.assertIn("bottom-left + top-middle + bottom-right", help_text["v10"][1])
-        self.assertIn("royal flush", help_text["holdem"][1])
+        self.assertIn("either V", help_text["v10"][1])
+        self.assertIn("Apply once", help_text["holdem"][1])
+
+    def test_multiple_effects_report_each_numeric_value(self):
+        hand = [Slot(c, True) for c in cards([1, 2, 3, 5, 4, 3])]
+        effects = active_rule_effects(hand, Rules(tricky_straights=True))
+        self.assertIn("Straight row 1: +3", effects)
+        self.assertIn("Straight row 2: -3", effects)
+        hand = [Slot(c, True) for c in cards([13, 13, 2, 12, 12, 2], "HSHDDS")]
+        effects = active_rule_effects(hand, Rules(king_queen=True))
+        self.assertIn("King-Queen column 1: 5 (-5)", effects)
+        self.assertIn("King-Queen column 2: 15 (+5)", effects)
+
+    def test_visible_effect_total_applies_only_proven_divisions(self):
+        game = GolfGame(1, Rules(roman_fives=True))
+        hand = [Slot(c, True) for c in cards([6, 8, 3, 5, 1, 13])]
+        game.players[0] = hand
+        self.assertEqual(visible_effect_total(hand, game.rules), game.score(0))
+        hand[4].visible = False
+        self.assertEqual(visible_effect_total(hand, game.rules), game.score(0, True))
 
     def test_three_hundred_all_rules_rounds_no_stuck_decisions_or_missing_cards(self):
         for seed in range(300):
