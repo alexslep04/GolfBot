@@ -29,6 +29,62 @@ const e = (value) =>
       ],
   );
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+let historyEntries = [],
+  historyOffset = null,
+  historyRequest = 0;
+function markTab(historyActive) {
+  document
+    .getElementById("history-tab")
+    .setAttribute("aria-current", historyActive ? "page" : "false");
+  document
+    .getElementById("play-tab")
+    .setAttribute("aria-current", historyActive ? "false" : "page");
+}
+async function historyPage(more = false) {
+  const request = ++historyRequest;
+  page = "history";
+  markTab(true);
+  document.title = "Match history · GolfBot";
+  history.replaceState({}, "", "/history");
+  if (!more) {
+    historyEntries = [];
+    root.innerHTML = `<div class='loading'>Loading match history…</div>`;
+  }
+  try {
+    const result = await api(
+      "/api/history?offset=" + (more ? historyOffset : 0),
+    );
+    if (page !== "history" || request !== historyRequest) return;
+    if (!socket) {
+      connection.textContent = "Saved results";
+      connection.className = "connection";
+    }
+    historyEntries.push(...result.matches);
+    historyOffset = result.next_offset;
+    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Your solo games and best-of series. Points are summed per player; series winners are decided by round wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `History is saved for this browser on this site address.`}</p>${
+      historyEntries
+        .map((match) => {
+          const winner =
+            match.winner === null
+              ? "No overall winner"
+              : match.names[match.winner];
+          const status =
+            {
+              finished: "Completed",
+              in_progress: "In progress",
+              abandoned: "Abandoned",
+              interrupted: "Interrupted by server restart",
+            }[match.status] || match.status;
+          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Solo" : `Best of ${match.best_of}`} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
+        })
+        .join("") ||
+      `<div class='empty'>No completed games yet. Finish a round to record its score here.</div>`
+    }${historyOffset !== null ? `<button class='button secondary' data-history-more>Load older matches</button>` : ""}</section>`;
+  } catch (error) {
+    if (page === "history" && request === historyRequest)
+      root.innerHTML = `<div class='empty'>${e(error.message)}<p><button class='button secondary' data-nav='history'>Try again</button></p></div>`;
+  }
+}
 function name() {
   return (
     document.getElementById("username")?.value.trim() ||
@@ -90,6 +146,7 @@ function back(label = "Back to menu") {
 }
 function home() {
   page = "home";
+  markTab(false);
   document.title = "GolfBot · Your table";
   state = null;
   closeSocket();
@@ -179,11 +236,14 @@ function accept(next) {
     state?.game?.decision_player !== next.game?.decision_player;
   state = next;
   session.room_id = next.id;
+  if (page === "history") return;
   page = "room";
+  markTab(false);
   if (changed) selected = [];
   renderRoom();
 }
 function enterRoom(next) {
+  page = "room";
   history.pushState({}, "", `/lobby/${next.id}`);
   selected = [];
   accept(next);
@@ -351,7 +411,8 @@ root.addEventListener("click", async (event) => {
     if (button.dataset.nav) {
       if (button.dataset.nav === "home") {
         home();
-      } else if (button.dataset.nav === "host") hostForm();
+      } else if (button.dataset.nav === "history") await historyPage();
+      else if (button.dataset.nav === "host") hostForm();
       else if (button.dataset.nav === "join") await joinList();
       else if (button.dataset.nav === "resume") await resume();
       else if (button.dataset.nav === "solo") {
@@ -364,6 +425,10 @@ root.addEventListener("click", async (event) => {
           }),
         );
       }
+      return;
+    }
+    if (button.hasAttribute("data-history-more")) {
+      await historyPage(true);
       return;
     }
     if (button.dataset.lobby) {
@@ -460,6 +525,7 @@ root.addEventListener("change", (event) => {
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "Enter" &&
+    page !== "history" &&
     !["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName) &&
     state?.game?.legal.end_turn
   ) {
@@ -468,6 +534,10 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("popstate", () => {
+  if (location.pathname === "/history") {
+    historyPage();
+    return;
+  }
   const id = location.pathname.match(/^\/lobby\/([^/]+)$/)?.[1];
   if (id) publicLobby(id).catch((error) => toast(error.message));
   else home();
@@ -482,10 +552,21 @@ window.addEventListener("popstate", () => {
       session.username = localStorage.getItem("golf-name") || session.username;
     } catch {}
     const id = location.pathname.match(/^\/lobby\/([^/]+)$/)?.[1];
-    if (id) await publicLobby(id);
+    if (location.pathname === "/history") await historyPage();
+    else if (id) await publicLobby(id);
     else home();
   } catch (error) {
     root.innerHTML = `<div class='empty'>${e(error.message)}<p>Refresh to reconnect to your server.</p></div>`;
     connection.textContent = "Offline";
   }
 })();
+document.getElementById("history-tab").addEventListener("click", () => {
+  if (session) historyPage();
+});
+document.getElementById("play-tab").addEventListener("click", () => {
+  if (session) {
+    markTab(false);
+    if (session.room_id) resume().catch((error) => toast(error.message));
+    else home();
+  }
+});

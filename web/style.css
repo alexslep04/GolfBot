@@ -963,3 +963,84 @@ footer {
     font-size: 21px;
   }
 }
+.main-tabs {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 24px;
+}
+.main-tabs .button {
+  padding: 8px 13px;
+  font-size: 13px;
+}
+.main-tabs [aria-current="page"] {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+.history-page {
+  max-width: 1000px;
+  margin: auto;
+}
+.match-record {
+  margin: 20px 0;
+}
+.record-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.record-heading h2 {
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+.record-heading p {
+  margin: 0;
+}
+.record-winner {
+  color: var(--green);
+}
+.score-table-wrap {
+  overflow-x: auto;
+}
+.score-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 320px;
+  font-size: 14px;
+}
+.score-table th,
+.score-table td {
+  padding: 13px 9px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.score-table th {
+  font-weight: 500;
+  color: var(--muted);
+}
+.score-table tfoot th,
+.score-table tfoot td {
+  color: var(--gold);
+  border-bottom: 0;
+}
+@media (max-width: 600px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .main-tabs {
+    margin: 0;
+    order: 3;
+    width: 100%;
+  }
+  .record-heading {
+    flex-wrap: wrap;
+  }
+  .score-table {
+    font-size: 12px;
+    min-width: 0;
+    table-layout: fixed;
+  }
+}
