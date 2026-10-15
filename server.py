@@ -1,19 +1,23 @@
 """Single-process, server-authoritative Golf lobbies served by FastAPI/Uvicorn."""
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import os
+import re
 import secrets
 import time
 from urllib.parse import urlparse
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from game import GolfGame, Rules, RULE_OPTIONS
 from rule_help import load_rule_help
+from match_history import MatchHistory
 from scoring import active_rule_effects, visible_effect_total
 
 ROOT = Path(__file__).parent
@@ -77,6 +81,9 @@ class Room:
     clients: dict = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     bot_task: asyncio.Task | None = None
+    history_store: MatchHistory | None = None
+    match_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
+    started_at: float = field(default_factory=time.time)
 
     @property
     def target(self):
@@ -110,12 +117,15 @@ class Room:
             self.status = "finished"
         else:
             self.status = "round_over"
+        if self.history_store:
+            self.history_store.save(self)
 
 
 class Store:
-    def __init__(self):
+    def __init__(self, history_path=":memory:"):
         self.sessions = {}
         self.rooms = {}
+        self.history = MatchHistory(history_path)
 
     def session(self, token):
         session = self.sessions.get(token)
@@ -130,6 +140,7 @@ class Store:
             if room.touched < cutoff and not any(room.clients.values()):
                 if room.bot_task:
                     room.bot_task.cancel()
+                self.history.save(room, abandoned=True)
                 del self.rooms[key]
         for token, session in list(self.sessions.items()):
             if session.touched < time.time() - 24 * 3600:
@@ -228,8 +239,8 @@ def snapshot(room, token):
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),
         "held": card_view(game.held_card) if game.held_card else None,
         "scores": [game.score(p, game.phase != "over") for p in (0, 1)],
-        "effect_totals": [game.score(p) if game.phase == "over" else visible_effect_total(game.players[p], game.rules, game.gambler_earned[p]) for p in (0, 1)],
-        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards) for p in (0, 1)],
+        "effect_totals": [game.score(p) if game.phase == "over" else visible_effect_total(game.players[p], game.rules, game.gambler_earned[p], game.players[1 - p], game.finisher == p) for p in (0, 1)],
+        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards, game.players[1 - p], game.finisher == p) for p in (0, 1)],
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
         "table_refs": game.table_refs() if legal["bonus"] else [],
@@ -273,6 +284,7 @@ def apply_move(room, token, move):
         if seat != 0 or room.status not in ("finished", "round_over"):
             raise HTTPException(409, "Only the host can start a rematch after a round.")
         room.wins, room.history, room.champion, room.last_winner = [0, 0], [], None, None
+        room.match_id, room.started_at = secrets.token_urlsafe(12), time.time()
         room.game, room.round_recorded = None, False
         room.ready, room.status = [False, room.solo], "waiting"
         if room.solo:
@@ -317,7 +329,19 @@ def apply_move(room, token, move):
 
 def create_app(store=None):
     store = store or Store()
-    app = FastAPI(title="GolfBot", docs_url=None, redoc_url=None)
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            store.history.interrupt_open_matches()
+            yield
+        finally:
+            tasks = [room.bot_task for room in store.rooms.values() if room.bot_task and not room.bot_task.done()]
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            store.history.close()
+    app = FastAPI(title="GolfBot", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.store = store
 
     @app.middleware("http")
@@ -377,16 +401,23 @@ def create_app(store=None):
         store.cleanup()
         token = request.cookies.get(COOKIE)
         if token not in store.sessions:
-            token = secrets.token_urlsafe(32)
+            # Keep the anonymous history identity after a restart; never accept arbitrary keys.
+            if not token or not re.fullmatch(r"[A-Za-z0-9_-]{43}", token):
+                token = secrets.token_urlsafe(32)
             store.sessions[token] = Session(token)
         session = store.session(token)
-        response.set_cookie(COOKIE, token, httponly=True, samesite="lax", secure=request.url.scheme == "https", max_age=86400)
+        response.set_cookie(COOKIE, token, httponly=True, samesite="lax", secure=request.url.scheme == "https", max_age=365 * 86400)
         return {"username": session.username, "room_id": session.room_id if session.room_id in store.rooms else None}
 
     @app.get("/api/rules")
     async def rules_catalog():
         descriptions = load_rule_help()
         return [{"key": key, "name": name, "title": descriptions[key][0], "description": descriptions[key][1]} for key, name in RULE_OPTIONS]
+
+    @app.get("/api/history")
+    async def match_history(request: Request, offset: int = Query(default=0, ge=0)):
+        matches = store.history.for_browser(session_for(request).token, limit=51, offset=offset)
+        return {"matches": matches[:50], "next_offset": offset + 50 if len(matches) > 50 else None}
 
     @app.get("/api/lobbies")
     async def lobbies():
@@ -408,7 +439,7 @@ def create_app(store=None):
         if settings.best_of % 2 == 0:
             raise HTTPException(422, "Best of must be an odd number.")
         session.username = clean_name(settings.username)
-        room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(settings.rules), settings.best_of, settings.first, False, [session.token, None], [session.username, "Waiting..."])
+        room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(settings.rules), settings.best_of, settings.first, False, [session.token, None], [session.username, "Waiting..."], history_store=store.history)
         store.rooms[room.id] = room
         session.room_id = room.id
         return snapshot(room, session.token)
@@ -421,7 +452,7 @@ def create_app(store=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         session.username = clean_name(settings.username)
-        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), 1, "host", True, [session.token, None], [session.username, "GolfBot"])
+        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), 1, "host", True, [session.token, None], [session.username, "GolfBot"], history_store=store.history)
         room.start_round()
         store.rooms[room.id] = room
         session.room_id = room.id
@@ -480,6 +511,7 @@ def create_app(store=None):
                 room.seats[1], room.names[1], room.ready[1] = None, "Waiting...", False
             else:
                 room.status = "closed"
+                store.history.save(room, abandoned=True)
                 if room.bot_task:
                     room.bot_task.cancel()
             room.version += 1
@@ -518,6 +550,7 @@ def create_app(store=None):
     app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
 
     @app.get("/")
+    @app.get("/history")
     @app.get("/lobby/{room_id}")
     async def index():
         return FileResponse(ROOT / "web" / "index.html")
@@ -525,4 +558,4 @@ def create_app(store=None):
     return app
 
 
-app = create_app()
+app = create_app(Store(os.environ.get("GOLFBOT_HISTORY_DB", ROOT / "data" / "matches.sqlite3")))

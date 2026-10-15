@@ -48,6 +48,7 @@ class FeatureTests(unittest.TestCase):
                 with self.subTest(ranks=ranks, rules=rules):
                     game = GolfGame(rules=rules)
                     game.players[0] = hand
+                    game.players[1] = [Slot(card, True) for card in cards([3, 5, 8, 10, 12, 13])]
                     game.gambler_earned[0] = rules.gamblers_row
                     expected = 1 if rules.gamblers_row else 7
                     self.assertEqual(score_adjustments(hand, rules)[1], 3)
@@ -63,14 +64,15 @@ class FeatureTests(unittest.TestCase):
             ([12, 8, 13, 13, 13, 4], "HSHDCH", Rules(roman_fives=True, king_queen=True), 17, 6),
             # A same-suit hand earns Hold 'em -5; its 6-A-3 V still totals 10.
             ([6, 8, 3, 5, 1, 13], "HHHHHH", Rules(roman_fives=True, holdem=True), 18, 6),
-            # Tricky straights adds 3; the A-6-3 V independently totals 10.
-            ([1, 2, 3, 6, 6, 6], "SHDCSH", Rules(roman_fives=True, tricky_straights=True), 23, 8),
+            # The A-6-3 V totals 10; the ascending row now adds 3 to the opponent.
+            ([1, 2, 3, 6, 6, 6], "SHDCSH", Rules(roman_fives=True, tricky_straights=True), 20, 7),
         ]
         for ranks, suits, rules, subtotal, final in fixtures:
             with self.subTest(ranks=ranks, rules=rules):
                 game = GolfGame(rules=rules)
                 hand = [Slot(card, True) for card in cards(ranks, suits)]
                 game.players[0] = hand
+                game.players[1] = [Slot(card, True) for card in cards([3, 5, 8, 10, 12, 13])]
                 self.assertEqual(column_score(hand, rules) + score_adjustments(hand, rules, True)[0], subtotal)
                 self.assertEqual(score_adjustments(hand, rules)[1], 3)
                 self.assertIn("Roman 5s /3", active_rule_effects(hand, rules))
@@ -178,14 +180,14 @@ class FeatureTests(unittest.TestCase):
         hand = [Slot(c, True) for c in cards([10, 11, 12, 10, 11, 12], "SHDCHS")]
         self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 5)
         hand = [Slot(c, True) for c in cards([11, 1, 11, 5, 11, 6])]
-        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 1)
+        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 5)
 
     def test_tricky_rows_use_rank_order_and_golf_points_on_rightmost(self):
         hand = [Slot(c, True) for c in cards([1, 2, 3, 5, 4, 3])]
-        self.assertEqual(score_adjustments(hand, Rules(tricky_straights=True))[0], 0)
+        self.assertEqual(score_adjustments(hand, Rules(tricky_straights=True))[0], -3)
         hand[5].visible = False
-        self.assertEqual(score_adjustments(hand, Rules(tricky_straights=True), True)[0], 3)
-        self.assertEqual(score_adjustments([Slot(c, True) for c in cards([4, 3, 2, 10, 11, 12])], Rules(tricky_straights=True))[0], 12)
+        self.assertEqual(score_adjustments(hand, Rules(tricky_straights=True), True)[0], 0)
+        self.assertEqual(score_adjustments([Slot(c, True) for c in cards([4, 3, 2, 10, 11, 12])], Rules(tricky_straights=True))[0], 2)
 
     def test_ripped_five_opposite_row_and_no_double_cancellation(self):
         rules = Rules(ripped_five=True)
@@ -353,7 +355,7 @@ class FeatureTests(unittest.TestCase):
     def test_multiple_effects_report_each_numeric_value(self):
         hand = [Slot(c, True) for c in cards([1, 2, 3, 5, 4, 3])]
         effects = active_rule_effects(hand, Rules(tricky_straights=True))
-        self.assertIn("Straight row 1: +3", effects)
+        self.assertIn("Straight row 1: opponent +3", effects)
         self.assertIn("Straight row 2: -3", effects)
         hand = [Slot(c, True) for c in cards([13, 13, 2, 12, 12, 2], "HSHDDS")]
         effects = active_rule_effects(hand, Rules(king_queen=True))

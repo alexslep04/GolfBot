@@ -24,6 +24,16 @@ Both players choose two opening cards. Click a card to select or unselect it; us
 
 Enabled bonus swaps use the same Swap button with two selected table cards. Beggars presents a rank guess to the eligible opponent; 4 of a Kind presents column choices. Hover or focus **?** for concise rule explanations. The effects sidebar lists individual numeric adjustments and totals separately from the turn prompt.
 
+**V10** accepts any three 10s, Jacks, or Queens in either V, including repeated ranks. **Tricky straights** adds an ascending row's rightmost base points to the opponent, or subtracts a descending row's rightmost base points from its owner. **Poisoned Card** adds 5 to the first player to reveal all six cards. All score additions/subtractions happen before divisions, using unmodified card values to detect patterns.
+
+## Match history
+
+Open the **Match history** tab to see your solo games and best-of series. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
+
+Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed round; past games from older versions cannot be reconstructed.
+
+Results are saved in `data/matches.sqlite3`. Keep that file to retain history across server restarts. History access uses the same browser cookie on the same site address, not the username: clearing cookies, changing browsers, or restarting a temporary tunnel at a new hostname gives a separate identity. Other players cannot browse your history. There are no player accounts or cross-device history synchronization.
+
 ## Self-host and invite someone
 
 **On your Wi-Fi/LAN:** run play.bat, find your computer's local IPv4 address with `ipconfig`, and open `http://YOUR_LOCAL_IP:8000` on both devices. Host the lobby from that address so Copy link creates a link reachable by your opponent. Windows may ask whether to allow Python on your private network.
@@ -46,7 +56,7 @@ Visible subtotals and effects exclude hidden cards. These are scoring aids. Futu
 
 ## Deployment and development
 
-Run **one Uvicorn worker**: lobbies, sessions, and match history currently live in memory. Server restarts clear them. Multiple workers or multiple servers need a shared persistent store before they can serve the same lobbies.
+Run **one Uvicorn worker**: active lobbies and rounds live in memory and clear on restart. Match summaries persist in SQLite; interrupted series keep their completed games. Multiple workers or multiple servers need shared live game state before they can serve the same lobbies. Set `GOLFBOT_HISTORY_DB` to choose another database path.
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1
@@ -54,7 +64,7 @@ Run **one Uvicorn worker**: lobbies, sessions, and match history currently live 
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-For Docker: `docker build -t golfbot .` then `docker run --rm -p 8000:8000 golfbot`. A hosted deployment should route both HTTP and WebSockets to this single process and terminate HTTPS at its proxy. Uvicorn trusts forwarded scheme headers from localhost by default; configure trusted proxy addresses explicitly for other hosts.
+For Docker: `docker build -t golfbot .` then `docker run --rm -p 8000:8000 -v golfbot-data:/app/data golfbot`. The named volume retains history after the container stops. A hosted deployment should route both HTTP and WebSockets to this single process and terminate HTTPS at its proxy. Uvicorn trusts forwarded scheme headers from localhost by default; configure trusted proxy addresses explicitly for other hosts.
 
 `game.py` contains turn state and the basic solo bot; `scoring.py` contains score effects; `rule_help.py` reads RULES.md; `server.py` validates player actions and sends public state; `web/` contains the responsive browser interface. Pygame is no longer required. Tests cover existing rules, role authorization, hidden-card privacy, stale moves, lobby lifecycle, match policies, and live WebSocket updates.
 

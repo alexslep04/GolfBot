@@ -116,6 +116,7 @@ class WebTests(unittest.TestCase):
 
     def test_roman_fives_public_state_agrees_with_final_scores(self):
         self.start(rules={'roman_fives': True, 'king_queen': True, 'ripped_five': True, 'holdem': True, 'tricky_straights': True})
+        self.room.game.players[1] = [Slot(Card(rank, suit), True) for rank, suit in zip([3, 5, 8, 10, 12, 13], 'SHDCSH')]
         for ranks, cancelled_column in (([1, 4, 1, 5, 11, 1], 3), ([8, 4, 2, 3, 4, 10], 2)):
             with self.subTest(ranks=ranks):
                 self.room.game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip(ranks, 'SHDCSH')]
@@ -329,6 +330,7 @@ class MatchTests(unittest.TestCase):
 
     def test_disconnected_room_cleanup(self):
         store = Store()
+        self.addCleanup(store.history.close)
         room = self.room()
         room.touched = time.time() - 13 * 3600
         room.clients = {'host': set()}

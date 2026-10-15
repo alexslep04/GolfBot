@@ -76,12 +76,12 @@ A five-card flush, straight, full house, or four of a kind subtracts 5 points. A
 ### V10
 <!-- rule: v10 -->
 
-A Queen, Jack, and 10 in any order forming either V divide the final score by 5, rounded up. Apply once.
+Any three cards chosen from 10, Jack, and Queen forming either V divide the final score by 5, rounded up. Repeated ranks count (e.g. Q-Q-10 or J-J-J). Apply once.
 
 ### Tricky straights
 <!-- rule: tricky_straights -->
 
-A row of ascending consecutive ranks adds the rightmost card's points. Descending ranks subtract its points. Each row counts separately; Aces may be low or high.
+An ascending consecutive row adds its rightmost card's base Golf points to your opponent's score. A descending row subtracts those points from your score. Each row counts separately; Aces may be low or high. Apply before divisions.
 
 ### The ripped 5
 <!-- rule: ripped_five -->
@@ -103,12 +103,17 @@ The player with the highest visible card value may guess an opponent's chosen hi
 
 Four visible cards of one rank may immediately be moved into any two columns, or left in place. Offer once per rank per player. Preserve hidden cards and locks; resume the turn afterward.
 
+### Poisoned Card
+<!-- rule: poisoned_card -->
+
+The first player to reveal all six cards adds 5 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
+
 ## Shared conventions
 
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
 - **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
-- Score columns first, including ripped-5 cancellation and King-Queen values. Then apply Tricky straights and the single Hold 'em reduction. Finally apply earned 777, Roman 5s, and V10 divisions. Modifiers may produce negative scores.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Then apply all additions and subtractions: Tricky straights (including incoming opponent effects), Hold 'em, and Poisoned Card. Finally apply earned 777, Roman 5s, and V10 divisions. Modifiers may produce negative scores. Each player's divisions apply to their own adjusted score.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
 - A ripped-5 cross-row pair uses the first unmatched opposite-row 5 from left to right. No card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.
