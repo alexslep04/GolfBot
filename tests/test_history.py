@@ -81,15 +81,35 @@ class HistoryTests(unittest.TestCase):
         self.assertIsNone(match['winner'])
         self.assertEqual(match['points'], [4, 10])
 
-    def test_solo_results_and_completed_match_survive_abandon_save(self):
+    def test_solo_results_are_not_saved(self):
         self.room.solo, self.room.best_of = True, 1
         self.room.seats[1], self.room.names[1] = None, 'GolfBot'
         self.finish([2, 7])
         self.store.history.save(self.room, abandoned=True)
+        self.assertEqual(self.store.history.for_browser('host-token'), [])
+        self.assertEqual(self.store.history.connection.execute('SELECT count(*) FROM matches').fetchone()[0], 0)
+
+    def test_completed_multiplayer_match_survives_abandon_save(self):
+        self.room.best_of = 1
+        self.finish([2, 7])
+        self.store.history.save(self.room, abandoned=True)
         match = self.store.history.for_browser('host-token')[0]
-        self.assertTrue(match['solo'])
+        self.assertFalse(match['solo'])
         self.assertEqual(match['status'], 'finished')
         self.assertEqual(match['winner'], 0)
+
+    def test_old_solo_records_are_excluded_before_pagination(self):
+        self.finish([2, 7])
+        match = self.store.history.for_browser('host-token')[0]
+        for index in range(60):
+            legacy = {**match, 'id': f'solo-{index}', 'solo': True}
+            with self.store.history.connection:
+                self.store.history.connection.execute('INSERT INTO matches VALUES (?, ?, ?, ?, ?)',
+                    (legacy['id'], browser_key('host-token'), None, 9999999999 + index, json.dumps(legacy)))
+        visible = self.store.history.for_browser('host-token', limit=1)
+        self.assertEqual(len(visible), 1)
+        self.assertEqual(visible[0]['id'], match['id'])
+        self.assertFalse(visible[0]['solo'])
 
     def test_api_pages_old_matches_and_rejects_unauthenticated_access(self):
         with TestClient(create_app(self.store)) as client:

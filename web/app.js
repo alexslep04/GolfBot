@@ -12,6 +12,73 @@ let catalog = [],
   page = "home",
   toastTimer;
 const suit = { S: "♠", H: "♥", D: "♦", C: "♣" };
+const emoteNames = {
+  unamused: "Unamused",
+  shocked: "Shocked",
+  laughing: "Laughing",
+  nervous: "Nervous",
+};
+let activeEmotes = {},
+  emoteSeen = {},
+  emoteTimers = {},
+  emoteTable = "",
+  emoteRound = null,
+  emotePending = false;
+function clearEmotes() {
+  Object.values(emoteTimers).forEach(clearTimeout);
+  activeEmotes = {};
+  emoteSeen = {};
+  emoteTimers = {};
+}
+function syncEmotes(next) {
+  if (emoteTable !== next.id || emoteRound !== next.round) {
+    clearEmotes();
+    emoteTable = next.id;
+    emoteRound = next.round;
+  }
+  for (const item of next.emotes || []) {
+    if (!emoteNames[item.id] || item.sequence <= (emoteSeen[item.player] || 0))
+      continue;
+    emoteSeen[item.player] = item.sequence;
+    clearTimeout(emoteTimers[item.player]);
+    const remaining = Math.max(0, Math.min(4000, item.remaining_ms));
+    activeEmotes[item.player] = { ...item, ends: Date.now() + remaining };
+    emoteTimers[item.player] = setTimeout(() => {
+      if (activeEmotes[item.player]?.sequence !== item.sequence) return;
+      delete activeEmotes[item.player];
+      document
+        .querySelectorAll(`[data-emote-player='${item.player}']`)
+        .forEach((element) => element.remove());
+    }, remaining);
+  }
+}
+function handEmote(player) {
+  const item = activeEmotes[player];
+  if (!item || item.ends <= Date.now()) return "";
+  const age = Math.max(0, 4000 - (item.ends - Date.now()));
+  return `<div class='hand-emote' data-emote-player='${player}' role='status' style='animation-delay:-${age}ms'><img src='/static/emotes/${item.id}.png' alt='${e(state.names[player])}: ${emoteNames[item.id]} emote'></div>`;
+}
+function quickEmotes() {
+  return `<section class='panel quick-emotes' aria-label='Quick emotes'><h3>Quick emotes</h3><div class='emote-buttons'>${Object.entries(
+    emoteNames,
+  )
+    .map(
+      ([id, label]) =>
+        `<button type='button' class='emote-button' data-emote='${id}' title='${label}' aria-label='Send ${label.toLowerCase()} emote' ${state.status === "closed" ? "disabled" : ""}><img src='/static/emotes/${id}.png' alt=''></button>`,
+    )
+    .join("")}</div></section>`;
+}
+async function sendEmote(id) {
+  if (emotePending || !state?.game) return;
+  emotePending = true;
+  try {
+    accept(await api(`/api/lobbies/${state.id}/emote`, "POST", { emote: id }));
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    emotePending = false;
+  }
+}
 const starter = {
   host: "Host first",
   guest: "Guest first",
@@ -61,7 +128,7 @@ async function historyPage(more = false) {
     }
     historyEntries.push(...result.matches);
     historyOffset = result.next_offset;
-    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Your solo games and best-of series. Points are summed per player; series winners are decided by round wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `History is saved for this browser on this site address.`}</p>${
+    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Your multiplayer games and best-of series. Points are summed per player; series winners are decided by round wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `History is saved for this browser on this site address.`}</p>${
       historyEntries
         .map((match) => {
           const winner =
@@ -78,7 +145,7 @@ async function historyPage(more = false) {
           return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Solo" : `Best of ${match.best_of}`} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
         })
         .join("") ||
-      `<div class='empty'>No completed games yet. Finish a round to record its score here.</div>`
+      `<div class='empty'>No multiplayer games yet. Finish a round in a lobby to record its score here.</div>`
     }${historyOffset !== null ? `<button class='button secondary' data-history-more>Load older matches</button>` : ""}</section>`;
   } catch (error) {
     if (page === "history" && request === historyRequest)
@@ -145,6 +212,8 @@ function back(label = "Back to menu") {
   return `<button class='button secondary' data-nav='home'>${label}</button>`;
 }
 function home() {
+  clearEmotes();
+  emoteTable = "";
   page = "home";
   markTab(false);
   document.title = "GolfBot · Your table";
@@ -231,6 +300,7 @@ function connectRoom(id) {
 }
 function accept(next) {
   if (state && state.id === next.id && next.version < state.version) return;
+  syncEmotes(next);
   const changed =
     state?.game?.phase !== next.game?.phase ||
     state?.game?.decision_player !== next.game?.decision_player;
@@ -276,7 +346,7 @@ function handHtml(player) {
   const own = player === state.viewer;
   const legal = g.legal;
   const trade = legal.trade.flat();
-  return `<section class='hand ${own ? "your-hand" : "opponent-hand"}'><div class='hand-heading'><span>${e(state.names[player])}${own ? " · You" : ""}</span><small>${g.phase === "over" ? "Score" : "Visible"} ${g.scores[player]}${!state.connected[player] && !state.solo ? " · offline" : ""}</small></div><div class='card-grid'>${g.players[
+  return `<section class='hand ${own ? "your-hand" : "opponent-hand"}'>${handEmote(player)}<div class='hand-heading'><span>${e(state.names[player])}${own ? " · You" : ""}</span><small>${g.phase === "over" ? "Score" : "Visible"} ${g.scores[player]}${!state.connected[player] && !state.solo ? " · offline" : ""}</small></div><div class='card-grid'>${g.players[
     player
   ]
     .map((slot, i) => {
@@ -369,7 +439,7 @@ function renderRoom() {
     )
     .join(
       "",
-    )}</div><div class='small-actions'>${g.legal.end_turn ? `<button class='button secondary' data-action='end_turn'>End turn ↵</button>` : ""}</div><p class='hint' style='margin:12px 0 0'>${e(g.last_move)}</p></section>${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div>${modalHtml()}`;
+    )}</div><div class='small-actions'>${g.legal.end_turn ? `<button class='button secondary' data-action='end_turn'>End turn ↵</button>` : ""}</div><p class='hint' style='margin:12px 0 0'>${e(g.last_move)}</p></section>${quickEmotes()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${!state.solo && state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div>${modalHtml()}`;
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
@@ -458,6 +528,10 @@ root.addEventListener("click", async (event) => {
       } catch {
         toast("Copy the lobby link from the address bar.");
       }
+      return;
+    }
+    if (button.dataset.emote) {
+      await sendEmote(button.dataset.emote);
       return;
     }
     if (button.dataset.ref) {

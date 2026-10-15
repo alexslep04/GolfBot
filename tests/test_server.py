@@ -114,6 +114,73 @@ class WebTests(unittest.TestCase):
         info = self.outsider.get(f'/api/lobbies/{self.id}').json()
         self.assertNotIn('game', info)
 
+    def test_emotes_broadcast_sender_without_changing_turn_or_version(self):
+        self.start()
+        version = self.room.version
+        game_before = {0: self.state()['game'], 1: self.state(self.guest)['game']}
+        with self.host.websocket_connect(f'/ws/{self.id}') as host_ws:
+            host_ws.receive_json()
+            with self.guest.websocket_connect(f'/ws/{self.id}') as guest_ws:
+                guest_ws.receive_json()
+                host_ws.receive_json()
+                response = self.guest.post(f'/api/lobbies/{self.id}/emote', json={'emote': 'shocked'})
+                self.assertEqual(response.status_code, 200, response.text)
+                for state in (response.json(), host_ws.receive_json(), guest_ws.receive_json()):
+                    self.assertEqual(state['version'], version)
+                    self.assertEqual(state['emotes'][0]['player'], 1)
+                    self.assertEqual(state['emotes'][0]['id'], 'shocked')
+                    self.assertGreater(state['emotes'][0]['remaining_ms'], 0)
+                    self.assertLessEqual(state['emotes'][0]['remaining_ms'], 4000)
+                    self.assertEqual(state['game'], game_before[state['viewer']])
+                response = self.host.post(f'/api/lobbies/{self.id}/action', json={'action': 'draw', 'version': version})
+                self.assertEqual(response.status_code, 200, response.text)
+
+    def test_emote_access_validation_and_independent_sender_cooldowns(self):
+        self.create()
+        path = f'/api/lobbies/{self.id}/emote'
+        self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 409)
+        self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Guest'})
+        self.move('ready', self.guest)
+        self.move('start')
+        self.assertEqual(self.outsider.post(path, json={'emote': 'laughing'}).status_code, 403)
+        self.assertEqual(self.host.post(path, json={'emote': '../../other'}).status_code, 422)
+        self.assertEqual(self.host.post(path, json={'emote': 'laughing', 'player': 1}).status_code, 422)
+        self.assertEqual(self.host.post(path, json={'emote': 'laughing'}).status_code, 200)
+        self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 429)
+        self.assertEqual(self.guest.post(path, json={'emote': 'nervous'}).status_code, 200)
+        self.assertEqual(len(self.state()['emotes']), 2)
+        self.host.post(f'/api/lobbies/{self.id}/leave')
+        self.assertEqual(self.guest.post(path, json={'emote': 'shocked'}).status_code, 409)
+
+    def test_emotes_replace_expire_and_reset_on_new_round(self):
+        self.start()
+        path = f'/api/lobbies/{self.id}/emote'
+        self.host.post(path, json={'emote': 'laughing'})
+        first = self.state()['emotes'][0]['sequence']
+        self.room.last_emote[0] = time.monotonic() - 1
+        self.host.post(path, json={'emote': 'unamused'})
+        current = self.state()['emotes']
+        self.assertEqual(len(current), 1)
+        self.assertGreater(current[0]['sequence'], first)
+        self.assertEqual(current[0]['id'], 'unamused')
+        self.room.emotes[0]['expires_at'] = time.time() - 1
+        self.assertEqual(self.state()['emotes'], [])
+        self.room.last_emote[0] = time.monotonic() - 1
+        self.host.post(path, json={'emote': 'nervous'})
+        self.room.start_round()
+        self.assertEqual(self.state()['emotes'], [])
+
+    def test_supplied_emote_images_are_served_and_solo_remains_playable(self):
+        for name in ('unamused', 'shocked', 'laughing', 'nervous'):
+            response = self.host.get(f'/static/emotes/{name}.png')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers['content-type'], 'image/png')
+        state = self.host.post('/api/solo', json={}).json()
+        response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': 'laughing'})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['solo'])
+        self.assertEqual(self.host.get('/api/history').json()['matches'], [])
+
     def test_roman_fives_public_state_agrees_with_final_scores(self):
         self.start(rules={'roman_fives': True, 'king_queen': True, 'ripped_five': True, 'holdem': True, 'tricky_straights': True})
         self.room.game.players[1] = [Slot(Card(rank, suit), True) for rank, suit in zip([3, 5, 8, 10, 12, 13], 'SHDCSH')]
