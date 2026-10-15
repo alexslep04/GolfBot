@@ -33,7 +33,7 @@ class MatchHistory:
                     self.connection.execute("UPDATE matches SET payload=? WHERE id=?", (json.dumps(match), match_id))
 
     def save(self, room, abandoned=False):
-        if not room.history:
+        if room.solo or not room.history:
             return
         payload = {
             "id": room.match_id, "lobby_name": room.name, "names": list(room.names),
@@ -51,7 +51,7 @@ class MatchHistory:
     def for_browser(self, token, limit=100, offset=0):
         key = browser_key(token)
         with self.lock:
-            rows = self.connection.execute("SELECT host, payload FROM matches WHERE host=? OR guest=? ORDER BY updated DESC, id LIMIT ? OFFSET ?", (key, key, limit, offset)).fetchall()
+            rows = self.connection.execute("SELECT host, payload FROM matches WHERE (host=? OR guest=?) AND COALESCE(json_extract(payload, '$.solo'), 0)=0 ORDER BY updated DESC, id LIMIT ? OFFSET ?", (key, key, limit, offset)).fetchall()
         return [{**json.loads(payload), "viewer": 0 if host == key else 1} for host, payload in rows]
 
     def close(self):

@@ -1044,3 +1044,89 @@ footer {
     table-layout: fixed;
   }
 }
+.hand {
+  position: relative;
+}
+.hand-emote {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  top: -48px;
+  width: 84px;
+  height: 84px;
+  pointer-events: none;
+  animation: emote-pop 4s both;
+  filter: drop-shadow(0 5px 8px #0006);
+}
+.hand-emote img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.quick-emotes {
+  margin: 18px 0;
+  padding: 16px;
+}
+.quick-emotes h3 {
+  font-size: 14px;
+  color: var(--gold);
+  margin-bottom: 12px;
+}
+.emote-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.emote-button {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: #143225;
+  border-radius: 10px;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.emote-button:hover:not(:disabled) {
+  background: #2a513a;
+  border-color: var(--gold);
+}
+.emote-button img {
+  width: clamp(32px, 7vw, 48px);
+  height: clamp(32px, 7vw, 48px);
+  object-fit: contain;
+}
+@keyframes emote-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 8px) scale(0.9);
+  }
+  8%,
+  78% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(1.02);
+  }
+}
+@keyframes emote-fade {
+  0%,
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hand-emote {
+    transform: translateX(-50%);
+    animation-name: emote-fade;
+  }
+}

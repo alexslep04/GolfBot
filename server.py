@@ -23,6 +23,13 @@ from scoring import active_rule_effects, visible_effect_total
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
 START_POLICIES = ("host", "guest", "alternate", "random", "winner", "loser")
+EMOTE_SECONDS = 4
+EMOTE_COOLDOWN = 0.8
+
+
+class Emote(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    emote: Literal["unamused", "shocked", "laughing", "nervous"]
 
 
 class Settings(BaseModel):
@@ -84,6 +91,9 @@ class Room:
     history_store: MatchHistory | None = None
     match_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
     started_at: float = field(default_factory=time.time)
+    emotes: dict = field(default_factory=dict)
+    emote_sequence: int = 0
+    last_emote: dict = field(default_factory=dict)
 
     @property
     def target(self):
@@ -100,6 +110,7 @@ class Room:
         self.status = "playing"
         self.ready = [False, self.solo]
         self.round_recorded = False
+        self.emotes.clear()
 
     def record_result(self):
         if self.game is None or self.game.phase != "over" or self.round_recorded:
@@ -195,11 +206,18 @@ def message(room, viewer):
     }.get(game.phase, "Waiting...")
 
 
+def public_emotes(room):
+    now = time.time()
+    return [{**emote, "remaining_ms": int((emote["expires_at"] - now) * 1000)}
+            for emote in room.emotes.values() if emote["expires_at"] > now]
+
+
 def snapshot(room, token):
     if token not in room.seats:
         raise HTTPException(403, "You do not have a seat in this lobby.")
     viewer = room.seats.index(token)
     state = {**public_room(room), "viewer": viewer, "version": room.version,
+             "emotes": public_emotes(room),
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
              "round": len(room.history) + (0 if room.round_recorded else 1),
@@ -496,6 +514,26 @@ def create_app(store=None):
                 raise HTTPException(422, str(error)) from error
             await broadcast(room)
             kick_bot(room)
+            return snapshot(room, session.token)
+
+    @app.post("/api/lobbies/{room_id}/emote")
+    async def send_emote(room_id: str, body: Emote, request: Request):
+        session = session_for(request)
+        room = find_room(room_id)
+        async with room.lock:
+            if session.token not in room.seats:
+                raise HTTPException(403, "You do not have a seat in this lobby.")
+            if room.game is None or room.status not in ("playing", "round_over", "finished"):
+                raise HTTPException(409, "Emotes are available at the game table.")
+            player = room.seats.index(session.token)
+            if time.monotonic() - room.last_emote.get(player, float('-inf')) < EMOTE_COOLDOWN:
+                raise HTTPException(429, "Wait a moment before sending another emote.")
+            room.last_emote[player] = time.monotonic()
+            room.emote_sequence += 1
+            room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
+                                   "expires_at": time.time() + EMOTE_SECONDS}
+            # Cosmetic events must not invalidate a simultaneous card action.
+            await broadcast(room)
             return snapshot(room, session.token)
 
     @app.post("/api/lobbies/{room_id}/leave")

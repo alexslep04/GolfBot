@@ -26,9 +26,11 @@ Enabled bonus swaps use the same Swap button with two selected table cards. Begg
 
 **V10** accepts any three 10s, Jacks, or Queens in either V, including repeated ranks. **Tricky straights** adds an ascending row's rightmost base points to the opponent, or subtracts a descending row's rightmost base points from its owner. **Poisoned Card** adds 5 to the first player to reveal all six cards. All score additions/subtractions happen before divisions, using unmodified card values to detect patterns.
 
+Use **Quick emotes** at the table to send one of the four supplied faces. Both players see it in a fixed spot beside the sender's hand. It fades after four seconds; a new emote replaces that player's previous one. Emotes work on either player's turn and do not consume an action.
+
 ## Match history
 
-Open the **Match history** tab to see your solo games and best-of series. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
+Open the **Match history** tab to see your multiplayer games and best-of series. Solo games are not recorded, and older solo records are excluded. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
 
 Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed round; past games from older versions cannot be reconstructed.
 
