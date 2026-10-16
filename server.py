@@ -184,7 +184,7 @@ def message(room, viewer):
     if room.status == "closed":
         return "The other player left. Return to the menu to find a new table."
     if game is None:
-        return "Waiting for a second player." if room.seats[1] is None else "Mark ready; the host can then start."
+        return "Waiting for a second player. The game starts when they join."
     if game.phase == "over":
         result = room.history[-1]
         return "Round drawn." if result["winner"] is None else f"{room.names[result['winner']]} wins this round."
@@ -303,7 +303,7 @@ def apply_move(room, token, move):
         room.match_id, room.started_at = secrets.token_urlsafe(12), time.time()
         room.game, room.round_recorded = None, False
         room.ready, room.status = [False, room.solo], "waiting"
-        if room.solo:
+        if room.solo or room.seats[1] is not None:
             room.start_round()
     else:
         if game is None or room.status != "playing":
@@ -491,6 +491,8 @@ def create_app(store=None):
             session.username = clean_name(body.username)
             room.seats[1], room.names[1] = session.token, session.username
             session.room_id = room.id
+            room.ready[1] = True
+            room.start_round()
             room.version += 1
             room.touched = time.time()
             await broadcast(room)

@@ -24,6 +24,10 @@ let activeEmotes = {},
   emoteTable = "",
   emoteRound = null,
   controlsMode = "actions";
+let opponentEmotesMuted = false;
+try {
+  opponentEmotesMuted = localStorage.getItem("golf-mute-emotes") === "true";
+} catch {}
 function clearEmotes() {
   Object.values(emoteTimers).forEach(clearTimeout);
   activeEmotes = {};
@@ -42,6 +46,10 @@ function syncEmotes(next) {
       continue;
     emoteSeen[item.player] = item.sequence;
     clearTimeout(emoteTimers[item.player]);
+    if (opponentEmotesMuted && item.player !== next.viewer) {
+      delete activeEmotes[item.player];
+      continue;
+    }
     const remaining = Math.max(0, Math.min(4000, item.remaining_ms));
     activeEmotes[item.player] = { ...item, ends: Date.now() + remaining };
     emoteTimers[item.player] = setTimeout(() => {
@@ -54,6 +62,7 @@ function syncEmotes(next) {
   }
 }
 function playerEmote(player) {
+  if (opponentEmotesMuted && player !== state.viewer) return "";
   const item = activeEmotes[player];
   if (!item || item.ends <= Date.now()) return "";
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
@@ -327,7 +336,7 @@ function shareHtml() {
 }
 function waitingRoom() {
   const viewer = state.viewer;
-  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(state.name)}</h1><button class='button secondary' data-leave>Leave lobby</button></div><div class='panel'><div class='eyebrow'>Invite a friend to the table</div>${shareHtml()}<div class='waiting-meta'><span>Best of ${state.best_of} · first to ${state.target}</span><span>${e(starter[state.first])}</span></div><div class='players-row'>${state.names.map((n, i) => `<div class='seat'><span class='pill'>${i === 0 ? "Host" : "Guest"}</span><strong>${e(n)}</strong><span class='hint'>${state.connected[i] ? "Connected" : i === 1 && state.players < 2 ? "Seat open" : "Offline"}${state.ready[i] ? " · Ready" : ""}${i === viewer ? " · You" : ""}</span></div>`).join("")}</div><h3>Rules in play</h3>${rulesHtml(state.rules, false, "config", true)}<div class='button-row'>${viewer === 0 ? `<button class='button gold' data-action='start' ${state.players < 2 || !state.ready[1] ? "disabled" : ""}>Start game</button><span class='hint'>${state.players < 2 ? "Waiting for a guest." : state.ready[1] ? "Your guest is ready." : "Waiting for your guest to mark ready."}</span>` : `<button class='button gold' data-action='ready' ${state.ready[1] ? "disabled" : ""}>${state.ready[1] ? "Ready ✓" : "Ready to play"}</button><span class='hint'>The host starts once you are ready.</span>`}</div></div></div>`;
+  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(state.name)}</h1><button class='button secondary' data-leave>Leave lobby</button></div><div class='panel'><div class='eyebrow'>Invite a friend to the table</div>${shareHtml()}<div class='waiting-meta'><span>Best of ${state.best_of} · first to ${state.target}</span><span>${e(starter[state.first])}</span></div><div class='players-row'>${state.names.map((n, i) => `<div class='seat'><span class='pill'>${i === 0 ? "Host" : "Guest"}</span><strong>${e(n)}</strong><span class='hint'>${state.connected[i] ? "Connected" : i === 1 && state.players < 2 ? "Seat open" : "Offline"}${state.ready[i] ? " · Ready" : ""}${i === viewer ? " · You" : ""}</span></div>`).join("")}</div><h3>Rules in play</h3>${rulesHtml(state.rules, false, "config", true)}<p class='hint'>Waiting for a guest. The game starts automatically when they join.</p></div></div>`;
 }
 function selectedRef(ref) {
   return selected.some((r) => same(r, ref));
@@ -344,7 +353,7 @@ function handHtml(player) {
   const own = player === state.viewer;
   const legal = g.legal;
   const trade = legal.trade.flat();
-  return `<section class='hand ${own ? "your-hand" : "opponent-hand"}'><div class='hand-heading'><span>${e(state.names[player])}${own ? " · You" : ""}</span><small>${g.phase === "over" ? "Score" : "Visible"} ${g.scores[player]}${!state.connected[player] && !state.solo ? " · offline" : ""}</small></div><div class='card-grid'>${g.players[
+  return `<section class='hand ${own ? "your-hand" : "opponent-hand"}'><div class='hand-heading'><span>${e(state.names[player])}${own ? " · You" : ""}</span><small>${g.phase === "over" ? `Score: ${g.scores[player]}` : `Visible: ${g.scores[player]}, Active: ${g.effect_totals[player]}`}${!state.connected[player] && !state.solo ? " · offline" : ""}</small></div><div class='card-grid'>${g.players[
     player
   ]
     .map((slot, i) => {
@@ -417,7 +426,7 @@ function modalHtml() {
 function turnControls() {
   const g = state.game;
   const showingEmotes = controlsMode === "emotes";
-  return `<section class='turn-controls' aria-label='Turn controls'><div class='controls-heading'><div class='turn-title'>${showingEmotes ? "Quick emotes" : e(state.message)}</div><button type='button' class='controls-toggle' data-controls-toggle aria-label='${showingEmotes ? "Show game actions" : "Show quick emotes"}' aria-pressed='${showingEmotes}' title='${showingEmotes ? "Game actions" : "Quick emotes"}'>${showingEmotes ? "↩" : "☺"}</button></div><div class='controls-content'>${
+  return `<section class='turn-controls' aria-label='Turn controls'><div class='controls-heading'><div class='turn-title'>${showingEmotes ? "Quick emotes" : e(state.message)}</div><div class='controls-tools'><button type='button' class='controls-toggle' data-emote-mute aria-label='${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}' aria-pressed='${opponentEmotesMuted}' title='${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}'>${opponentEmotesMuted ? "🔕" : "🔔"}</button><button type='button' class='controls-toggle' data-controls-toggle aria-label='${showingEmotes ? "Show game actions" : "Show quick emotes"}' aria-pressed='${showingEmotes}' title='${showingEmotes ? "Game actions" : "Quick emotes"}'>${showingEmotes ? "↩" : "☺"}</button></div></div><div class='controls-content'>${
     showingEmotes
       ? quickEmotes()
       : `<div class='button-row'>${[
@@ -533,6 +542,19 @@ root.addEventListener("click", async (event) => {
       } catch {
         toast("Copy the lobby link from the address bar.");
       }
+      return;
+    }
+    if (button.hasAttribute("data-emote-mute")) {
+      opponentEmotesMuted = !opponentEmotesMuted;
+      try {
+        localStorage.setItem("golf-mute-emotes", String(opponentEmotesMuted));
+      } catch {}
+      if (opponentEmotesMuted) {
+        const opponent = 1 - state.viewer;
+        clearTimeout(emoteTimers[opponent]);
+        delete activeEmotes[opponent];
+      }
+      renderRoom();
       return;
     }
     if (button.hasAttribute("data-controls-toggle")) {

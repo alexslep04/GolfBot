@@ -17,16 +17,16 @@ python -m venv .venv
 The menu offers **Join lobby**, **Host lobby**, and **Play solo**.
 
 - **Solo:** play the existing game against GolfBot. Choose optional rules before your second opening flip.
-- **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link, wait for the guest to mark ready, then press Start game.
-- **Join:** browse existing tables or open an invite link. Review the rules, enter your name, join, and mark ready.
+- **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link. The game starts automatically when a guest joins.
+- **Join:** browse existing tables or open an invite link. Review the rules, enter your name, and join to start playing.
 
 Both players choose two opening cards. Click a card to select or unselect it; use **Flip**, **Swap**, **Draw**, or **Discard**. Selecting the go-fish pile and pressing Flip also draws. After a layout flip, **End turn** appears; Enter works too. Draw-first allows immediate discard, replacing an already visible card, or flipping a hidden card before replacing it.
 
-Enabled bonus swaps use the same Swap button with two selected table cards. Beggars presents a rank guess to the eligible opponent; 4 of a Kind presents column choices. Hover or focus **?** for concise rule explanations. The effects sidebar lists individual numeric adjustments and totals separately from the turn prompt.
+Enabled bonus swaps use the same Swap button with two selected table cards. Beggars presents a rank guess to the eligible opponent; 4 of a Kind presents column choices. Hover or focus **?** for concise rule explanations. Each hand shows **Visible** points and **Active** points with current effects, including multipliers. Hidden cards are excluded. The effects sidebar lists the individual adjustments.
 
 **V10** accepts any three 10s, Jacks, or Queens in either V, including repeated ranks. **Tricky straights** adds an ascending row's rightmost base points to the opponent, or subtracts a descending row's rightmost base points from its owner. **Poisoned Card** adds 5 to the first player to reveal all six cards. All score additions/subtractions happen before divisions, using unmodified card values to detect patterns.
 
-Use the top-right **☺** button in the action panel to switch between game actions and the four **Quick emotes**. Both players’ reactions appear prominently in the middle of the screen, labeled with the sender’s name, and fade after four seconds. Send an emote again to replay it and restart its timer; both players can react at once. Emotes work on either player’s turn and do not consume an action or clear card selections.
+Use the top-right **☺** button in the action panel to switch between game actions and the four **Quick emotes**. Both players’ reactions appear prominently in the middle of the screen, labeled with the sender’s name, and fade after four seconds. Send an emote again to replay it and restart its timer; both players can react at once. Emotes work on either player’s turn and do not consume an action or clear card selections. The **bell** beside the menu switch mutes your opponent’s emotes in both menu views; it leaves your own emotes visible and remembers your choice in this browser.
 
 ## Match history
 
