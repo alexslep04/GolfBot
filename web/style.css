@@ -1165,3 +1165,20 @@ footer {
     animation-name: emote-fade;
   }
 }
+
+.controls-tools {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.hand-heading {
+  gap: 10px;
+}
+.hand-heading > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.hand-heading small {
+  flex-shrink: 0;
+  text-align: right;
+}

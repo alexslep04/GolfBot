@@ -47,8 +47,6 @@ class WebTests(unittest.TestCase):
     def start(self, **settings):
         self.create(**settings)
         self.assertEqual(self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Sam'}).status_code, 200)
-        self.move('ready', self.guest)
-        self.move('start')
         for client in (self.host, self.guest):
             for index in (0, 1):
                 self.move('flip', client, index=index)
@@ -63,7 +61,7 @@ class WebTests(unittest.TestCase):
         self.assertIn('HttpOnly', cookie)
         self.assertIn('SameSite=lax', cookie)
 
-    def test_lobby_configuration_membership_and_host_start(self):
+    def test_join_automatically_starts_with_configured_rules_and_first_player(self):
         created = self.create(first='guest', best_of=5, rules={'queen_swap': True})
         self.assertTrue(created['rules']['queen_swap'])
         self.assertEqual(created['target'], 3)
@@ -73,8 +71,8 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.outsider.post(f'/api/lobbies/{self.id}/join', json={'username': 'Third'}).status_code, 409)
         self.move('start', self.guest, status=409)
         self.move('ready', status=409)
-        self.move('ready', self.guest)
-        state = self.move('start')
+        self.move('ready', self.guest, status=409)
+        state = self.state()
         self.assertEqual(state['game']['first_player'], 1)
         self.assertEqual(state['game']['phase'], 'setup')
         self.assertEqual(state['names'], ['Alex', 'Sam'])
@@ -82,8 +80,6 @@ class WebTests(unittest.TestCase):
     def test_both_players_choose_exactly_two_opening_cards(self):
         self.create(first='guest')
         self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Sam'})
-        self.move('ready', self.guest)
-        self.move('start')
         self.move('flip', self.guest, index=4)
         self.move('flip', self.guest, index=5)
         self.move('flip', self.guest, index=3, status=422)
@@ -140,8 +136,6 @@ class WebTests(unittest.TestCase):
         path = f'/api/lobbies/{self.id}/emote'
         self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 409)
         self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Guest'})
-        self.move('ready', self.guest)
-        self.move('start')
         self.assertEqual(self.outsider.post(path, json={'emote': 'laughing'}).status_code, 403)
         self.assertEqual(self.host.post(path, json={'emote': '../../other'}).status_code, 422)
         self.assertEqual(self.host.post(path, json={'emote': 'laughing', 'player': 1}).status_code, 422)
@@ -319,13 +313,14 @@ class WebTests(unittest.TestCase):
         with self.host.websocket_connect(f'/ws/{self.id}') as ws:
             self.assertTrue(ws.receive_json()['connected'][0])
             self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Sam'})
-            self.assertEqual(ws.receive_json()['players'], 2)
-            self.move('ready', self.guest)
-            self.assertTrue(ws.receive_json()['ready'][1])
+            joined = ws.receive_json()
+            self.assertEqual(joined['players'], 2)
+            self.assertEqual(joined['status'], 'playing')
+            self.assertEqual(joined['game']['phase'], 'setup')
         with self.host.websocket_connect(f'/ws/{self.id}') as ws:
             state = ws.receive_json()
             self.assertEqual(state['viewer'], 0)
-            self.assertTrue(state['ready'][1])
+            self.assertEqual(state['game']['phase'], 'setup')
             ws.send_text('ping')
             self.assertEqual(ws.receive_json()['version'], self.room.version)
         with self.assertRaises(WebSocketDisconnect):
@@ -335,18 +330,28 @@ class WebTests(unittest.TestCase):
             with self.host.websocket_connect(f'/ws/{self.id}', headers={'Origin': 'https://evil.invalid'}):
                 pass
 
-    def test_leave_reopens_waiting_guest_seat_and_closes_active_table(self):
+    def test_leaving_an_automatically_started_table_closes_it(self):
         self.create()
-        self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Sam'})
+        joined = self.guest.post(f'/api/lobbies/{self.id}/join', json={'username': 'Sam'})
+        self.assertEqual(joined.json()['status'], 'playing')
         self.guest.post(f'/api/lobbies/{self.id}/leave')
-        self.assertEqual(self.state()['players'], 1)
-        self.outsider.post(f'/api/lobbies/{self.id}/join', json={'username': 'New guest'})
-        self.move('ready', self.outsider)
-        self.move('start')
-        self.outsider.post(f'/api/lobbies/{self.id}/leave')
         self.assertEqual(self.state()['status'], 'closed')
+        self.assertEqual(self.outsider.post(f'/api/lobbies/{self.id}/join', json={'username': 'New guest'}).status_code, 409)
         self.move('draw', status=409)
         self.assertEqual(self.host.get('/api/lobbies').json(), [])
+
+    def test_repeated_join_and_reconnect_do_not_restart_the_round(self):
+        self.create()
+        path = f'/api/lobbies/{self.id}/join'
+        self.guest.post(path, json={'username': 'Sam'}).raise_for_status()
+        self.move('flip', self.guest, index=4)
+        before = self.state(self.guest)
+        game = self.room.game
+        repeated = self.guest.post(path, json={'username': 'Other name'})
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json(), before)
+        self.assertIs(self.room.game, game)
+        self.assertEqual(self.room.game.visible_count(1), 1)
 
     def test_invalid_settings_and_cross_origin_requests(self):
         for body in ({'best_of': 2}, {'best_of': True}, {'username': '   '}, {'rules': {'not_a_rule': True}}, {'first': 'other'}):
@@ -404,7 +409,8 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(room.champion, 0)
         apply_move(room, 'host', Move(action='rematch', version=room.version))
         self.assertEqual(room.history, [])
-        self.assertEqual(room.status, 'waiting')
+        self.assertEqual(room.status, 'playing')
+        self.assertEqual(room.game.phase, 'setup')
         self.assertEqual(room.ready, [False, False])
 
     def test_disconnected_room_cleanup(self):
