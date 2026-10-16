@@ -1182,3 +1182,143 @@ footer {
   flex-shrink: 0;
   text-align: right;
 }
+
+@media (max-width: 600px) {
+  .board-heading > div {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .match-score {
+    overflow-wrap: anywhere;
+  }
+  .table-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .hands,
+  .hand-heading {
+    display: contents;
+  }
+  .hand {
+    max-width: 354px;
+    align-self: center;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) 22px;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+  }
+  .hand-name,
+  .hand-score {
+    grid-row: 1;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    text-align: center;
+    white-space: nowrap;
+    min-height: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hand-name {
+    grid-column: 1;
+    transform: rotate(180deg);
+    font-size: 14px;
+  }
+  .hand .hand-score {
+    text-align: center;
+    grid-column: 3;
+    font-size: 12px;
+  }
+  .hand .card-grid {
+    width: 100%;
+    max-width: 270px;
+    justify-self: center;
+    grid-column: 2;
+    grid-row: 1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .hand .card-grid .card {
+    width: 100%;
+    min-width: 0;
+  }
+  .opponent-hand {
+    order: 1;
+    margin-bottom: 0;
+  }
+  .table-side {
+    order: 2;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+  }
+  .table-side h3 {
+    display: none;
+  }
+  .your-hand {
+    order: 3;
+  }
+  .turn-controls {
+    order: 4;
+    width: 100%;
+    margin-top: 0;
+  }
+  .round-summary {
+    order: 5;
+    width: 100%;
+  }
+  .sidebar {
+    order: 6;
+    width: 100%;
+  }
+  .table-side .piles {
+    gap: 10px;
+    margin: 0;
+  }
+  .table-side .drawn {
+    margin: 0;
+    text-align: center;
+  }
+  .table-side .card {
+    width: clamp(72px, 22vw, 96px);
+    aspect-ratio: 1.35135;
+    margin: 4px auto;
+  }
+  .table-side .pile-label,
+  .table-side .pile-count,
+  .table-side .drawn > .hint {
+    font-size: 10px;
+    margin: 0;
+    line-height: 1.4;
+  }
+  .table-side .drawn > .hint {
+    display: block;
+  }
+  .table-side .card .rank {
+    top: 4px;
+    left: auto;
+    right: 6px;
+    font-size: 18px;
+    transform: rotate(90deg);
+  }
+  .table-side .card .suit {
+    font-size: 28px;
+    transform: rotate(90deg);
+  }
+  .table-side .card .corner {
+    bottom: 4px;
+    right: auto;
+    left: 6px;
+    font-size: 11px;
+    transform: rotate(90deg);
+  }
+  .table-side .card.back .monogram {
+    font-size: 24px;
+    padding: 2px 6px;
+    transform: rotate(90deg);
+  }
+}
