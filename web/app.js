@@ -23,7 +23,7 @@ let activeEmotes = {},
   emoteTimers = {},
   emoteTable = "",
   emoteRound = null,
-  emotePending = false;
+  controlsMode = "actions";
 function clearEmotes() {
   Object.values(emoteTimers).forEach(clearTimeout);
   activeEmotes = {};
@@ -35,6 +35,7 @@ function syncEmotes(next) {
     clearEmotes();
     emoteTable = next.id;
     emoteRound = next.round;
+    controlsMode = "actions";
   }
   for (const item of next.emotes || []) {
     if (!emoteNames[item.id] || item.sequence <= (emoteSeen[item.player] || 0))
@@ -52,31 +53,28 @@ function syncEmotes(next) {
     }, remaining);
   }
 }
-function handEmote(player) {
+function playerEmote(player) {
   const item = activeEmotes[player];
   if (!item || item.ends <= Date.now()) return "";
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
-  return `<div class='hand-emote' data-emote-player='${player}' role='status' style='animation-delay:-${age}ms'><img src='/static/emotes/${item.id}.png' alt='${e(state.names[player])}: ${emoteNames[item.id]} emote'></div>`;
+  return `<div class='player-emote' data-emote-player='${player}' role='status' style='animation-delay:-${age}ms'><img src='/static/emotes/${item.id}.png' alt='${e(state.names[player])}: ${emoteNames[item.id]} emote'><span>${e(state.names[player])}</span></div>`;
 }
 function quickEmotes() {
-  return `<section class='panel quick-emotes' aria-label='Quick emotes'><h3>Quick emotes</h3><div class='emote-buttons'>${Object.entries(
+  return `<div class='emote-buttons' aria-label='Quick emotes'>${Object.entries(
     emoteNames,
   )
     .map(
       ([id, label]) =>
         `<button type='button' class='emote-button' data-emote='${id}' title='${label}' aria-label='Send ${label.toLowerCase()} emote' ${state.status === "closed" ? "disabled" : ""}><img src='/static/emotes/${id}.png' alt=''></button>`,
     )
-    .join("")}</div></section>`;
+    .join("")}</div>`;
 }
 async function sendEmote(id) {
-  if (emotePending || !state?.game) return;
-  emotePending = true;
+  if (!state?.game) return;
   try {
     accept(await api(`/api/lobbies/${state.id}/emote`, "POST", { emote: id }));
   } catch (error) {
     toast(error.message);
-  } finally {
-    emotePending = false;
   }
 }
 const starter = {
@@ -346,7 +344,7 @@ function handHtml(player) {
   const own = player === state.viewer;
   const legal = g.legal;
   const trade = legal.trade.flat();
-  return `<section class='hand ${own ? "your-hand" : "opponent-hand"}'>${handEmote(player)}<div class='hand-heading'><span>${e(state.names[player])}${own ? " · You" : ""}</span><small>${g.phase === "over" ? "Score" : "Visible"} ${g.scores[player]}${!state.connected[player] && !state.solo ? " · offline" : ""}</small></div><div class='card-grid'>${g.players[
+  return `<section class='hand ${own ? "your-hand" : "opponent-hand"}'><div class='hand-heading'><span>${e(state.names[player])}${own ? " · You" : ""}</span><small>${g.phase === "over" ? "Score" : "Visible"} ${g.scores[player]}${!state.connected[player] && !state.solo ? " · offline" : ""}</small></div><div class='card-grid'>${g.players[
     player
   ]
     .map((slot, i) => {
@@ -416,6 +414,25 @@ function modalHtml() {
   }
   return "";
 }
+function turnControls() {
+  const g = state.game;
+  const showingEmotes = controlsMode === "emotes";
+  return `<section class='turn-controls' aria-label='Turn controls'><div class='controls-heading'><div class='turn-title'>${showingEmotes ? "Quick emotes" : e(state.message)}</div><button type='button' class='controls-toggle' data-controls-toggle aria-label='${showingEmotes ? "Show game actions" : "Show quick emotes"}' aria-pressed='${showingEmotes}' title='${showingEmotes ? "Game actions" : "Quick emotes"}'>${showingEmotes ? "↩" : "☺"}</button></div><div class='controls-content'>${
+    showingEmotes
+      ? quickEmotes()
+      : `<div class='button-row'>${[
+          ["flip", "Flip"],
+          ["swap", "Swap"],
+          ["draw", "Draw"],
+          ["discard", "Discard"],
+        ]
+          .map(
+            ([action, label]) =>
+              `<button class='button' data-action='${action}' ${allowed(action) ? "" : "disabled"}>${label}</button>`,
+          )
+          .join("")}</div>`
+  }</div><div class='small-actions'>${g.legal.end_turn ? `<button class='button secondary' data-action='end_turn'>End turn ↵</button>` : ""}</div><p class='hint' style='margin:12px 0 0'>${e(g.last_move)}</p></section>`;
+}
 function renderRoom() {
   if (!state) return;
   document.title = `${state.name} · GolfBot`;
@@ -427,19 +444,7 @@ function renderRoom() {
     viewer = state.viewer;
   const roundResult = state.history.at(-1);
   const roundOver = ["round_over", "finished"].includes(state.status);
-  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${e(starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + "/lobby/" + state.id)}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}<section class='turn-controls'><div class='turn-title'>${e(state.message)}</div><div class='button-row'>${[
-    ["flip", "Flip"],
-    ["swap", "Swap"],
-    ["draw", "Draw"],
-    ["discard", "Discard"],
-  ]
-    .map(
-      ([action, label]) =>
-        `<button class='button' data-action='${action}' ${allowed(action) ? "" : "disabled"}>${label}</button>`,
-    )
-    .join(
-      "",
-    )}</div><div class='small-actions'>${g.legal.end_turn ? `<button class='button secondary' data-action='end_turn'>End turn ↵</button>` : ""}</div><p class='hint' style='margin:12px 0 0'>${e(g.last_move)}</p></section>${quickEmotes()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${!state.solo && state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div>${modalHtml()}`;
+  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${e(starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + "/lobby/" + state.id)}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${!state.solo && state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
@@ -528,6 +533,11 @@ root.addEventListener("click", async (event) => {
       } catch {
         toast("Copy the lobby link from the address bar.");
       }
+      return;
+    }
+    if (button.hasAttribute("data-controls-toggle")) {
+      controlsMode = controlsMode === "actions" ? "emotes" : "actions";
+      renderRoom();
       return;
     }
     if (button.dataset.emote) {

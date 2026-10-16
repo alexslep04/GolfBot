@@ -26,7 +26,7 @@ Enabled bonus swaps use the same Swap button with two selected table cards. Begg
 
 **V10** accepts any three 10s, Jacks, or Queens in either V, including repeated ranks. **Tricky straights** adds an ascending row's rightmost base points to the opponent, or subtracts a descending row's rightmost base points from its owner. **Poisoned Card** adds 5 to the first player to reveal all six cards. All score additions/subtractions happen before divisions, using unmodified card values to detect patterns.
 
-Use **Quick emotes** at the table to send one of the four supplied faces. Both players see it in a fixed spot beside the sender's hand. It fades after four seconds; a new emote replaces that player's previous one. Emotes work on either player's turn and do not consume an action.
+Use the top-right **☺** button in the action panel to switch between game actions and the four **Quick emotes**. Both players’ reactions appear prominently in the middle of the screen, labeled with the sender’s name, and fade after four seconds. Send an emote again to replay it and restart its timer; both players can react at once. Emotes work on either player’s turn and do not consume an action or clear card selections.
 
 ## Match history
 
