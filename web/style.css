@@ -1044,34 +1044,70 @@ footer {
     table-layout: fixed;
   }
 }
-.hand {
-  position: relative;
-}
-.hand-emote {
-  position: absolute;
-  z-index: 20;
+.table-emotes {
+  position: fixed;
+  z-index: 40;
   left: 50%;
-  top: -48px;
-  width: 84px;
-  height: 84px;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  pointer-events: none;
+}
+.player-emote {
+  width: clamp(100px, 24vw, 150px);
+  text-align: center;
   pointer-events: none;
   animation: emote-pop 4s both;
   filter: drop-shadow(0 5px 8px #0006);
 }
-.hand-emote img {
+.player-emote img {
   display: block;
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1;
   object-fit: contain;
 }
-.quick-emotes {
-  margin: 18px 0;
-  padding: 16px;
-}
-.quick-emotes h3 {
+.player-emote span {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #09271fee;
+  color: #fff;
   font-size: 14px;
-  color: var(--gold);
+  overflow-wrap: anywhere;
+}
+.controls-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
   margin-bottom: 12px;
+}
+.controls-heading .turn-title {
+  margin-bottom: 0;
+}
+.controls-toggle {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--gold);
+  background: #143225;
+  font-size: 24px;
+}
+.controls-toggle:hover {
+  border-color: var(--gold);
+}
+.controls-content {
+  min-height: 52px;
+}
+.controls-content > .button-row,
+.controls-content > .emote-buttons {
+  height: 52px;
 }
 .emote-buttons {
   display: flex;
@@ -1083,7 +1119,7 @@ footer {
   place-items: center;
   flex: 1;
   min-width: 0;
-  padding: 8px;
+  padding: 4px;
   border: 1px solid var(--line);
   background: #143225;
   border-radius: 10px;
@@ -1096,23 +1132,23 @@ footer {
   border-color: var(--gold);
 }
 .emote-button img {
-  width: clamp(32px, 7vw, 48px);
-  height: clamp(32px, 7vw, 48px);
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 @keyframes emote-pop {
   0% {
     opacity: 0;
-    transform: translate(-50%, 8px) scale(0.9);
+    transform: translateY(18px) scale(0.65);
   }
   8%,
   78% {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translateY(0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -8px) scale(1.02);
+    transform: translateY(-12px) scale(1.08);
   }
 }
 @keyframes emote-fade {
@@ -1125,8 +1161,7 @@ footer {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hand-emote {
-    transform: translateX(-50%);
+  .player-emote {
     animation-name: emote-fade;
   }
 }

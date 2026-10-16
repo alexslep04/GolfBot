@@ -135,7 +135,7 @@ class WebTests(unittest.TestCase):
                 response = self.host.post(f'/api/lobbies/{self.id}/action', json={'action': 'draw', 'version': version})
                 self.assertEqual(response.status_code, 200, response.text)
 
-    def test_emote_access_validation_and_independent_sender_cooldowns(self):
+    def test_emote_access_validation_and_independent_senders(self):
         self.create()
         path = f'/api/lobbies/{self.id}/emote'
         self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 409)
@@ -146,18 +146,31 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.host.post(path, json={'emote': '../../other'}).status_code, 422)
         self.assertEqual(self.host.post(path, json={'emote': 'laughing', 'player': 1}).status_code, 422)
         self.assertEqual(self.host.post(path, json={'emote': 'laughing'}).status_code, 200)
-        self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 429)
+        self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(self.guest.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(len(self.state()['emotes']), 2)
         self.host.post(f'/api/lobbies/{self.id}/leave')
         self.assertEqual(self.guest.post(path, json={'emote': 'shocked'}).status_code, 409)
+
+    def test_same_emote_can_be_recast_rapidly_with_a_fresh_timer(self):
+        self.start()
+        path = f'/api/lobbies/{self.id}/emote'
+        for sequence in range(1, 4):
+            # Even an immediate repeat replays instead of waiting for expiry.
+            response = self.host.post(path, json={'emote': 'laughing'})
+            self.assertEqual(response.status_code, 200, response.text)
+            current = response.json()['emotes']
+            self.assertEqual(len(current), 1)
+            self.assertEqual(current[0]['sequence'], sequence)
+            self.assertEqual(current[0]['id'], 'laughing')
+            self.assertGreater(current[0]['remaining_ms'], 3900)
+            self.room.emotes[0]['expires_at'] = time.time() + 1
 
     def test_emotes_replace_expire_and_reset_on_new_round(self):
         self.start()
         path = f'/api/lobbies/{self.id}/emote'
         self.host.post(path, json={'emote': 'laughing'})
         first = self.state()['emotes'][0]['sequence']
-        self.room.last_emote[0] = time.monotonic() - 1
         self.host.post(path, json={'emote': 'unamused'})
         current = self.state()['emotes']
         self.assertEqual(len(current), 1)
@@ -165,7 +178,6 @@ class WebTests(unittest.TestCase):
         self.assertEqual(current[0]['id'], 'unamused')
         self.room.emotes[0]['expires_at'] = time.time() - 1
         self.assertEqual(self.state()['emotes'], [])
-        self.room.last_emote[0] = time.monotonic() - 1
         self.host.post(path, json={'emote': 'nervous'})
         self.room.start_round()
         self.assertEqual(self.state()['emotes'], [])

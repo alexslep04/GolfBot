@@ -24,7 +24,6 @@ ROOT = Path(__file__).parent
 COOKIE = "golf_session"
 START_POLICIES = ("host", "guest", "alternate", "random", "winner", "loser")
 EMOTE_SECONDS = 4
-EMOTE_COOLDOWN = 0.8
 
 
 class Emote(BaseModel):
@@ -93,7 +92,6 @@ class Room:
     started_at: float = field(default_factory=time.time)
     emotes: dict = field(default_factory=dict)
     emote_sequence: int = 0
-    last_emote: dict = field(default_factory=dict)
 
     @property
     def target(self):
@@ -526,9 +524,6 @@ def create_app(store=None):
             if room.game is None or room.status not in ("playing", "round_over", "finished"):
                 raise HTTPException(409, "Emotes are available at the game table.")
             player = room.seats.index(session.token)
-            if time.monotonic() - room.last_emote.get(player, float('-inf')) < EMOTE_COOLDOWN:
-                raise HTTPException(429, "Wait a moment before sending another emote.")
-            room.last_emote[player] = time.monotonic()
             room.emote_sequence += 1
             room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
                                    "expires_at": time.time() + EMOTE_SECONDS}
