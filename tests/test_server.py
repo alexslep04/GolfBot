@@ -359,6 +359,71 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.host.post('/api/lobbies', json={}, headers={'Origin': 'https://evil.invalid'}).status_code, 403)
         self.assertEqual(TestClient(self.app).post('/api/lobbies', json={}).status_code, 401)
 
+    def test_solo_match_lengths_and_start_policies_are_honored(self):
+        for best_of in (1, 3, 5, 7, 9):
+            for first, expected in (('host', 0), ('guest', 1), ('alternate', 0), ('random', 1), ('winner', 0), ('loser', 0)):
+                with self.subTest(best_of=best_of, first=first), patch('server.secrets.randbelow', return_value=1):
+                    response = self.host.post('/api/solo', json={'best_of': best_of, 'first': first})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    state = response.json()
+                    self.assertEqual(state['best_of'], best_of)
+                    self.assertEqual(state['target'], best_of // 2 + 1)
+                    self.assertEqual(state['first'], first)
+                    self.assertEqual(state['game']['first_player'], expected)
+                    self.host.post(f"/api/lobbies/{state['id']}/leave").raise_for_status()
+        state = self.host.post('/api/solo', json={}).json()
+        self.assertEqual((state['best_of'], state['first']), (1, 'host'))
+
+    def test_solo_rejects_invalid_match_settings(self):
+        for body in ({'best_of': 2}, {'best_of': 0}, {'best_of': 10}, {'best_of': True}, {'first': 'other'}):
+            self.assertEqual(self.host.post('/api/solo', json=body).status_code, 422)
+        self.assertIsNone(self.host.get('/api/session').json()['room_id'])
+
+    def test_bot_first_starts_after_human_opening_flips(self):
+        state = self.host.post('/api/solo', json={'first': 'guest', 'best_of': 3}).json()
+        self.id, self.room = state['id'], self.store.rooms[state['id']]
+        self.move('flip', index=0)
+        state = self.move('flip', index=1)
+        self.assertEqual(state['game']['first_player'], 1)
+        self.assertEqual(state['game']['current'], 1)
+        self.assertEqual(self.room.game.visible_count(1), 2)
+        self.move('draw', status=403)
+        for _ in range(50):
+            if self.state()['game']['current'] == 0:
+                break
+            time.sleep(0.1)
+        self.assertEqual(self.room.game.current, 0)
+        self.assertGreater(self.room.game.turns, 0)
+
+    def test_solo_series_ties_next_round_champion_and_rematch(self):
+        state = self.host.post('/api/solo', json={'first': 'alternate', 'best_of': 3, 'rules': {'roman_fives': True}}).json()
+        self.id, self.room = state['id'], self.store.rooms[state['id']]
+        old_match_id = self.room.match_id
+        for index, (scores, wins) in enumerate((([1, 9], [1, 0]), ([2, 2], [1, 0]), ([8, 1], [1, 1]), ([0, 5], [2, 1]))):
+            self.assertEqual(self.room.game.first_player, index % 2)
+            self.assertTrue(self.room.game.rules.roman_fives)
+            self.room.game.phase = 'over'
+            with patch.object(self.room.game, 'score', side_effect=lambda player, visible_only=False: scores[player]):
+                self.room.record_result()
+                state = self.state()
+            self.assertEqual(state['wins'], wins)
+            self.assertEqual(state['history'][-1]['scores'], scores)
+            if index < 3:
+                self.assertEqual(state['status'], 'round_over')
+                next_state = self.move('next_round')
+                self.assertEqual(next_state['status'], 'playing')
+                self.assertEqual(next_state['game']['phase'], 'setup')
+        self.assertEqual(state['status'], 'finished')
+        self.assertEqual(state['champion'], 0)
+        self.move('next_round', status=409)
+        state = self.move('rematch')
+        self.assertEqual((state['best_of'], state['first'], state['target']), (3, 'alternate', 2))
+        self.assertEqual(state['wins'], [0, 0])
+        self.assertEqual(state['history'], [])
+        self.assertEqual(state['game']['phase'], 'setup')
+        self.assertNotEqual(old_match_id, self.room.match_id)
+        self.assertEqual(self.host.get('/api/history').json()['matches'], [])
+
     def test_solo_preserves_rules_and_computer_turn(self):
         response = self.host.post('/api/solo', json={'username': 'Alex'})
         self.id = response.json()['id']

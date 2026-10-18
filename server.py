@@ -13,7 +13,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from game import GolfGame, Rules, RULE_OPTIONS
 from rule_help import load_rule_help
@@ -38,6 +38,18 @@ class Settings(BaseModel):
     best_of: StrictInt = Field(default=3, ge=1, le=9)
     first: Literal["host", "guest", "alternate", "random", "winner", "loser"] = "alternate"
     rules: dict[str, bool] = Field(default_factory=dict)
+
+    @field_validator("best_of")
+    @classmethod
+    def odd_match_length(cls, value):
+        if value % 2 == 0:
+            raise ValueError("Best of must be an odd number.")
+        return value
+
+
+class SoloSettings(Settings):
+    best_of: StrictInt = Field(default=1, ge=1, le=9)
+    first: Literal["host", "guest", "alternate", "random", "winner", "loser"] = "host"
 
 
 class Join(BaseModel):
@@ -452,8 +464,6 @@ def create_app(store=None):
         store.cleanup()
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables. Try again later.")
-        if settings.best_of % 2 == 0:
-            raise HTTPException(422, "Best of must be an odd number.")
         session.username = clean_name(settings.username)
         room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(settings.rules), settings.best_of, settings.first, False, [session.token, None], [session.username, "Waiting..."], history_store=store.history)
         store.rooms[room.id] = room
@@ -461,14 +471,14 @@ def create_app(store=None):
         return snapshot(room, session.token)
 
     @app.post("/api/solo")
-    async def solo(settings: Settings, request: Request):
+    async def solo(settings: SoloSettings, request: Request):
         session = session_for(request)
         leave_old(session)
         store.cleanup()
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         session.username = clean_name(settings.username)
-        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), 1, "host", True, [session.token, None], [session.username, "GolfBot"], history_store=store.history)
+        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), settings.best_of, settings.first, True, [session.token, None], [session.username, "GolfBot"], history_store=store.history)
         room.start_round()
         store.rooms[room.id] = room
         session.room_id = room.id

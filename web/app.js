@@ -238,19 +238,19 @@ async function abandonExisting() {
   }
   closeSocket();
 }
-function hostForm() {
+function hostForm(solo = false) {
   saveName(name());
-  page = "host";
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Host a lobby</h1>${back()}</div><form id='host-form' class='panel'><div class='form-grid'><div><label class='field'><span>Your username</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label><label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label><label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === 3 ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
-    starter,
+  page = solo ? "solo" : "host";
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against GolfBot" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your username</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
+    solo ? { ...starter, host: "You first", guest: "GolfBot first" } : starter,
   )
     .map(
       ([key, label]) =>
-        `<option value='${key}' ${key === "alternate" ? "selected" : ""}>${label}</option>`,
+        `<option value='${key}' ${key === (solo ? "host" : "alternate") ? "selected" : ""}>${label}</option>`,
     )
     .join(
       "",
-    )}</select></label><p class='hint'>Alternate starts with the host. Drawn rounds are replayed; they do not count as wins.</p></div><div><h3>Rules in play</h3><p class='hint'>Both players use the same rules. Hover over ? for details.</p>${rulesHtml({}, true)}</div></div><div class='button-row'><button class='button gold' type='submit'>Create lobby</button></div></form></div>`;
+    )}</select></label><p class='hint'>Alternate starts with ${solo ? "you" : "the host"}. Previous winner/loser starts with ${solo ? "you" : "the host"} in the first round. Ties do not count as wins.</p></div><div><h3>Rules in play</h3><p class='hint'>Both players use the same rules. Hover over ? for details.</p>${rulesHtml({}, true)}</div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
 }
 async function joinList() {
   page = "join";
@@ -453,7 +453,7 @@ function renderRoom() {
     viewer = state.viewer;
   const roundResult = state.history.at(-1);
   const roundOver = ["round_over", "finished"].includes(state.status);
-  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${e(starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + "/lobby/" + state.id)}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${!state.solo && state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
+  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${state.solo ? `Best of ${state.best_of} · first to ${state.target} wins · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "GolfBot first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + "/lobby/" + state.id)}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${!state.solo && state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
@@ -499,16 +499,7 @@ root.addEventListener("click", async (event) => {
       else if (button.dataset.nav === "host") hostForm();
       else if (button.dataset.nav === "join") await joinList();
       else if (button.dataset.nav === "resume") await resume();
-      else if (button.dataset.nav === "solo") {
-        saveName(name());
-        await abandonExisting();
-        enterRoom(
-          await api("/api/solo", "POST", {
-            username: session.username,
-            rules: {},
-          }),
-        );
-      }
+      else if (button.dataset.nav === "solo") hostForm(true);
       return;
     }
     if (button.hasAttribute("data-history-more")) {
@@ -597,9 +588,10 @@ root.addEventListener("click", async (event) => {
   }
 });
 root.addEventListener("submit", async (event) => {
-  if (event.target.id !== "host-form") return;
+  if (!["host-form", "solo-form"].includes(event.target.id)) return;
   event.preventDefault();
   const form = event.target;
+  const solo = form.id === "solo-form";
   const data = new FormData(form);
   const rules = {};
   for (const rule of catalog) rules[rule.key] = data.has("rule-" + rule.key);
@@ -607,9 +599,9 @@ root.addEventListener("submit", async (event) => {
     saveName(String(data.get("username")).trim());
     await abandonExisting();
     enterRoom(
-      await api("/api/lobbies", "POST", {
+      await api(solo ? "/api/solo" : "/api/lobbies", "POST", {
         username: session.username,
-        name: data.get("name"),
+        ...(solo ? {} : { name: data.get("name") }),
         best_of: Number(data.get("best_of")),
         first: data.get("first"),
         rules,
