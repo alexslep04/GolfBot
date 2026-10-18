@@ -479,7 +479,7 @@ class GolfGame:
         return card.base_points + (partner.card.base_points if partner.visible else 0)
 
     def opponent_turn(self):
-        """A basic bot that only evaluates public cards and its actual revealed draw."""
+        """Basic baseline for rules stress tests; live solo games use bot.py search."""
         initial_turns = self.turns
         for _ in range(100):
             if self.decision_player != 1 or self.phase == "over":

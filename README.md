@@ -14,13 +14,21 @@ python -m venv .venv
 .\.venv\Scripts\python.exe launch.py
 ```
 
+After updating the source, stop and restart the server so the Python backend and browser UI use the same version.
+
 The menu offers **Join lobby**, **Host lobby**, and **Play solo**.
 
 - **Solo:** choose a best-of-1/3/5/7/9 match against GolfBot and who starts: you, GolfBot, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each round, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo results stay out of saved match history.
 - **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link. The game starts automatically when a guest joins.
 - **Join:** browse existing tables or open an invite link. Review the rules, enter your name, and join to start playing.
 
+GolfBot uses sampled lookahead to maximize the expected point difference **your score minus its score**. It considers its current turn and your reply, up to six decisions, including enabled scoring effects and bonus actions. Hidden cards and future draws are sampled from the unseen 52-card deck; the bot cannot inspect their actual identities or change the deal. The bounded search runs off the server event loop so other tables and emotes remain responsive. This is an approximate search, not a guarantee of the mathematically best move.
+
+Run `python -m benchmarks.bot_strength --deals 16` to compare the search and old basic bot on the same fixed deals against a basic opponent, with alternating starting seats. It reports wins and average point advantage; small samples describe these deals rather than overall playing strength.
+
 On mobile, each hand keeps its upright 2-by-3 layout, with the player name vertically on the left and Visible/Active scores vertically on the right. The draw and discard piles sit between the hands as compact sideways cards; a drawn card appears beside them while you decide.
+
+Use **Select all rules** in match setup or the editable solo rules panel to enable every optional rule; unchecking it clears them all.
 
 Both players choose two opening cards. Click a card to select or unselect it; use **Flip**, **Swap**, **Draw**, or **Discard**. Selecting the go-fish pile and pressing Flip also draws. After a layout flip, **End turn** appears; Enter works too. Draw-first allows immediate discard, replacing an already visible card, or flipping a hidden card before replacing it.
 

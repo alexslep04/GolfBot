@@ -3,6 +3,7 @@ from contextlib import ExitStack
 import random
 import time
 import unittest
+from threading import Event
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -359,6 +360,27 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.host.post('/api/lobbies', json={}, headers={'Origin': 'https://evil.invalid'}).status_code, 403)
         self.assertEqual(TestClient(self.app).post('/api/lobbies', json={}).status_code, 401)
 
+    def test_select_all_rules_is_atomic_and_only_editable_during_solo_setup(self):
+        state = self.host.post('/api/solo', json={}).json()
+        self.id, self.room = state['id'], self.store.rooms[state['id']]
+        all_rules = dict.fromkeys(Rules.__dataclass_fields__, True)
+        selected = self.move('set_rules', rules=all_rules)
+        self.assertTrue(all(selected['rules'].values()))
+        self.assertTrue(all(vars(self.room.game.rules).values()))
+        before = self.state()
+        self.move('set_rules', rules={'not_a_rule': True}, status=422)
+        self.move('set_rules', status=422)
+        self.assertEqual(before, self.state())
+        self.move('set_rules', rules={})
+        self.assertFalse(any(self.state()['rules'].values()))
+        self.move('flip', index=0)
+        self.move('set_rules', rules=all_rules)
+        self.move('flip', index=1)
+        self.move('set_rules', rules={}, status=403)
+        self.host.post(f'/api/lobbies/{self.id}/leave').raise_for_status()
+        self.start()
+        self.move('set_rules', rules=all_rules, status=403)
+
     def test_solo_match_lengths_and_start_policies_are_honored(self):
         for best_of in (1, 3, 5, 7, 9):
             for first, expected in (('host', 0), ('guest', 1), ('alternate', 0), ('random', 1), ('winner', 0), ('loser', 0)):
@@ -423,6 +445,33 @@ class WebTests(unittest.TestCase):
         self.assertEqual(state['game']['phase'], 'setup')
         self.assertNotEqual(old_match_id, self.room.match_id)
         self.assertEqual(self.host.get('/api/history').json()['matches'], [])
+
+    def test_bot_search_does_not_block_emotes_and_ignores_left_tables(self):
+        entered, release = Event(), Event()
+
+        def thinking(position):
+            self.assertTrue(all(slot.card is None for hand in position.players for slot in hand if not slot.visible))
+            self.assertTrue(all(card is None for card in position.draw_pile))
+            entered.set()
+            release.wait(5)
+            return ('draw',)
+
+        with patch('server.choose_action', side_effect=thinking):
+            state = self.host.post('/api/solo', json={'first': 'guest'}).json()
+            self.id, self.room = state['id'], self.store.rooms[state['id']]
+            self.move('flip', index=0)
+            self.move('flip', index=1)
+            try:
+                self.assertTrue(entered.wait(3))
+                version = self.room.version
+                response = self.host.post(f'/api/lobbies/{self.id}/emote', json={'emote': 'shocked'})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()['version'], version)
+                self.host.post(f'/api/lobbies/{self.id}/leave').raise_for_status()
+                self.assertEqual(self.room.status, 'closed')
+                self.assertIsNone(self.room.game.held_card)
+            finally:
+                release.set()
 
     def test_solo_preserves_rules_and_computer_turn(self):
         response = self.host.post('/api/solo', json={'username': 'Alex'})
