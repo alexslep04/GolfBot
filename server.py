@@ -19,6 +19,7 @@ from game import GolfGame, Rules, RULE_OPTIONS
 from rule_help import load_rule_help
 from match_history import MatchHistory
 from scoring import active_rule_effects, visible_effect_total
+from bot import choose_action, legal_actions, play_action, public_position
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -58,7 +59,7 @@ class Join(BaseModel):
 
 class Move(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["flip", "draw", "swap", "discard", "end_turn", "guess", "arrange", "set_rule", "ready", "start", "next_round", "rematch"]
+    action: Literal["flip", "draw", "swap", "discard", "end_turn", "guess", "arrange", "set_rule", "set_rules", "ready", "start", "next_round", "rematch"]
     version: StrictInt = Field(ge=0)
     index: StrictInt | None = Field(default=None, ge=0, le=5)
     refs: list[list] = Field(default_factory=list, max_length=2)
@@ -66,6 +67,7 @@ class Move(BaseModel):
     columns: list[StrictInt] | None = Field(default=None, min_length=2, max_length=2)
     rule: str | None = None
     enabled: bool | None = None
+    rules: dict[str, bool] | None = None
 
 
 @dataclass
@@ -322,10 +324,19 @@ def apply_move(room, token, move):
             raise HTTPException(409, "This table is not playing a round.")
         if move.action == "flip" and game.phase == "setup":
             game.opening_reveal(seat, move.index)
-        elif move.action == "set_rule":
-            if not room.solo or seat != 0 or game.phase != "setup" or move.enabled is None:
+        elif move.action in ("set_rule", "set_rules"):
+            if not room.solo or seat != 0 or game.phase != "setup":
                 raise HTTPException(403, "Lobby rules stay fixed during a match.")
-            game.set_rule(move.rule, move.enabled)
+            if move.action == "set_rules":
+                if move.rules is None:
+                    raise HTTPException(422, "Choose the rules to enable.")
+                selected_rules = parse_rules(move.rules)
+                for key, enabled in asdict(selected_rules).items():
+                    game.set_rule(key, enabled)
+            else:
+                if move.enabled is None:
+                    raise HTTPException(422, "Choose whether the rule is enabled.")
+                game.set_rule(move.rule, move.enabled)
             room.rules = Rules(**asdict(game.rules))
         else:
             if game.decision_player != seat:
@@ -413,7 +424,20 @@ def create_app(store=None):
                     game = room.game
                     if room.id not in store.rooms or room.status != "playing" or game.phase == "setup" or game.decision_player != 1:
                         return
-                    game._opponent_step()
+                    version = room.version
+                    position = public_position(game)
+                    position._root_actions = set(legal_actions(game))
+                # Search a detached observation off the event loop. Emotes and
+                # other tables remain responsive while the bot is thinking.
+                action = await asyncio.to_thread(choose_action, position)
+                async with room.lock:
+                    if (room.id not in store.rooms or room.status != "playing"
+                            or room.game is not game or room.version != version
+                            or game.decision_player != 1):
+                        return
+                    if action is None:
+                        return
+                    play_action(game, action)
                     room.record_result()
                     room.version += 1
                     await broadcast(room)

@@ -213,7 +213,7 @@ function rulesHtml(
   onlyActive = false,
 ) {
   const rules = onlyActive ? catalog.filter((r) => values[r.key]) : catalog;
-  return `<div class='rules-grid'>${rules.map((r) => `<div class='rule ${values[r.key] ? "active" : ""}'><label><input type='checkbox' name='rule-${e(r.key)}' data-rule='${e(r.key)}' data-rule-type='${type}' ${values[r.key] ? "checked" : ""} ${editable ? "" : "disabled"}><span>${e(r.name)}</span></label>${help(r)}</div>`).join("") || `<p class='hint'>Base scoring only. No optional rules.</p>`}</div>`;
+  return `${editable ? `<label class='rule-select-all'><input type='checkbox' data-rules-all data-rule-type='${type}' ${catalog.every((rule) => values[rule.key]) ? "checked" : ""}><span>Select all rules</span></label>` : ""}<div class='rules-grid'>${rules.map((r) => `<div class='rule ${values[r.key] ? "active" : ""}'><label><input type='checkbox' name='rule-${e(r.key)}' data-rule='${e(r.key)}' data-rule-type='${type}' ${values[r.key] ? "checked" : ""} ${editable ? "" : "disabled"}><span>${e(r.name)}</span></label>${help(r)}</div>`).join("") || `<p class='hint'>Base scoring only. No optional rules.</p>`}</div>`;
 }
 function back(label = "Back to menu") {
   return `<button class='button secondary' data-nav='home'>${label}</button>`;
@@ -598,27 +598,62 @@ root.addEventListener("submit", async (event) => {
   try {
     saveName(String(data.get("username")).trim());
     await abandonExisting();
-    enterRoom(
-      await api(solo ? "/api/solo" : "/api/lobbies", "POST", {
-        username: session.username,
-        ...(solo ? {} : { name: data.get("name") }),
-        best_of: Number(data.get("best_of")),
-        first: data.get("first"),
-        rules,
-      }),
+    const requested = {
+      username: session.username,
+      ...(solo ? {} : { name: data.get("name") }),
+      best_of: Number(data.get("best_of")),
+      first: data.get("first"),
+      rules,
+    };
+    const next = await api(
+      solo ? "/api/solo" : "/api/lobbies",
+      "POST",
+      requested,
     );
+    if (
+      solo &&
+      (next.best_of !== requested.best_of || next.first !== requested.first)
+    ) {
+      await api(`/api/lobbies/${next.id}/leave`, "POST");
+      throw new Error(
+        "The server is running an older version. Restart GolfBot and try again to use your selected match settings.",
+      );
+    }
+    enterRoom(next);
   } catch (error) {
     toast(error.message);
   }
 });
-root.addEventListener("change", (event) => {
+root.addEventListener("change", async (event) => {
   if (event.target.id === "username")
     saveName(event.target.value.trim() || "Player");
+  if (event.target.hasAttribute("data-rules-all")) {
+    const enabled = event.target.checked;
+    if (event.target.dataset.ruleType === "live") {
+      if (busy) return renderRoom();
+      await move("set_rules", {
+        rules: Object.fromEntries(catalog.map((rule) => [rule.key, enabled])),
+      });
+    } else {
+      root.querySelectorAll("input[data-rule]").forEach((input) => {
+        input.checked = enabled;
+        input.closest(".rule").classList.toggle("active", enabled);
+      });
+    }
+    return;
+  }
   if (event.target.dataset.ruleType === "live")
-    move("set_rule", {
+    await move("set_rule", {
       rule: event.target.dataset.rule,
       enabled: event.target.checked,
     });
+  else if (event.target.dataset.rule) {
+    const master = root.querySelector("[data-rules-all]");
+    if (master)
+      master.checked = [...root.querySelectorAll("input[data-rule]")].every(
+        (input) => input.checked,
+      );
+  }
 });
 document.addEventListener("keydown", (event) => {
   if (

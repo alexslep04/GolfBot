@@ -1322,3 +1322,18 @@ footer {
     transform: rotate(90deg);
   }
 }
+
+.rule-select-all {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  margin-bottom: 10px;
+  color: var(--gold);
+  cursor: pointer;
+}
+.rule-select-all input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--green);
+}
