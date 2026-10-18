@@ -444,7 +444,17 @@ class WebTests(unittest.TestCase):
         self.assertEqual(state['history'], [])
         self.assertEqual(state['game']['phase'], 'setup')
         self.assertNotEqual(old_match_id, self.room.match_id)
-        self.assertEqual(self.host.get('/api/history').json()['matches'], [])
+        matches = self.host.get('/api/history').json()['matches']
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]['id'], old_match_id)
+        self.assertTrue(matches[0]['solo'])
+        self.assertEqual(matches[0]['best_of'], 3)
+        self.assertEqual(matches[0]['names'][1], 'GolfBot')
+        self.assertEqual(matches[0]['status'], 'finished')
+        self.assertEqual(matches[0]['winner'], 0)
+        self.assertEqual(matches[0]['wins'], [2, 1])
+        self.assertEqual(matches[0]['points'], [11, 17])
+        self.assertEqual(len(matches[0]['rounds']), 4)
 
     def test_bot_search_does_not_block_emotes_and_ignores_left_tables(self):
         entered, release = Event(), Event()

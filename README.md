@@ -18,7 +18,7 @@ After updating the source, stop and restart the server so the Python backend and
 
 The menu offers **Join lobby**, **Host lobby**, and **Play solo**.
 
-- **Solo:** choose a best-of-1/3/5/7/9 match against GolfBot and who starts: you, GolfBot, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each round, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo results stay out of saved match history.
+- **Solo:** choose a best-of-1/3/5/7/9 match against GolfBot and who starts: you, GolfBot, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each round, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo rounds and series are saved in match history.
 - **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link. The game starts automatically when a guest joins.
 - **Join:** browse existing tables or open an invite link. Review the rules, enter your name, and join to start playing.
 
@@ -40,9 +40,9 @@ Use the top-right **☺** button in the action panel to switch between game acti
 
 ## Match history
 
-Open the **Match history** tab to see your multiplayer games and best-of series. Solo games are not recorded, and older solo records are excluded. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
+Open the **Match history** tab to see games against other players and GolfBot, including best-of series. Bot matches are labeled **Vs GolfBot** with their match length. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
 
-Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed round; past games from older versions cannot be reconstructed.
+Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed round. Retained older bot records are included, but solo games that were never saved by previous versions cannot be reconstructed.
 
 Results are saved in `data/matches.sqlite3`. Keep that file to retain history across server restarts. History access uses the same browser cookie on the same site address, not the username: clearing cookies, changing browsers, or restarting a temporary tunnel at a new hostname gives a separate identity. Other players cannot browse your history. There are no player accounts or cross-device history synchronization.
 
