@@ -16,7 +16,7 @@ python -m venv .venv
 
 The menu offers **Join lobby**, **Host lobby**, and **Play solo**.
 
-- **Solo:** play the existing game against GolfBot. Choose optional rules before your second opening flip.
+- **Solo:** choose a best-of-1/3/5/7/9 match against GolfBot and who starts: you, GolfBot, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each round, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo results stay out of saved match history.
 - **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link. The game starts automatically when a guest joins.
 - **Join:** browse existing tables or open an invite link. Review the rules, enter your name, and join to start playing.
 
