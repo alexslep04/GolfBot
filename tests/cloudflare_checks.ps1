@@ -8,6 +8,16 @@ function Assert-Throws([scriptblock]$Action) {
     Assert $threw 'Expected failure.'
 }
 switch ($Case) {
+    'download-verification' {
+        $knownFile = Join-Path $Directory 'known.txt'
+        [IO.File]::WriteAllText($knownFile, 'abc', (New-Object Text.UTF8Encoding($false)))
+        Assert ((Get-TunnelHash $knownFile) -eq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'SHA256 verification failed.'
+        function Invoke-WebRequest {
+            param([switch]$UseBasicParsing, $Uri, $OutFile)
+            Set-Content -LiteralPath $OutFile -Value 'incorrect download'
+        }
+        Assert-Throws { Get-CloudflaredExecutable $Directory }
+    }
     'configuration' {
         $artifacts = Join-Path $Directory '.artifacts\cloudflare'
         New-Item -ItemType Directory -Path $artifacts -Force | Out-Null

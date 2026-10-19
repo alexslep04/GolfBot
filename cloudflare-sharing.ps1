@@ -1,16 +1,23 @@
 Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 
+function Get-TunnelHash([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+    finally { $stream.Dispose(); $sha.Dispose() }
+}
+
 function Get-CloudflaredExecutable([string]$Root) {
     $directory = Join-Path $Root '.artifacts\tools'
     $executable = Join-Path $directory 'cloudflared.exe'
     $expectedHash = '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c'
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
     if (-not (Test-Path -LiteralPath $executable) -or
-        (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash -ne $expectedHash) {
+        (Get-TunnelHash $executable) -ne $expectedHash) {
         Write-Host 'Downloading the official Cloudflare helper...'
         Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe' -OutFile $executable
     }
-    if ((Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash -ne $expectedHash) {
+    if ((Get-TunnelHash $executable) -ne $expectedHash) {
         throw 'The tunnel helper checksum did not match. It has not been run.'
     }
     return $executable

@@ -22,6 +22,9 @@ class CloudflareTests(unittest.TestCase):
     def test_configuration_reserves_other_paths_and_keeps_credentials_separate(self):
         self.check_case('configuration')
 
+    def test_helper_checksum_and_invalid_download_rejection(self):
+        self.check_case('download-verification')
+
     def test_launch_uses_saved_named_tunnel_with_quoted_path(self):
         self.check_case('launch')
 
