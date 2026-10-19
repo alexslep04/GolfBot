@@ -92,6 +92,7 @@ class StatsTests(unittest.TestCase):
 
     def test_empty_data_unplayed_pair_and_invalid_selections(self):
         self.assertIsNone(build_stats([])['player'])
+        self.assertIsNone(build_stats([], 'player:cleared', BOT_ID)['player'])
         data = build_stats(self.matches, 'player:Rival', BOT_ID)
         self.assertEqual(data['player']['head_to_head']['rounds'], 0)
         self.assertIsNone(data['player']['head_to_head']['round_win_rate'])

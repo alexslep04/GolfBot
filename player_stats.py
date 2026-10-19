@@ -93,6 +93,9 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None):
 def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=()):
     players = player_catalog(matches)
     by_id = {player['id']: player for player in players}
+    if not players:
+        # Bookmarked selections should show an empty page after a history reset.
+        player_id = opponent_id = None
     if player_id is None and players:
         player_id = players[0]['id']
     if player_id is not None and player_id not in by_id:
