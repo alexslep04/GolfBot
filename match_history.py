@@ -22,6 +22,15 @@ class MatchHistory:
             self.connection.execute("CREATE TABLE IF NOT EXISTS matches (id TEXT PRIMARY KEY, host TEXT NOT NULL, guest TEXT, updated REAL NOT NULL, payload TEXT NOT NULL)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS matches_host ON matches(host)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS matches_guest ON matches(guest)")
+            self.connection.execute('CREATE TABLE IF NOT EXISTS history_meta (key TEXT PRIMARY KEY, value REAL NOT NULL)')
+            # Older hosts may still have a pre-reset series in memory. Prevent
+            # those summaries from repopulating the database after a reset.
+            for event in ('INSERT', 'UPDATE'):
+                self.connection.execute(f'''CREATE TRIGGER IF NOT EXISTS history_reset_{event.lower()}
+                    BEFORE {event} ON matches WHEN
+                    COALESCE(json_extract(NEW.payload, '$.started_at'), 0) <
+                    COALESCE((SELECT value FROM history_meta WHERE key='reset_at'), 0)
+                    BEGIN SELECT RAISE(IGNORE); END''')
 
     def interrupt_open_matches(self):
         """Called when the serving application starts, not by read-only importers."""
@@ -38,6 +47,7 @@ class MatchHistory:
         payload = {
             "id": room.match_id, "lobby_name": room.name, "names": list(room.names),
             "solo": room.solo, "best_of": room.best_of, "rules": asdict(room.rules),
+            "participants": room.participants,
             "started_at": room.started_at, "updated_at": time.time(),
             "status": "finished" if room.champion is not None else "abandoned" if abandoned else "in_progress",
             "winner": room.champion, "wins": list(room.wins),
@@ -61,6 +71,17 @@ class MatchHistory:
         with self.lock:
             rows = self.connection.execute('SELECT payload FROM matches').fetchall()
         return [json.loads(payload) for (payload,) in rows]
+
+    def stats_results(self):
+        return self.results()
+
+    def clear_history(self):
+        """Explicit local maintenance only; never exposed as a public endpoint."""
+        with self.lock, self.connection:
+            count = self.connection.execute('SELECT COUNT(*) FROM matches').fetchone()[0]
+            self.connection.execute("INSERT INTO history_meta VALUES ('reset_at', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (time.time(),))
+            self.connection.execute('DELETE FROM matches')
+        return count
 
     def close(self):
         self.connection.close()

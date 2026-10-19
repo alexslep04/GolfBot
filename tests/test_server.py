@@ -63,8 +63,8 @@ class WebTests(unittest.TestCase):
         self.assertIn('SameSite=lax', cookie)
 
     def test_join_automatically_starts_with_configured_rules_and_first_player(self):
-        created = self.create(first='guest', best_of=5, rules={'queen_swap': True})
-        self.assertTrue(created['rules']['queen_swap'])
+        created = self.create(first='guest', best_of=5, rules={'royal_pairs': True})
+        self.assertTrue(created['rules']['royal_pairs'])
         self.assertEqual(created['target'], 3)
         self.move('start', status=409)
         self.assertEqual(self.outsider.get(f'/api/lobbies/{self.id}/state').status_code, 403)
@@ -238,7 +238,7 @@ class WebTests(unittest.TestCase):
             response = self.host.post(f'/api/lobbies/{self.id}/action', json={'version': self.room.version, **body})
             self.assertEqual(response.status_code, 422)
             self.assertEqual(before, self.state())
-        self.move('set_rule', rule='queen_swap', enabled=True, status=403)
+        self.move('set_rule', rule='royal_pairs', enabled=True, status=403)
 
     def test_beggars_decision_belongs_to_opponent_and_resumes(self):
         self.start(rules={'beggars': True})
@@ -260,7 +260,7 @@ class WebTests(unittest.TestCase):
         self.move('end_turn')
 
     def test_bonus_can_move_opponent_and_pile_without_exposing_hidden_card(self):
-        self.start(rules={'queen_swap': True})
+        self.start(rules={'royal_pairs': True})
         game = self.room.game
         game.players[0][0] = Slot(Card(12, 'S'), True)
         game.players[0][3] = Slot(Card(12, 'H'), True)
@@ -310,7 +310,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(len(next_state['history']), 1)
 
     def test_final_scoring_waits_for_each_players_forced_reveal_bonus(self):
-        self.start(best_of=3, rules={'queen_swap': True, 'jack_swap': True})
+        self.start(best_of=3, rules={'royal_pairs': True})
         game = self.room.game
         game.players = [
             [Slot(Card(rank, suit), index != 3) for index, (rank, suit) in enumerate(

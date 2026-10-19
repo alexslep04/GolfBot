@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from hashlib import sha256
 from pathlib import Path
 import os
+import json
 import re
 import secrets
 import time
@@ -22,6 +23,7 @@ from match_history import MatchHistory
 from player_stats import build_stats
 from scoring import active_rule_effects, visible_effect_total
 from bot import choose_action, legal_actions, play_action, public_position
+from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -72,12 +74,31 @@ class Move(BaseModel):
     rules: dict[str, bool] | None = None
 
 
+class GoogleCredential(BaseModel):
+    credential: str = Field(min_length=1, max_length=8192)
+    csrf_token: str = Field(min_length=1, max_length=128)
+
+
+class AccountName(BaseModel):
+    unique_name: str = Field(min_length=3, max_length=24)
+    csrf_token: str = Field(min_length=1, max_length=128)
+
+
+class Logout(BaseModel):
+    csrf_token: str = Field(min_length=1, max_length=128)
+
+
 @dataclass
 class Session:
     token: str
     username: str = "Player"
     room_id: str | None = None
     touched: float = field(default_factory=time.time)
+    account: dict | None = None
+    csrf_token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    google_nonce: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    nonce_expires: float = field(default_factory=lambda: time.time() + 600)
+    auth_attempts: list = field(default_factory=list)
 
 
 @dataclass
@@ -108,6 +129,7 @@ class Room:
     started_at: float = field(default_factory=time.time)
     emotes: dict = field(default_factory=dict)
     emote_sequence: int = 0
+    participants: list = field(default_factory=lambda: [None, None])
 
     @property
     def target(self):
@@ -130,9 +152,12 @@ class Room:
         if self.game is None or self.game.phase != "over" or self.round_recorded:
             return
         scores = [self.game.score(p) for p in (0, 1)]
+        self.game._record_scoring_effects()
         winner = None if scores[0] == scores[1] else 0 if scores[0] < scores[1] else 1
         self.history.append({"round": len(self.history) + 1, "scores": scores, "winner": winner,
                              "rules": asdict(self.game.rules),
+                             "ended_at": time.time(),
+                             "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in (0, 1)]})
         self.last_winner = winner
         self.round_recorded = True
@@ -153,6 +178,7 @@ class Store:
         self.sessions = {}
         self.rooms = {}
         self.history = MatchHistory(history_path)
+        self.accounts = Accounts(self.history)
 
     def session(self, token):
         session = self.sessions.get(token)
@@ -182,6 +208,11 @@ def clean_name(value):
 
 
 def parse_rules(values):
+    values = dict(values)
+    legacy = values.pop('queen_swap', False) or values.get('jack_swap', False)
+    values.pop('jack_swap', None)
+    if legacy:
+        values.setdefault('royal_pairs', True)
     if set(values) - set(Rules.__dataclass_fields__):
         raise HTTPException(422, "Unknown rule selection.")
     return Rules(**values)
@@ -273,8 +304,8 @@ def snapshot(room, token):
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),
         "held": card_view(game.held_card) if game.held_card else None,
         "scores": [game.score(p, game.phase != "over") for p in (0, 1)],
-        "effect_totals": [game.score(p) if game.phase == "over" else visible_effect_total(game.players[p], game.rules, game.gambler_earned[p], game.players[1 - p], game.finisher == p) for p in (0, 1)],
-        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards, game.players[1 - p], game.finisher == p) for p in (0, 1)],
+        "effect_totals": [game.score(p) if game.phase == "over" else visible_effect_total(game.players[p], game.rules, game.gambler_earned[p], game.players[1 - p], game.finisher == p, game.angel_earned[1 - p]) for p in (0, 1)],
+        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards, game.players[1 - p], game.finisher == p, game.angel_earned[p], game.angel_earned[1 - p]) for p in (0, 1)],
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
         "table_refs": game.table_refs() if legal["bonus"] else [],
@@ -370,8 +401,13 @@ def apply_move(room, token, move):
     room.touched = time.time()
 
 
-def create_app(store=None):
+def create_app(store=None, google_client_id=None):
     store = store or Store()
+    if google_client_id is None:
+        config = ROOT / 'data' / 'google-signin.json'
+        google_client_id = os.environ.get('GOLFBOT_GOOGLE_CLIENT_ID', '')
+        if not google_client_id and config.exists():
+            google_client_id = json.loads(config.read_text(encoding='utf-8')).get('client_id', '')
     @asynccontextmanager
     async def lifespan(app):
         try:
@@ -394,13 +430,31 @@ def create_app(store=None):
             return Response("Cross-origin changes are not allowed.", status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
         if request.url.path.removeprefix(request.scope.get("root_path", "")).startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
         return response
 
     def session_for(request):
-        return store.session(request.cookies.get(COOKIE))
+        session = store.session(request.cookies.get(COOKIE))
+        session.account = store.accounts.from_token(request.cookies.get(ACCOUNT_COOKIE))
+        return session
+
+    def session_view(session):
+        return {"username": session.username, "room_id": session.room_id if session.room_id in store.rooms else None,
+                "account": session.account, "google_client_id": google_client_id,
+                "csrf_token": session.csrf_token, "google_nonce": session.google_nonce}
+
+    def csrf(session, token):
+        if not secrets.compare_digest(session.csrf_token, token):
+            raise HTTPException(403, 'Refresh the page and try again.')
+
+    def profile_for(session):
+        try:
+            return participant(session.account, session.username)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     def find_room(room_id):
         room = store.rooms.get(room_id)
@@ -462,9 +516,62 @@ def create_app(store=None):
                 token = secrets.token_urlsafe(32)
             store.sessions[token] = Session(token)
         session = store.session(token)
+        session.account = store.accounts.from_token(request.cookies.get(ACCOUNT_COOKIE))
+        if session.nonce_expires <= time.time():
+            session.google_nonce, session.nonce_expires = secrets.token_urlsafe(32), time.time() + 600
         response.set_cookie(COOKIE, token, path=request.scope.get("root_path", "") + "/",
                             httponly=True, samesite="lax", secure=request.url.scheme == "https", max_age=365 * 86400)
-        return {"username": session.username, "room_id": session.room_id if session.room_id in store.rooms else None}
+        return session_view(session)
+
+    @app.post('/api/auth/google')
+    async def google_signin(body: GoogleCredential, request: Request, response: Response):
+        session = session_for(request)
+        csrf(session, body.csrf_token)
+        leave_old(session, 'changing sign-in')
+        if not google_client_id:
+            raise HTTPException(503, 'Google sign-in is not available yet. You can play as a guest.')
+        session.auth_attempts = [when for when in session.auth_attempts if when > time.time() - 60]
+        if len(session.auth_attempts) >= 8:
+            raise HTTPException(429, 'Please wait a minute before trying again.')
+        session.auth_attempts.append(time.time())
+        if session.nonce_expires <= time.time():
+            raise HTTPException(401, 'Refresh the page to sign in again.')
+        nonce = session.google_nonce
+        try:
+            subject = await asyncio.to_thread(verify_google_token, body.credential, google_client_id, nonce)
+        except Exception as error:
+            raise HTTPException(401, 'Google sign-in could not be verified. Please try again.') from error
+        if session.nonce_expires <= time.time() or session.google_nonce != nonce:
+            raise HTTPException(401, 'Refresh the page to sign in again.')
+        session.nonce_expires = 0
+        store.accounts.logout(request.cookies.get(ACCOUNT_COOKIE))
+        session.account, login_token = store.accounts.login(subject)
+        response.set_cookie(ACCOUNT_COOKIE, login_token, path=request.scope.get('root_path', '') + '/',
+                            httponly=True, secure=request.url.scheme == 'https', samesite='lax', max_age=LOGIN_DAYS * 86400)
+        return session_view(session)
+
+    @app.post('/api/account/name')
+    async def choose_unique_name(body: AccountName, request: Request):
+        session = session_for(request)
+        csrf(session, body.csrf_token)
+        if session.account is None:
+            raise HTTPException(401, 'Sign in with Google first.')
+        try:
+            session.account = store.accounts.choose_name(session.account['id'], body.unique_name)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return session_view(session)
+
+    @app.post('/api/auth/logout')
+    async def logout(body: Logout, request: Request, response: Response):
+        session = session_for(request)
+        csrf(session, body.csrf_token)
+        leave_old(session, 'changing sign-in')
+        store.accounts.logout(request.cookies.get(ACCOUNT_COOKIE))
+        session.account = None
+        session.google_nonce, session.nonce_expires = secrets.token_urlsafe(32), time.time() + 600
+        response.delete_cookie(ACCOUNT_COOKIE, path=request.scope.get('root_path', '') + '/')
+        return session_view(session)
 
     @app.get("/api/rules")
     async def rules_catalog():
@@ -486,7 +593,7 @@ def create_app(store=None):
         if (set(enabled) | set(disabled)) - known or set(enabled) & set(disabled):
             raise HTTPException(422, "Choose valid, non-conflicting rule filters.")
         try:
-            return await asyncio.to_thread(lambda: build_stats(store.history.results(), player, opponent, enabled, disabled))
+            return await asyncio.to_thread(lambda: build_stats(store.history.stats_results(), player, opponent, enabled, disabled))
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -495,10 +602,10 @@ def create_app(store=None):
         store.cleanup()
         return [public_room(room) for room in store.rooms.values() if not room.solo and room.status != "closed"]
 
-    def leave_old(session):
+    def leave_old(session, reason='creating or joining another'):
         old = store.rooms.get(session.room_id)
         if old and session.token in old.seats:
-            raise HTTPException(409, "Leave your current table before creating or joining another.")
+            raise HTTPException(409, f"Leave your current table before {reason}.")
 
     @app.post("/api/lobbies")
     async def host(settings: Settings, request: Request):
@@ -509,6 +616,7 @@ def create_app(store=None):
             raise HTTPException(503, "The server has too many tables. Try again later.")
         session.username = clean_name(settings.username)
         room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(settings.rules), settings.best_of, settings.first, False, [session.token, None], [session.username, "Waiting..."], history_store=store.history)
+        room.participants[0] = profile_for(session)
         store.rooms[room.id] = room
         session.room_id = room.id
         return snapshot(room, session.token)
@@ -522,6 +630,7 @@ def create_app(store=None):
             raise HTTPException(503, "The server has too many tables.")
         session.username = clean_name(settings.username)
         room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), settings.best_of, settings.first, True, [session.token, None], [session.username, "Golf"], history_store=store.history)
+        room.participants = [profile_for(session), {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golf'}]
         room.start_round()
         store.rooms[room.id] = room
         session.room_id = room.id
@@ -542,7 +651,9 @@ def create_app(store=None):
             if room.solo or room.status != "waiting" or room.seats[1] is not None:
                 raise HTTPException(409, "This lobby is full or already playing.")
             session.username = clean_name(body.username)
+            profile = profile_for(session)
             room.seats[1], room.names[1] = session.token, session.username
+            room.participants[1] = profile
             session.room_id = room.id
             room.ready[1] = True
             room.start_round()
@@ -637,19 +748,27 @@ def create_app(store=None):
 
     app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
 
-    @app.get("/")
-    @app.get("/history")
-    @app.get("/stats")
-    @app.get("/lobby/{room_id}")
-    async def index(request: Request):
+    def page_response(filename, request):
         base = request.scope.get("root_path", "").rstrip("/") + "/"
-        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8").replace("__GOLF_BASE__", base)
-        # A cached script from an earlier release can leave new buttons inert.
-        # Content versions also work when files change without restarting Uvicorn.
+        html = (ROOT / "web" / filename).read_text(encoding="utf-8").replace("__GOLF_BASE__", base)
         for asset in ("app.js", "style.css"):
             version = sha256((ROOT / "web" / asset).read_bytes()).hexdigest()[:16]
             html = html.replace(f'"static/{asset}"', f'"static/{asset}?v={version}"')
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+    @app.get('/privacy')
+    async def privacy(request: Request):
+        return page_response('privacy.html', request)
+
+    @app.get("/")
+    @app.get("/history")
+    @app.get("/stats")
+    @app.get("/account")
+    @app.get("/lobby/{room_id}")
+    async def index(request: Request):
+        # A cached script from an earlier release can leave new buttons inert.
+        # Content versions also work when files change without restarting Uvicorn.
+        return page_response('index.html', request)
 
     # Serve the same store at the public subpath and at localhost's existing URLs.
     # Only the outer app runs the lifespan; mounted app lifespans are not invoked.

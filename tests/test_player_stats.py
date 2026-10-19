@@ -12,13 +12,15 @@ from player_stats import BOT_ID, build_stats
 from server import Room, Store, create_app
 
 
-def result(scores, rules=None, divisors=None):
+def result(scores, rules=None, divisors=None, activations=None):
     own, other = scores
     value = {'scores': scores, 'winner': None if own == other else int(own > other)}
     if rules is not None:
         value['rules'] = rules
     if divisors is not None:
         value['divisors'] = divisors
+    if activations is not None:
+        value['activations'] = activations
     return value
 
 
@@ -30,9 +32,9 @@ def match(names, rounds, winner=None, status='finished', solo=False, rules=None)
 class StatsTests(unittest.TestCase):
     def setUp(self):
         self.matches = [
-            match(['tester', 'GolfBot'], [result([-2, 5], divisors=[15, 1]), result([3, 3]), result([4, 10], divisors=[3, 7])], 0, solo=True),
-            match(['Rival', 'tester'], [result([2, 8], divisors=[1, 1])], 0),
-            match(['tester', 'GolfBot'], [result([10, 1], divisors=[1, 5])], status='interrupted', solo=True),
+            match(['tester', 'GolfBot'], [result([-2, 5], activations=[['v10', 'royal_pairs'], []]), result([3, 3]), result([4, 10], activations=[['v10'], ['gamblers_row']])], 0, solo=True),
+            match(['Rival', 'tester'], [result([2, 8], activations=[[], ['poisoned_card']])], 0),
+            match(['tester', 'GolfBot'], [result([10, 1], activations=[[], []])], status='interrupted', solo=True),
         ]
 
     def test_overall_and_head_to_head_count_rounds_series_draws_and_scores(self):
@@ -57,14 +59,13 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(head['average_advantage'], -reverse['average_advantage'])
         self.assertEqual(data['comparison']['profile']['label'], 'Golf (solo AI)')
 
-    def test_final_divisions_are_ranked_and_legacy_details_remain_unknown(self):
+    def test_rule_activation_rates_and_conditional_win_rates_ignore_unknown_details(self):
         overall = build_stats(self.matches, 'player:tester')['player']['overall']
-        self.assertEqual((overall['known_multiplier_rounds'], overall['unknown_multiplier_rounds']), (4, 1))
-        self.assertEqual(overall['multipliers'], [
-            {'divisor': 1, 'count': 2, 'rate': .5},
-            {'divisor': 3, 'count': 1, 'rate': .25},
-            {'divisor': 15, 'count': 1, 'rate': .25},
-        ])
+        self.assertEqual((overall['known_activation_games'], overall['unknown_activation_games']), (4, 1))
+        rules = {row['key']: row for row in overall['rule_activations']}
+        self.assertEqual((rules['v10']['games'], rules['v10']['rate'], rules['v10']['win_rate']), (2, .5, 1))
+        self.assertEqual(rules['poisoned_card']['win_rate'], 0)
+        self.assertIsNone(rules['angels_row']['win_rate'])
 
     def test_rule_filters_use_round_settings_and_full_matching_series_only(self):
         matches = [
@@ -169,6 +170,7 @@ class StatsApiTests(unittest.TestCase):
                 self.assertNotIn('players', json.dumps(records))
                 stats = build_stats(records, 'player:tester', enabled=['v10'])['player']['overall']
                 self.assertEqual(stats['rounds'], 1)
-                self.assertEqual(stats['multipliers'][0]['divisor'], 105)
+                self.assertIn('v10', rounds[0]['activations'][0])
+                self.assertEqual(next(row for row in stats['rule_activations'] if row['key'] == 'v10')['win_rate'], 1)
             finally:
                 restored.close()

@@ -965,10 +965,27 @@ footer {
   }
 }
 .main-tabs {
+  flex-wrap: wrap;
   display: flex;
   gap: 8px;
   margin-left: auto;
   margin-right: 24px;
+}
+#account-control {
+  display: flex;
+  align-items: center;
+}
+.rule-activation-table {
+  font-size: 12px;
+}
+.rule-activation-table th {
+  white-space: normal;
+}
+.rule-activation-table td {
+  white-space: nowrap;
+}
+.rule-activation-table small {
+  color: var(--muted);
 }
 .main-tabs .button {
   padding: 8px 13px;

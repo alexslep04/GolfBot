@@ -19,9 +19,9 @@ class RevisedRulesTests(unittest.TestCase):
                         layout[index] = Slot(Card(rank, suit), True)
                     rules = Rules(v10=True)
                     self.assertEqual(score_adjustments(layout, rules)[1], 5)
-                    self.assertIn("V10 /5", active_rule_effects(layout, rules))
+                    self.assertIn("V10 engine /5", active_rule_effects(layout, rules))
                     layout[pattern[1]].visible = False
-                    self.assertNotIn("V10 /5", active_rule_effects(layout, rules))
+                    self.assertNotIn("V10 engine /5", active_rule_effects(layout, rules))
 
     def test_v10_excludes_other_ranks_and_applies_once(self):
         for ranks in ((10, 11, 13), (10, 9, 12), (8, 11, 12)):
