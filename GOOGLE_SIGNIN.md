@@ -13,6 +13,8 @@ Google sign-in is optional. Guests can play immediately. To enable the top-right
 5. Copy `google-signin.example.json` to `data/google-signin.json`, replace the placeholder with the web **client ID** ending in `.apps.googleusercontent.com`, and restart Golf. This config is ignored by Git. Alternatively set `GOLFBOT_GOOGLE_CLIENT_ID` before starting the server. Never paste a client secret into this file or commit credentials.
 6. Test the button from the public HTTPS address. After first sign-in, choose a lowercase unique name (3–24 letters, numbers, underscores). Then play under different display names and confirm both appear under `@unique_name` in Player stats. Also test sign-out and a second device.
 
+For local Google sign-in, use `http://localhost:8000/Golfgame/` (the launcher's default). Google requires each testing port to be registered separately; a different preview URL may display an origin error. New Google client settings can take time to propagate.
+
 The server checks signature, audience, issuer, expiry, and a session-bound nonce using `google-auth`. Authentication changes require a CSRF token and same-origin requests. Login cookies are HttpOnly, SameSite=Lax, Secure on HTTPS, scoped to the game's base path, and expire after 30 days. The database stores only hashes of local login tokens. Google's subject identifier stays private; public stats use an unrelated internal ID. No email or Google photo is retained.
 
 An account's unique name is selected once. Display names remain independent and can change each game. A guest matching an account's name remains a separate guest identity. Earlier guest games are not automatically claimed by signing in. A series keeps the identity selected when joining; leave the table to sign in or out.
