@@ -46,6 +46,16 @@ Switching tabs keeps your current table open; use **Play** to return. Refresh up
 
 Results are saved in `data/matches.sqlite3`. Keep that file to retain history across server restarts. Anyone who can access this game server can browse saved match summaries, including player names, scores, and winners. History is shared across browsers and devices using the same server. The browser cookie is used only to mark your seat with **You** when you participated; it does not limit which records you can see. Session identifiers and hidden cards are not exposed. There are no player accounts.
 
+## Player stats
+
+Open **Player stats** beside Match history. Choose a saved username, then optionally choose another player or **GolfBot (solo AI)**. Compare their overall records and head-to-head results: round and match/series wins, win rates, average points, point advantage, total points, best/worst rounds, and most common final score divisions. Names are case-sensitive; everyone using the same saved username shares one record. A human named GolfBot remains separate from the solo AI. Games with identical human usernames in both seats are excluded because those seats cannot be distinguished.
+
+Rule filters offer **Any**, **On**, or **Off** for each rule. Any ignores that rule, On requires it, and Off excludes it. Set every rule explicitly for an exact combination, or Reset rules for overall stats. Filters apply to both players and both comparison tables; selections can be bookmarked in the page URL. Stats use all saved results, including older history pages. Opening stats keeps your current game running; return with Play.
+
+A round is one deal; a game/series is a full best-of match. Round win rate is wins divided by all matching rounds, including draws. Series win rate uses completed matches only; with rule filters, every round in a completed series must match. Completed rounds from unfinished series still count toward round averages and round win rates. Positive point advantage means the opponent scored more points.
+
+New completed rounds save their own rule settings and final score divisor, including stacked Roman 5s, V10, and 777 effects. Multiplier frequencies include ×1 (no division) and use only rounds with recorded divisors. Older results contribute scores and wins, but missing multiplier details stay unknown; they cannot be reconstructed from final scores. Older rounds without separate rule settings use their saved match rules. No cards or browser identifiers are added to these results.
+
 ## Self-host and invite someone
 
 **On your Wi-Fi/LAN:** run play.bat, find your computer's local IPv4 address with `ipconfig`, and open `http://YOUR_LOCAL_IP:8000` on both devices. Host the lobby from that address so Copy link creates a link reachable by your opponent. Windows may ask whether to allow Python on your private network.

@@ -56,5 +56,11 @@ class MatchHistory:
         return [{**json.loads(payload), "viewer": (0 if host == key else 1 if guest == key else None) if key else None}
                 for host, guest, payload in rows]
 
+    def results(self):
+        """All result payloads for aggregation, without private browser keys."""
+        with self.lock:
+            rows = self.connection.execute('SELECT payload FROM matches').fetchall()
+        return [json.loads(payload) for (payload,) in rows]
+
     def close(self):
         self.connection.close()

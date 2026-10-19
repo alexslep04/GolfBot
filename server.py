@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from game import GolfGame, Rules, RULE_OPTIONS
 from rule_help import load_rule_help
 from match_history import MatchHistory
+from player_stats import build_stats
 from scoring import active_rule_effects, visible_effect_total
 from bot import choose_action, legal_actions, play_action, public_position
 
@@ -129,7 +130,9 @@ class Room:
             return
         scores = [self.game.score(p) for p in (0, 1)]
         winner = None if scores[0] == scores[1] else 0 if scores[0] < scores[1] else 1
-        self.history.append({"round": len(self.history) + 1, "scores": scores, "winner": winner})
+        self.history.append({"round": len(self.history) + 1, "scores": scores, "winner": winner,
+                             "rules": asdict(self.game.rules),
+                             "divisors": [self.game.score_divisor(p) for p in (0, 1)]})
         self.last_winner = winner
         self.round_recorded = True
         self.ready = [False, self.solo]
@@ -472,6 +475,20 @@ def create_app(store=None):
         matches = store.history.for_browser(session_for(request).token, limit=51, offset=offset)
         return {"matches": matches[:50], "next_offset": offset + 50 if len(matches) > 50 else None}
 
+    @app.get("/api/stats")
+    async def player_stats(request: Request,
+                           player: str | None = Query(default=None, max_length=64),
+                           opponent: str | None = Query(default=None, max_length=64),
+                           enabled: list[str] = Query(default=[]), disabled: list[str] = Query(default=[])):
+        session_for(request)
+        known = set(Rules.__dataclass_fields__)
+        if (set(enabled) | set(disabled)) - known or set(enabled) & set(disabled):
+            raise HTTPException(422, "Choose valid, non-conflicting rule filters.")
+        try:
+            return await asyncio.to_thread(lambda: build_stats(store.history.results(), player, opponent, enabled, disabled))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
     @app.get("/api/lobbies")
     async def lobbies():
         store.cleanup()
@@ -621,6 +638,7 @@ def create_app(store=None):
 
     @app.get("/")
     @app.get("/history")
+    @app.get("/stats")
     @app.get("/lobby/{room_id}")
     async def index(request: Request):
         base = request.scope.get("root_path", "").rstrip("/") + "/"

@@ -109,18 +109,16 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 let historyEntries = [],
   historyOffset = null,
   historyRequest = 0;
-function markTab(historyActive) {
-  document
-    .getElementById("history-tab")
-    .setAttribute("aria-current", historyActive ? "page" : "false");
-  document
-    .getElementById("play-tab")
-    .setAttribute("aria-current", historyActive ? "false" : "page");
+function markTab(active) {
+  for (const tab of ["play", "history", "stats"])
+    document
+      .getElementById(`${tab}-tab`)
+      .setAttribute("aria-current", tab === active ? "page" : "false");
 }
 async function historyPage(more = false) {
   const request = ++historyRequest;
   page = "history";
-  markTab(true);
+  markTab("history");
   document.title = "Match history · GolfBot";
   history.replaceState({}, "", appPath("/history"));
   if (!more) {
@@ -160,6 +158,145 @@ async function historyPage(more = false) {
   } catch (error) {
     if (page === "history" && request === historyRequest)
       root.innerHTML = `<div class='empty'>${e(error.message)}<p><button class='button secondary' data-nav='history'>Try again</button></p></div>`;
+  }
+}
+let statsSelection = { player: "", opponent: "", enabled: [], disabled: [] },
+  statsRequest = 0;
+const statNumber = (value) =>
+  value === null
+    ? "—"
+    : new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
+        value,
+      );
+const statPercent = (value) =>
+  value === null
+    ? "—"
+    : new Intl.NumberFormat(undefined, {
+        style: "percent",
+        maximumFractionDigits: 1,
+      }).format(value);
+
+function readStatsForm() {
+  const form = document.getElementById("stats-form");
+  if (!form) return;
+  const data = new FormData(form);
+  statsSelection = {
+    player: data.get("player") || "",
+    opponent: data.get("opponent") || "",
+    enabled: [],
+    disabled: [],
+  };
+  if (statsSelection.player === statsSelection.opponent)
+    statsSelection.opponent = "";
+  for (const rule of catalog) {
+    const value = data.get("filter-" + rule.key);
+    if (value === "on") statsSelection.enabled.push(rule.key);
+    if (value === "off") statsSelection.disabled.push(rule.key);
+  }
+}
+
+function multiplierHtml(entry, scope) {
+  const stats = entry[scope];
+  return `<div class='multiplier-stats'><h3>${e(entry.profile.label)}</h3><p class='hint'>Final multipliers · ${stats.known_multiplier_rounds} recorded rounds</p>${
+    stats.multipliers.length
+      ? `<ul class='multiplier-list'>${stats.multipliers
+          .map((item) => {
+            const effects = [
+              [3, "Roman 5s"],
+              [5, "V10"],
+              [7, "777"],
+            ]
+              .filter(([factor]) => item.divisor % factor === 0)
+              .map(([, label]) => label)
+              .join(" + ");
+            return `<li><span>${item.divisor === 1 ? "×1 · no division" : `÷${item.divisor}${effects ? ` · ${effects}` : ""}`}</span><strong>${item.count} · ${statPercent(item.rate)}</strong><span class='multiplier-bar' aria-hidden='true'><span style='width:${item.rate * 100}%'></span></span></li>`;
+          })
+          .join("")}</ul>`
+      : `<p class='hint'>No recorded multiplier details for these results.</p>`
+  }${stats.unknown_multiplier_rounds ? `<p class='hint'>${stats.unknown_multiplier_rounds} older rounds have no multiplier details and are excluded from these percentages.</p>` : ""}</div>`;
+}
+
+function statsTable(entries, scope, title) {
+  const metrics = [
+    ["Rounds played", (s) => statNumber(s.rounds)],
+    [
+      "Round record (W–L–D)",
+      (s) => `${s.round_wins}–${s.round_losses}–${s.round_draws}`,
+    ],
+    ["Round win rate", (s) => statPercent(s.round_win_rate)],
+    ["Completed games / series", (s) => statNumber(s.completed_matches)],
+    ["Game / series record (W–L)", (s) => `${s.match_wins}–${s.match_losses}`],
+    ["Game / series win rate", (s) => statPercent(s.match_win_rate)],
+    ["Average points per round", (s) => statNumber(s.average_points)],
+    ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
+    ["Average point advantage", (s) => statNumber(s.average_advantage)],
+    ["Total points", (s) => statNumber(s.total_points)],
+    [
+      "Best / worst round",
+      (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
+    ],
+  ];
+  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No rounds match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class='multiplier-columns'>${entries.map((entry) => multiplierHtml(entry, scope)).join("")}</div>${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same saved username in both human seats are excluded because the players cannot be distinguished.</p>` : ""}</section>`;
+}
+
+async function statsPage(fromUrl = false) {
+  if (fromUrl) {
+    const query = new URLSearchParams(location.search);
+    statsSelection = {
+      player: query.get("player") || "",
+      opponent: query.get("opponent") || "",
+      enabled: query.getAll("enabled"),
+      disabled: query.getAll("disabled"),
+    };
+  }
+  const request = ++statsRequest;
+  const focused = document.activeElement?.id;
+  const rulesOpen = document.getElementById("stats-rules")?.open;
+  page = "stats";
+  markTab("stats");
+  document.title = "Player stats · GolfBot";
+  const query = new URLSearchParams();
+  if (statsSelection.player) query.set("player", statsSelection.player);
+  if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
+  for (const key of statsSelection.enabled) query.append("enabled", key);
+  for (const key of statsSelection.disabled) query.append("disabled", key);
+  history.replaceState(
+    {},
+    "",
+    appPath("/stats") + (query.toString() ? "?" + query : ""),
+  );
+  const previous = document.getElementById("stats-content");
+  if (previous)
+    previous.innerHTML = `<div class='loading'>Updating player stats…</div>`;
+  else root.innerHTML = `<div class='loading'>Loading player stats…</div>`;
+  try {
+    const result = await api("/api/stats?" + query);
+    if (page !== "stats" || request !== statsRequest) return;
+    if (!socket) {
+      connection.textContent = "Saved results";
+      connection.className = "connection";
+    }
+    statsSelection.player = result.player?.profile.id || "";
+    statsSelection.opponent = result.comparison?.profile.id || "";
+    if (!result.players.length) {
+      root.innerHTML = `<section class='stats-page'><h1>Player stats</h1><div class='empty'>No saved rounds yet. Finish a round against a player or GolfBot to see player statistics here.</div></section>`;
+      return;
+    }
+    const options = (selected, exclude = "") =>
+      result.players
+        .filter((player) => player.id !== exclude)
+        .map(
+          (player) =>
+            `<option value='${e(player.id)}' ${player.id === selected ? "selected" : ""}>${e(player.label)}</option>`,
+        )
+        .join("");
+    const active =
+      statsSelection.enabled.length + statsSelection.disabled.length;
+    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Look up a username, then choose another player or GolfBot to compare. Stats combine everyone using the same saved username. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${active ? active + " selected" : "overall / any rules"}</summary><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${statsSelection.enabled.includes(rule.key) ? "selected" : ""}>On</option><option value='off' ${statsSelection.disabled.includes(rule.key) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A round is one deal. A game / series is a full best-of match. Round win rate includes draws in the denominator; series win rate uses completed matches only. Matching rounds from unfinished series still count toward round stats. With rule filters, a completed series counts only when every round matches. Positive point advantage means fewer points than the opponent. Multiplier percentages use only rounds with recorded details. Older rounds use their saved match rules.</p></details></div></section>`;
+    if (focused) document.getElementById(focused)?.focus();
+  } catch (error) {
+    if (page === "stats" && request === statsRequest)
+      root.innerHTML = `<section class='stats-page'><h1>Player stats</h1><div class='empty'>${e(error.message)}<p><button class='button secondary' data-stats-reset-all>Clear selection and retry</button></p></div></section>`;
   }
 }
 function name() {
@@ -225,7 +362,7 @@ function home() {
   clearEmotes();
   emoteTable = "";
   page = "home";
-  markTab(false);
+  markTab("play");
   document.title = "GolfBot · Your table";
   state = null;
   closeSocket();
@@ -316,9 +453,9 @@ function accept(next) {
     state?.game?.decision_player !== next.game?.decision_player;
   state = next;
   session.room_id = next.id;
-  if (page === "history") return;
+  if (["history", "stats"].includes(page)) return;
   page = "room";
-  markTab(false);
+  markTab("play");
   if (changed) selected = [];
   renderRoom();
 }
@@ -499,10 +636,25 @@ root.addEventListener("click", async (event) => {
       if (button.dataset.nav === "home") {
         home();
       } else if (button.dataset.nav === "history") await historyPage();
+      else if (button.dataset.nav === "stats") await statsPage();
       else if (button.dataset.nav === "host") hostForm();
       else if (button.dataset.nav === "join") await joinList();
       else if (button.dataset.nav === "resume") await resume();
       else if (button.dataset.nav === "solo") hostForm(true);
+      return;
+    }
+    if (
+      button.hasAttribute("data-stats-reset") ||
+      button.hasAttribute("data-stats-reset-all")
+    ) {
+      readStatsForm();
+      statsSelection.enabled = [];
+      statsSelection.disabled = [];
+      if (button.hasAttribute("data-stats-reset-all")) {
+        statsSelection.player = "";
+        statsSelection.opponent = "";
+      }
+      await statsPage();
       return;
     }
     if (button.hasAttribute("data-history-more")) {
@@ -591,6 +743,12 @@ root.addEventListener("click", async (event) => {
   }
 });
 root.addEventListener("submit", async (event) => {
+  if (event.target.id === "stats-form") {
+    event.preventDefault();
+    readStatsForm();
+    await statsPage();
+    return;
+  }
   if (!["host-form", "solo-form"].includes(event.target.id)) return;
   event.preventDefault();
   const form = event.target;
@@ -628,6 +786,11 @@ root.addEventListener("submit", async (event) => {
   }
 });
 root.addEventListener("change", async (event) => {
+  if (event.target.hasAttribute("data-stats-select")) {
+    readStatsForm();
+    await statsPage();
+    return;
+  }
   if (event.target.id === "username")
     saveName(event.target.value.trim() || "Player");
   if (event.target.hasAttribute("data-rules-all")) {
@@ -661,7 +824,7 @@ root.addEventListener("change", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "Enter" &&
-    page !== "history" &&
+    !["history", "stats"].includes(page) &&
     !["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName) &&
     state?.game?.legal.end_turn
   ) {
@@ -670,6 +833,10 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("popstate", () => {
+  if (currentPath() === "/stats") {
+    statsPage(true);
+    return;
+  }
   if (currentPath() === "/history") {
     historyPage();
     return;
@@ -688,7 +855,8 @@ window.addEventListener("popstate", () => {
       session.username = localStorage.getItem("golf-name") || session.username;
     } catch {}
     const id = currentPath().match(/^\/lobby\/([^/]+)$/)?.[1];
-    if (currentPath() === "/history") await historyPage();
+    if (currentPath() === "/stats") await statsPage(true);
+    else if (currentPath() === "/history") await historyPage();
     else if (id) await publicLobby(id);
     else home();
   } catch (error) {
@@ -699,9 +867,12 @@ window.addEventListener("popstate", () => {
 document.getElementById("history-tab").addEventListener("click", () => {
   if (session) historyPage();
 });
+document.getElementById("stats-tab").addEventListener("click", () => {
+  if (session) statsPage();
+});
 document.getElementById("play-tab").addEventListener("click", () => {
   if (session) {
-    markTab(false);
+    markTab("play");
     if (session.room_id) resume().catch((error) => toast(error.message));
     else home();
   }
