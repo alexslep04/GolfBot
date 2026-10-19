@@ -17,7 +17,7 @@ def open_when_ready(port):
         try:
             with urlopen(url + "/health", timeout=0.5) as response:
                 if response.status == 200:
-                    webbrowser.open(url)
+                    webbrowser.open(url + "/Golfgame/")
                     return
         except OSError:
             time.sleep(0.2)
@@ -36,11 +36,11 @@ def main():
     if running:
         print(f"GolfBot is already running on port {args.port}.")
         if not args.no_browser:
-            webbrowser.open(f"http://127.0.0.1:{args.port}")
+            webbrowser.open(f"http://127.0.0.1:{args.port}/Golfgame/")
         return
     if not args.no_browser:
         threading.Thread(target=open_when_ready, args=(args.port,), daemon=True).start()
-    print(f"GolfBot: http://localhost:{args.port}")
+    print(f"GolfBot: http://localhost:{args.port}/Golfgame/")
     print("Keep this window open to host. Press Ctrl+C to stop.")
     pid_file = Path(__file__).parent / '.artifacts' / 'server.pid'
     pid_file.parent.mkdir(exist_ok=True)
