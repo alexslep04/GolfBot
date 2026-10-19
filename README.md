@@ -50,23 +50,11 @@ Results are saved in `data/matches.sqlite3`. Keep that file to retain history ac
 
 **On your Wi-Fi/LAN:** run play.bat, find your computer's local IPv4 address with `ipconfig`, and open `http://YOUR_LOCAL_IP:8000` on both devices. Host the lobby from that address so Copy link creates a link reachable by your opponent. Windows may ask whether to allow Python on your private network.
 
-**Across the internet, with a persistent address:** run **play.bat**, then double-click **share.bat**. The first run asks for a free ngrok account's assigned dev domain and authtoken. No purchased domain or router port forwarding is needed.
+**Across the internet:** with play.bat still running, double-click **share.bat**. It downloads a pinned, checksum-verified portable Cloudflare helper into the ignored `.artifacts/tools` directory and prints a temporary HTTPS address. No account, domain, router port forwarding, or permanent installation is needed. Open that public address on your own computer, host a lobby there, and share its **Copy link** URL. Localhost and the public address have separate browser cookies; creating the lobby through the public address lets you use that same address as the host.
 
-1. Create a [free ngrok account](https://dashboard.ngrok.com/signup).
-2. Copy your assigned domain from [Domains](https://dashboard.ngrok.com/domains) into the sharing window. Use the assigned hostname, not a lobby URL.
-3. Paste your [authtoken](https://dashboard.ngrok.com/get-started/your-authtoken) into the hidden token prompt on your own computer. Do not paste it into chat or commit it.
+Keep your computer awake and both server and tunnel windows running. Ctrl+C in the sharing window stops the public link; restarting sharing produces a new address. This is a temporary testing link with no uptime guarantee. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
-The helper downloads the official portable Windows x64 ngrok executable into `.artifacts/tools` and verifies its Authenticode signature and publisher before running it. It saves the address and a Windows DPAPI-encrypted token in ignored `.artifacts/share-settings.json`. Keep that file across restarts; it can only be decrypted by the same Windows user on the same computer. Run `share.bat -Setup` to change accounts or replace the token. If the game uses another port, run `share.bat -Port 8002` (substitute your port).
-
-Open the printed public address on your own computer, host a lobby there, and share its **Copy link** URL. Localhost and the public address have separate browser cookies; creating the lobby through the public address lets you use that same address as the host.
-
-Keep your computer awake and both windows running. Network outages reconnect automatically, and the sharing window retries a crashed tunnel helper with a delay of up to 30 seconds, always using the saved address. If the game server stops, the site is unavailable until you restart play.bat; the address stays the same. After closing sharing or restarting Windows, run play.bat and share.bat again. Nothing is installed as a startup service. Ctrl+C stops sharing. Logs are in `.artifacts/tunnel.stdout.log` and `.artifacts/tunnel.stderr.log`.
-
-ngrok's assigned dev domain remains attached to your account across sessions. Its free plan has usage limits and a visitor confirmation page; it provides no uptime guarantee. See [ngrok dev domains](https://ngrok.com/docs/gateway/domains) and [free-plan limits](https://ngrok.com/docs/pricing-limits/free-plan-limits). The old random `trycloudflare.com` address cannot be retained; share the new ngrok address once after setup.
-
-**The site address persists; live games do not.** A tunnel-only interruption preserves games while the game server keeps running. Restarting the game server clears active lobbies and rounds, so old lobby invite paths will no longer work; open the same site address and create a new lobby. Saved match history remains available.
-
-**stop-hosting.bat** stops the sharing supervisor first, then the tunnel and the server started by play.bat, including background runs. It prevents automatic tunnel retries and checks that recorded process IDs still belong to this checkout before stopping them. It preserves sharing settings and match history.
+**stop-hosting.bat** stops the server started by play.bat and any sharing helper started by share.bat, including background runs. It checks that recorded process IDs still belong to this checkout before stopping them.
 
 The public address exposes this game server and its lobby directory. There are no player accounts or private-lobby passwords; anyone with that address can browse lobby names and occupy an open guest seat. Each occupied seat is protected by a random HttpOnly browser cookie. Hidden cards remain on the server. Reloading or briefly disconnecting preserves your seat; leaving an active match closes the table. Use a separate browser or browser profile to test two players on one computer.
 
