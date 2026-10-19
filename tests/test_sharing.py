@@ -13,8 +13,7 @@ class SharingTests(unittest.TestCase):
             result = subprocess.run(
                 ['powershell.exe', '-NoProfile', '-File',
                  str(Path(__file__).with_name('sharing_checks.ps1')),
-                 # PowerShell resolves Windows short (8.3) temp paths to long names.
-                 '-Case', name, '-Directory', str(Path(directory).resolve())],
+                 '-Case', name, '-Directory', directory],
                 capture_output=True, text=True, timeout=30,
             )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
