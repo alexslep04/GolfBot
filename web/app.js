@@ -1,4 +1,7 @@
 "use strict";
+const basePath = new URL(document.baseURI).pathname.replace(/\/$/, "");
+const appPath = (path = "/") => `${basePath}${path}`;
+const currentPath = () => location.pathname.slice(basePath.length) || "/";
 const root = document.getElementById("app");
 const connection = document.getElementById("connection");
 let catalog = [],
@@ -66,7 +69,7 @@ function playerEmote(player) {
   const item = activeEmotes[player];
   if (!item || item.ends <= Date.now()) return "";
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
-  return `<div class='player-emote' data-emote-player='${player}' role='status' style='animation-delay:-${age}ms'><img src='/static/emotes/${item.id}.png' alt='${e(state.names[player])}: ${emoteNames[item.id]} emote'><span>${e(state.names[player])}</span></div>`;
+  return `<div class='player-emote' data-emote-player='${player}' role='status' style='animation-delay:-${age}ms'><img src='${appPath(`/static/emotes/${item.id}.png`)}' alt='${e(state.names[player])}: ${emoteNames[item.id]} emote'><span>${e(state.names[player])}</span></div>`;
 }
 function quickEmotes() {
   return `<div class='emote-buttons' aria-label='Quick emotes'>${Object.entries(
@@ -74,7 +77,7 @@ function quickEmotes() {
   )
     .map(
       ([id, label]) =>
-        `<button type='button' class='emote-button' data-emote='${id}' title='${label}' aria-label='Send ${label.toLowerCase()} emote' ${state.status === "closed" ? "disabled" : ""}><img src='/static/emotes/${id}.png' alt=''></button>`,
+        `<button type='button' class='emote-button' data-emote='${id}' title='${label}' aria-label='Send ${label.toLowerCase()} emote' ${state.status === "closed" ? "disabled" : ""}><img src='${appPath(`/static/emotes/${id}.png`)}' alt=''></button>`,
     )
     .join("")}</div>`;
 }
@@ -119,7 +122,7 @@ async function historyPage(more = false) {
   page = "history";
   markTab(true);
   document.title = "Match history · GolfBot";
-  history.replaceState({}, "", "/history");
+  history.replaceState({}, "", appPath("/history"));
   if (!more) {
     historyEntries = [];
     root.innerHTML = `<div class='loading'>Loading match history…</div>`;
@@ -180,7 +183,7 @@ function toast(text) {
   toastTimer = setTimeout(() => (el.hidden = true), 4200);
 }
 async function api(url, method = "GET", body) {
-  const response = await fetch(url, {
+  const response = await fetch(appPath(url), {
     method,
     credentials: "same-origin",
     headers: body ? { "Content-Type": "application/json" } : {},
@@ -226,7 +229,7 @@ function home() {
   document.title = "GolfBot · Your table";
   state = null;
   closeSocket();
-  history.replaceState({}, "", "/");
+  history.replaceState({}, "", appPath());
   root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby</strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against GolfBot.</p></button></div><div class='profile'><label class='field'><span>Your name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
   connection.textContent = "Ready to play";
   connection.className = "connection";
@@ -266,7 +269,7 @@ async function publicLobby(id) {
     return;
   }
   page = "public";
-  history.replaceState({}, "", `/lobby/${id}`);
+  history.replaceState({}, "", appPath(`/lobby/${id}`));
   root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>Best of ${info.best_of}</span><span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your username</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= 2 || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= 2 || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
 }
 function closeSocket() {
@@ -279,7 +282,7 @@ function closeSocket() {
 function connectRoom(id) {
   closeSocket();
   const ws = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/${id}`,
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${appPath(`/ws/${id}`)}`,
   );
   socket = ws;
   connection.textContent = "Connecting";
@@ -321,7 +324,7 @@ function accept(next) {
 }
 function enterRoom(next) {
   page = "room";
-  history.pushState({}, "", `/lobby/${next.id}`);
+  history.pushState({}, "", appPath(`/lobby/${next.id}`));
   selected = [];
   accept(next);
   connectRoom(next.id);
@@ -331,7 +334,7 @@ async function resume(id = session.room_id) {
   enterRoom(await api(`/api/lobbies/${id}/state`));
 }
 function shareHtml() {
-  const url = `${location.origin}/lobby/${state.id}`;
+  const url = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   return `<div class='share'><input readonly aria-label='Lobby invite link' value='${e(url)}'><button class='button secondary' data-copy='${e(url)}'>Copy link</button></div>`;
 }
 function waitingRoom() {
@@ -453,7 +456,7 @@ function renderRoom() {
     viewer = state.viewer;
   const roundResult = state.history.at(-1);
   const roundOver = ["round_over", "finished"].includes(state.status);
-  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${state.solo ? `Best of ${state.best_of} · first to ${state.target} wins · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "GolfBot first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + "/lobby/" + state.id)}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
+  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${state.solo ? `Best of ${state.best_of} · first to ${state.target} wins · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "GolfBot first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
@@ -667,11 +670,11 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("popstate", () => {
-  if (location.pathname === "/history") {
+  if (currentPath() === "/history") {
     historyPage();
     return;
   }
-  const id = location.pathname.match(/^\/lobby\/([^/]+)$/)?.[1];
+  const id = currentPath().match(/^\/lobby\/([^/]+)$/)?.[1];
   if (id) publicLobby(id).catch((error) => toast(error.message));
   else home();
 });
@@ -684,8 +687,8 @@ window.addEventListener("popstate", () => {
     try {
       session.username = localStorage.getItem("golf-name") || session.username;
     } catch {}
-    const id = location.pathname.match(/^\/lobby\/([^/]+)$/)?.[1];
-    if (location.pathname === "/history") await historyPage();
+    const id = currentPath().match(/^\/lobby\/([^/]+)$/)?.[1];
+    if (currentPath() === "/history") await historyPage();
     else if (id) await publicLobby(id);
     else home();
   } catch (error) {

@@ -4,7 +4,7 @@ A browser-playable variant of six-card Golf, with solo play and two-player lobbi
 
 ## Play on your computer
 
-Install Python 3.11 or newer. On Windows, double-click **play.bat**. It creates a virtual environment, installs dependencies, starts the server, and opens the menu at **http://localhost:8000**. Leave that window running; Ctrl+C stops the server.
+Install Python 3.11 or newer. On Windows, double-click **play.bat**. It creates a virtual environment, installs dependencies, starts the server, and opens the menu at **http://localhost:8000/Golfgame/**. Leave that window running; Ctrl+C stops the server. Existing localhost URLs at `/` also work.
 
 Or start it yourself:
 
@@ -50,11 +50,23 @@ Results are saved in `data/matches.sqlite3`. Keep that file to retain history ac
 
 **On your Wi-Fi/LAN:** run play.bat, find your computer's local IPv4 address with `ipconfig`, and open `http://YOUR_LOCAL_IP:8000` on both devices. Host the lobby from that address so Copy link creates a link reachable by your opponent. Windows may ask whether to allow Python on your private network.
 
-**Across the internet:** with play.bat still running, double-click **share.bat**. It downloads a pinned, checksum-verified portable Cloudflare helper into the ignored `.artifacts/tools` directory and prints a temporary HTTPS address. No account, domain, router port forwarding, or permanent installation is needed. Open that public address on your own computer, host a lobby there, and share its **Copy link** URL. Localhost and the public address have separate browser cookies; creating the lobby through the public address lets you use that same address as the host.
+**Across the internet:** the permanent game address is **https://sleptsov.dev/Golfgame/**. It uses a named Cloudflare Tunnel to your computer. No router port forwarding or ngrok account is needed.
 
-Keep your computer awake and both server and tunnel windows running. Ctrl+C in the sharing window stops the public link; restarting sharing produces a new address. This is a temporary testing link with no uptime guarantee. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+One-time setup, as the owner of the unused Cloudflare domain `sleptsov.dev`:
 
-**stop-hosting.bat** stops the server started by play.bat and any sharing helper started by share.bat, including background runs. It checks that recorded process IDs still belong to this checkout before stopping them.
+1. Run **setup-cloudflare.bat**. The helper downloads a pinned, checksum-verified official `cloudflared` executable into ignored `.artifacts/tools`.
+2. In the browser opened by Cloudflare, sign in, select **sleptsov.dev**, and authorize the tunnel tooling. Cloudflare saves its account authorization certificate in your Windows profile at `.cloudflared/cert.pem`.
+3. The script creates the named tunnel `golfbot-sleptsov`, saves its credentials and configuration in ignored `.artifacts/cloudflare/`, and adds the proxied DNS route for `sleptsov.dev`. It does **not** overwrite an existing DNS record; if a parked or previous record conflicts, review it in Cloudflare and rerun setup. Existing tunnel names are not overwritten either.
+
+Then run **play.bat** and **share.bat**, keeping both windows open and your computer awake. Open the public game address yourself, host a lobby there, and share **Copy link**. Invitations, history, assets, emotes, APIs, and WebSockets all stay under `/Golfgame/`. The game cookie is also scoped to this path. Localhost and the public address have separate browser cookies; host from the public address to use its invitation link yourself.
+
+The saved tunnel identity and DNS record keep the address the same across restarts. Cloudflare reconnects temporary network outages; the sharing window retries an exited helper with a delay of up to 30 seconds. If the game server stops, the site remains unavailable until play.bat runs again; the address stays the same. After restarting Windows or closing the windows, run both files again. No startup service is installed. Use `share.bat -Port 8002` for a game server on another port, or pass `-Port` to setup-cloudflare.bat. Logs are in `.artifacts/tunnel.stdout.log` and `.artifacts/tunnel.stderr.log`.
+
+Only `/Golfgame` and `/Golfgame/...` reach the game through the tunnel. Other public paths currently return 404, reserving the root for a future personal website. To host that website through this tunnel later, add a separate ingress rule after the game rule. To host it with another provider, add path routing at Cloudflare before changing the apex DNS; DNS alone cannot split `/Golfgame/` from `/`. See [Cloudflare named tunnels](https://developers.cloudflare.com/tunnel/get-started/) and [ingress rules](https://developers.cloudflare.com/tunnel/features/local-management/configuration-file/).
+
+Keep `.artifacts/cloudflare/credentials.json` to reconnect this tunnel. Treat that file and your profile's `cert.pem` as secrets; never commit or share them. `config.yml` is regenerated from those credentials and the selected port on each run. The former temporary `trycloudflare.com` address cannot be retained. A stable site address does not preserve live games across game-server restarts: create a new lobby at the same address after restarting. Saved match history remains available.
+
+**stop-hosting.bat** signals the sharing window to stop retrying, stops that supervisor, then stops its tunnel and the server started by play.bat. It checks that recorded process IDs still belong to this checkout before stopping them. Saved tunnel credentials and match history are retained.
 
 The public address exposes this game server and its lobby directory. There are no player accounts or private-lobby passwords; anyone with that address can browse lobby names and occupy an open guest seat. Each occupied seat is protected by a random HttpOnly browser cookie. Hidden cards remain on the server. Reloading or briefly disconnecting preserves your seat; leaving an active match closes the table. Use a separate browser or browser profile to test two players on one computer.
 

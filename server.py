@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
@@ -391,7 +391,7 @@ def create_app(store=None):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
-        if request.url.path.startswith("/api"):
+        if request.url.path.removeprefix(request.scope.get("root_path", "")).startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -458,7 +458,8 @@ def create_app(store=None):
                 token = secrets.token_urlsafe(32)
             store.sessions[token] = Session(token)
         session = store.session(token)
-        response.set_cookie(COOKIE, token, httponly=True, samesite="lax", secure=request.url.scheme == "https", max_age=365 * 86400)
+        response.set_cookie(COOKIE, token, path=request.scope.get("root_path", "") + "/",
+                            httponly=True, samesite="lax", secure=request.url.scheme == "https", max_age=365 * 86400)
         return {"username": session.username, "room_id": session.room_id if session.room_id in store.rooms else None}
 
     @app.get("/api/rules")
@@ -621,10 +622,23 @@ def create_app(store=None):
     @app.get("/")
     @app.get("/history")
     @app.get("/lobby/{room_id}")
-    async def index():
-        return FileResponse(ROOT / "web" / "index.html")
+    async def index(request: Request):
+        base = request.scope.get("root_path", "").rstrip("/") + "/"
+        return HTMLResponse((ROOT / "web" / "index.html").read_text(encoding="utf-8").replace("__GOLF_BASE__", base),
+                            headers={"Cache-Control": "no-store"})
 
-    return app
+    # Serve the same store at the public subpath and at localhost's existing URLs.
+    # Only the outer app runs the lifespan; mounted app lifespans are not invoked.
+    host = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    host.state.store = store
+
+    @host.get("/Golfgame")
+    async def canonical_game_url(request: Request):
+        return RedirectResponse(str(request.url.replace(path="/Golfgame/")), status_code=308)
+
+    host.mount("/Golfgame", app)
+    host.mount("/", app)
+    return host
 
 
 app = create_app(Store(os.environ.get("GOLFBOT_HISTORY_DB", ROOT / "data" / "matches.sqlite3")))
