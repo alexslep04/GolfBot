@@ -2,6 +2,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
+from hashlib import sha256
 from pathlib import Path
 import os
 import re
@@ -642,8 +643,13 @@ def create_app(store=None):
     @app.get("/lobby/{room_id}")
     async def index(request: Request):
         base = request.scope.get("root_path", "").rstrip("/") + "/"
-        return HTMLResponse((ROOT / "web" / "index.html").read_text(encoding="utf-8").replace("__GOLF_BASE__", base),
-                            headers={"Cache-Control": "no-store"})
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8").replace("__GOLF_BASE__", base)
+        # A cached script from an earlier release can leave new buttons inert.
+        # Content versions also work when files change without restarting Uvicorn.
+        for asset in ("app.js", "style.css"):
+            version = sha256((ROOT / "web" / asset).read_bytes()).hexdigest()[:16]
+            html = html.replace(f'"static/{asset}"', f'"static/{asset}?v={version}"')
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     # Serve the same store at the public subpath and at localhost's existing URLs.
     # Only the outer app runs the lifespan; mounted app lifespans are not invoked.
