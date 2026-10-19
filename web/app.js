@@ -118,10 +118,14 @@ function markTab(active) {
 }
 let googleScript = null;
 let initializedGoogleNonce = null;
-async function renderAccountControl() {
+function renderAccountControl() {
   const control = document.getElementById("account-control");
   if (!session) return;
   control.innerHTML = `<button class='button secondary' type='button' data-account>${session.account ? e(session.account.unique_name ? "@" + session.account.unique_name : "Choose unique name") : "Sign in with Google"}</button>`;
+}
+async function renderGoogleSignIn() {
+  const container = document.getElementById("google-signin-button");
+  if (!container || page !== "account") return;
   if (session.account || !session.google_client_id || session.room_id) return;
   try {
     if (!window.google?.accounts?.id) {
@@ -140,7 +144,13 @@ async function renderAccountControl() {
       });
       await googleScript;
     }
-    if (session.account || session.room_id) return;
+    if (
+      session.account ||
+      session.room_id ||
+      page !== "account" ||
+      !container.isConnected
+    )
+      return;
     if (initializedGoogleNonce !== session.google_nonce)
       google.accounts.id.initialize({
         client_id: session.google_client_id,
@@ -165,14 +175,17 @@ async function renderAccountControl() {
         },
       });
     initializedGoogleNonce = session.google_nonce;
-    control.innerHTML = "<span id='google-signin-button'></span>";
-    google.accounts.id.renderButton(
-      document.getElementById("google-signin-button"),
-      { theme: "outline", size: "medium", text: "signin_with", shape: "pill" },
-    );
+    container.textContent = "";
+    google.accounts.id.renderButton(container, {
+      theme: "outline",
+      size: "medium",
+      text: "signin_with",
+      shape: "pill",
+    });
   } catch (error) {
     googleScript = null;
-    if (page === "account") toast(error.message);
+    if (page === "account" && container.isConnected)
+      container.textContent = error.message;
   }
 }
 function accountPage() {
@@ -190,8 +203,9 @@ function accountPage() {
       ? account.unique_name
         ? `<h2>@${e(account.unique_name)}</h2><p>Your games are grouped under this unique name in Player stats. Your display name at the table can change each game.</p>`
         : `<h2>Choose your unique name</h2><p>This identifies you in Player stats across all your display names. Pick once; your display name can change whenever you play.</p><form id='account-name-form'><label class='field'><span>Unique name</span><input name='unique_name' aria-label='Unique name' minlength='3' maxlength='24' pattern='[a-zA-Z0-9_]{3,24}' autocomplete='username' required><small>3–24 letters, numbers or underscores. Names are lowercase and unique.</small></label><button type='submit' class='button gold'>Save unique name</button></form>`
-      : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p><p class='hint'>${session.room_id ? "Leave your current table before signing in." : session.google_client_id ? "Use the Google sign-in button at the top right." : "Google sign-in is not available yet. You can keep playing as a guest."}</p>`
+      : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id ? "<p class='hint'>Leave your current table before signing in.</p>" : session.google_client_id ? "<div id='google-signin-button' aria-live='polite'>Loading Google sign-in…</div>" : "<p class='hint'>Google sign-in is not available yet. You can keep playing as a guest.</p>"}`
   }${account ? `<div class='button-row'><button class='button secondary' type='button' data-signout>Sign out</button></div>` : ""}<p class='hint'>Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div></section>`;
+  renderGoogleSignIn();
 }
 document
   .getElementById("account-control")
