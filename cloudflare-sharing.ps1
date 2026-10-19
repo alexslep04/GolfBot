@@ -55,7 +55,7 @@ function Initialize-CloudflareSharing([string]$Root, [string]$Executable, [int]$
     }
     if (-not (Test-Path -LiteralPath $credentials)) {
         & $Executable tunnel --origincert $certificate create --credentials-file $credentials 'golfbot-sleptsov'
-        if ($LASTEXITCODE -ne 0) { throw 'Could not create the GolfBot tunnel. No existing tunnel was overwritten.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Could not create the Golf tunnel. No existing tunnel was overwritten.' }
     }
     $configuration = Write-CloudflareConfig $Root $Port
     & $Executable tunnel --config $configuration ingress validate

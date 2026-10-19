@@ -205,7 +205,7 @@ def message(room, viewer):
         return "Waiting for a second player. The game starts when they join."
     if game.phase == "over":
         result = room.history[-1]
-        return "Round drawn." if result["winner"] is None else f"{room.names[result['winner']]} wins this round."
+        return "Game drawn." if result["winner"] is None else f"{room.names[result['winner']]} wins this game."
     if game.phase == "setup":
         return "Select and flip two of your cards to start." if game.visible_count(viewer) < 2 else "Waiting for the opponent's opening flips."
     if game.decision_player != viewer:
@@ -310,13 +310,13 @@ def apply_move(room, token, move):
         room.start_round()
     elif move.action == "next_round":
         if room.status != "round_over":
-            raise HTTPException(409, "The next round is not available yet.")
+            raise HTTPException(409, "The next game is not available yet.")
         room.ready[seat] = True
         if all(room.ready):
             room.start_round()
     elif move.action == "rematch":
         if seat != 0 or room.status not in ("finished", "round_over"):
-            raise HTTPException(409, "Only the host can start a rematch after a round.")
+            raise HTTPException(409, "Only the host can start a rematch after a game.")
         room.wins, room.history, room.champion, room.last_winner = [0, 0], [], None, None
         room.match_id, room.started_at = secrets.token_urlsafe(12), time.time()
         room.game, room.round_recorded = None, False
@@ -325,7 +325,7 @@ def apply_move(room, token, move):
             room.start_round()
     else:
         if game is None or room.status != "playing":
-            raise HTTPException(409, "This table is not playing a round.")
+            raise HTTPException(409, "This table is not playing a game.")
         if move.action == "flip" and game.phase == "setup":
             game.opening_reveal(seat, move.index)
         elif move.action in ("set_rule", "set_rules"):
@@ -384,7 +384,7 @@ def create_app(store=None):
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
             store.history.close()
-    app = FastAPI(title="GolfBot", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="Golf", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.store = store
 
     @app.middleware("http")
@@ -521,7 +521,7 @@ def create_app(store=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         session.username = clean_name(settings.username)
-        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), settings.best_of, settings.first, True, [session.token, None], [session.username, "GolfBot"], history_store=store.history)
+        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), settings.best_of, settings.first, True, [session.token, None], [session.username, "Golf"], history_store=store.history)
         room.start_round()
         store.rooms[room.id] = room
         session.room_id = room.id

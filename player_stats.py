@@ -14,9 +14,9 @@ def player_catalog(matches):
     for match in matches:
         for seat, player_id in enumerate(identities(match)):
             bot = player_id == BOT_ID
-            name = 'GolfBot' if bot else match['names'][seat]
+            name = 'Golf' if bot else match['names'][seat]
             players[player_id] = {'id': player_id, 'username': name, 'is_bot': bot,
-                                  'label': 'GolfBot (solo AI)' if bot else name + (' (player)' if name == 'GolfBot' else '')}
+                                  'label': 'Golf (solo AI)' if bot else name + (' (player)' if name == 'Golf' else '')}
     return sorted(players.values(), key=lambda player: (player['is_bot'], player['username'].casefold(), player['id']))
 
 
@@ -71,7 +71,7 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None):
         'unfinished_matches': unfinished_matches, 'ambiguous_matches': ambiguous_matches,
         'total_points': total_points, 'average_points': total_points / count if count else None,
         'average_opponent_points': opponent_points / count if count else None,
-        'average_advantage': (opponent_points - total_points) / count if count else None,
+        'average_advantage': (total_points - opponent_points) / count if count else None,
         'best_round': min(points) if count else None, 'worst_round': max(points) if count else None,
         'known_multiplier_rounds': known, 'unknown_multiplier_rounds': count - known,
         'multipliers': [{'divisor': divisor, 'count': occurrences, 'rate': occurrences / known}

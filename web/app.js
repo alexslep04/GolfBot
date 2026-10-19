@@ -92,8 +92,8 @@ async function sendEmote(id) {
 const starter = {
   host: "Host first",
   guest: "Guest first",
-  alternate: "Alternate each round",
-  random: "Random each round",
+  alternate: "Alternate each game",
+  random: "Random each game",
   winner: "Previous winner first",
   loser: "Previous loser first",
 };
@@ -109,6 +109,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 let historyEntries = [],
   historyOffset = null,
   historyRequest = 0;
+let lastCardTap = null;
 function markTab(active) {
   for (const tab of ["play", "history", "stats"])
     document
@@ -119,7 +120,7 @@ async function historyPage(more = false) {
   const request = ++historyRequest;
   page = "history";
   markTab("history");
-  document.title = "Match history · GolfBot";
+  document.title = "Match history · Golf";
   history.replaceState({}, "", appPath("/history"));
   if (!more) {
     historyEntries = [];
@@ -136,9 +137,15 @@ async function historyPage(more = false) {
     }
     historyEntries.push(...result.matches);
     historyOffset = result.next_offset;
-    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Everyone’s games against players and GolfBot on this server, including best-of series. Points are summed per player; series winners are decided by round wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `Match history is shared with everyone on this server.`}</p>${
+    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Everyone’s games against players and Golf on this server, including best-of series. Points are summed per player; series winners are decided by game wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `Match history is shared with everyone on this server.`}</p>${
       historyEntries
-        .map((match) => {
+        .map((saved) => {
+          const match = {
+            ...saved,
+            names: saved.names.map((name, seat) =>
+              saved.solo && seat === 1 ? "Golf" : name,
+            ),
+          };
           const winner =
             match.winner === null
               ? "No overall winner"
@@ -150,10 +157,10 @@ async function historyPage(more = false) {
               abandoned: "Abandoned",
               interrupted: "Interrupted by server restart",
             }[match.status] || match.status;
-          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Vs GolfBot · " : ""}Best of ${match.best_of} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
+          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Vs Golf · " : ""}Best of ${match.best_of} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
         })
         .join("") ||
-      `<div class='empty'>No completed games yet. Finish a round against a player or GolfBot to record its score here.</div>`
+      `<div class='empty'>No completed games yet. Finish a game against a player or Golf to record its score here.</div>`
     }${historyOffset !== null ? `<button class='button secondary' data-history-more>Load older matches</button>` : ""}</section>`;
   } catch (error) {
     if (page === "history" && request === historyRequest)
@@ -197,7 +204,7 @@ function readStatsForm() {
 
 function multiplierHtml(entry, scope) {
   const stats = entry[scope];
-  return `<div class='multiplier-stats'><h3>${e(entry.profile.label)}</h3><p class='hint'>Final multipliers · ${stats.known_multiplier_rounds} recorded rounds</p>${
+  return `<div class='multiplier-stats'><h3>${e(entry.profile.label)}</h3><p class='hint'>Final multipliers · ${stats.known_multiplier_rounds} recorded games</p>${
     stats.multipliers.length
       ? `<ul class='multiplier-list'>${stats.multipliers
           .map((item) => {
@@ -213,30 +220,34 @@ function multiplierHtml(entry, scope) {
           })
           .join("")}</ul>`
       : `<p class='hint'>No recorded multiplier details for these results.</p>`
-  }${stats.unknown_multiplier_rounds ? `<p class='hint'>${stats.unknown_multiplier_rounds} older rounds have no multiplier details and are excluded from these percentages.</p>` : ""}</div>`;
+  }${stats.unknown_multiplier_rounds ? `<p class='hint'>${stats.unknown_multiplier_rounds} older games have no multiplier details and are excluded from these percentages.</p>` : ""}</div>`;
 }
 
 function statsTable(entries, scope, title) {
   const metrics = [
-    ["Rounds played", (s) => statNumber(s.rounds)],
+    ["Games played", (s) => statNumber(s.rounds)],
     [
-      "Round record (W–L–D)",
+      "Game record (W–L–D)",
       (s) => `${s.round_wins}–${s.round_losses}–${s.round_draws}`,
     ],
-    ["Round win rate", (s) => statPercent(s.round_win_rate)],
-    ["Completed games / series", (s) => statNumber(s.completed_matches)],
-    ["Game / series record (W–L)", (s) => `${s.match_wins}–${s.match_losses}`],
-    ["Game / series win rate", (s) => statPercent(s.match_win_rate)],
-    ["Average points per round", (s) => statNumber(s.average_points)],
+    ["Game win rate", (s) => statPercent(s.round_win_rate)],
+    ["Completed series", (s) => statNumber(s.completed_matches)],
+    ["Series record (W–L)", (s) => `${s.match_wins}–${s.match_losses}`],
+    ["Series win rate", (s) => statPercent(s.match_win_rate)],
+    ["Average points per game", (s) => statNumber(s.average_points)],
     ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
-    ["Average point advantage", (s) => statNumber(s.average_advantage)],
+    [
+      "Average point advantage",
+      (s) =>
+        s.average_advantage === null ? "—" : s.average_advantage.toFixed(2),
+    ],
     ["Total points", (s) => statNumber(s.total_points)],
     [
-      "Best / worst round",
+      "Best / worst game",
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No rounds match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class='multiplier-columns'>${entries.map((entry) => multiplierHtml(entry, scope)).join("")}</div>${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same saved username in both human seats are excluded because the players cannot be distinguished.</p>` : ""}</section>`;
+  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class='multiplier-columns'>${entries.map((entry) => multiplierHtml(entry, scope)).join("")}</div>${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same saved username in both human seats are excluded because the players cannot be distinguished.</p>` : ""}</section>`;
 }
 
 async function statsPage(fromUrl = false) {
@@ -254,7 +265,7 @@ async function statsPage(fromUrl = false) {
   const rulesOpen = document.getElementById("stats-rules")?.open;
   page = "stats";
   markTab("stats");
-  document.title = "Player stats · GolfBot";
+  document.title = "Player stats · Golf";
   const query = new URLSearchParams();
   if (statsSelection.player) query.set("player", statsSelection.player);
   if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
@@ -279,7 +290,7 @@ async function statsPage(fromUrl = false) {
     statsSelection.player = result.player?.profile.id || "";
     statsSelection.opponent = result.comparison?.profile.id || "";
     if (!result.players.length) {
-      root.innerHTML = `<section class='stats-page'><h1>Player stats</h1><div class='empty'>No saved rounds yet. Finish a round against a player or GolfBot to see player statistics here.</div></section>`;
+      root.innerHTML = `<section class='stats-page'><h1>Player stats</h1><div class='empty'>No saved games yet. Finish a game against a player or Golf to see player statistics here.</div></section>`;
       return;
     }
     const options = (selected, exclude = "") =>
@@ -292,7 +303,7 @@ async function statsPage(fromUrl = false) {
         .join("");
     const active =
       statsSelection.enabled.length + statsSelection.disabled.length;
-    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Look up a username, then choose another player or GolfBot to compare. Stats combine everyone using the same saved username. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${active ? active + " selected" : "overall / any rules"}</summary><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${statsSelection.enabled.includes(rule.key) ? "selected" : ""}>On</option><option value='off' ${statsSelection.disabled.includes(rule.key) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A round is one deal. A game / series is a full best-of match. Round win rate includes draws in the denominator; series win rate uses completed matches only. Matching rounds from unfinished series still count toward round stats. With rule filters, a completed series counts only when every round matches. Positive point advantage means fewer points than the opponent. Multiplier percentages use only rounds with recorded details. Older rounds use their saved match rules.</p></details></div></section>`;
+    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Look up a username, then choose another player or Golf to compare. Stats combine everyone using the same saved username. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${active ? active + " selected" : "overall / any rules"}</summary><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${statsSelection.enabled.includes(rule.key) ? "selected" : ""}>On</option><option value='off' ${statsSelection.disabled.includes(rule.key) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full best-of match. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Multiplier percentages use only games with recorded details. Older games use their saved match rules.</p></details></div></section>`;
     if (focused) document.getElementById(focused)?.focus();
   } catch (error) {
     if (page === "stats" && request === statsRequest)
@@ -363,11 +374,11 @@ function home() {
   emoteTable = "";
   page = "home";
   markTab("play");
-  document.title = "GolfBot · Your table";
+  document.title = "Golf · Your table";
   state = null;
   closeSocket();
   history.replaceState({}, "", appPath());
-  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby</strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against GolfBot.</p></button></div><div class='profile'><label class='field'><span>Your name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
+  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby</strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golf.</p></button></div><div class='profile'><label class='field'><span>Your name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
   connection.textContent = "Ready to play";
   connection.className = "connection";
 }
@@ -381,8 +392,8 @@ async function abandonExisting() {
 function hostForm(solo = false) {
   saveName(name());
   page = solo ? "solo" : "host";
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against GolfBot" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your username</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
-    solo ? { ...starter, host: "You first", guest: "GolfBot first" } : starter,
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golf" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your username</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
+    solo ? { ...starter, host: "You first", guest: "Golf first" } : starter,
   )
     .map(
       ([key, label]) =>
@@ -390,7 +401,7 @@ function hostForm(solo = false) {
     )
     .join(
       "",
-    )}</select></label><p class='hint'>Alternate starts with ${solo ? "you" : "the host"}. Previous winner/loser starts with ${solo ? "you" : "the host"} in the first round. Ties do not count as wins.</p></div><div><h3>Rules in play</h3><p class='hint'>Both players use the same rules. Hover over ? for details.</p>${rulesHtml({}, true)}</div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
+    )}</select></label><p class='hint'>Alternate starts with ${solo ? "you" : "the host"}. Previous winner/loser starts with ${solo ? "you" : "the host"} in the first game. Ties do not count as wins.</p></div><div><h3>Rules in play</h3><p class='hint'>Both players use the same rules. Hover over ? for details.</p>${rulesHtml({}, true)}</div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
 }
 async function joinList() {
   page = "join";
@@ -452,6 +463,7 @@ function accept(next) {
     state?.game?.phase !== next.game?.phase ||
     state?.game?.decision_player !== next.game?.decision_player;
   state = next;
+  if (lastCardTap && lastCardTap.version !== next.version) lastCardTap = null;
   session.room_id = next.id;
   if (["history", "stats"].includes(page)) return;
   page = "room";
@@ -584,7 +596,7 @@ function turnControls() {
 }
 function renderRoom() {
   if (!state) return;
-  document.title = `${state.name} · GolfBot`;
+  document.title = `${state.name} · Golf`;
   if (!state.game) {
     waitingRoom();
     return;
@@ -593,7 +605,7 @@ function renderRoom() {
     viewer = state.viewer;
   const roundResult = state.history.at(-1);
   const roundOver = ["round_over", "finished"].includes(state.status);
-  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Round ${state.round} · ${state.solo ? `Best of ${state.best_of} · first to ${state.target} wins · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "GolfBot first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next round"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Round ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
+  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Game ${state.round} · ${state.solo ? `Best of ${state.best_of} · first to ${state.target} wins · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "Golf first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next game"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Game ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
@@ -631,6 +643,7 @@ async function move(action, extra = {}) {
 root.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!button || button.disabled) return;
+  if (!button.dataset.ref) lastCardTap = null;
   try {
     if (button.dataset.nav) {
       if (button.dataset.nav === "home") {
@@ -644,12 +657,18 @@ root.addEventListener("click", async (event) => {
       return;
     }
     if (
+      button.hasAttribute("data-stats-all") ||
       button.hasAttribute("data-stats-reset") ||
       button.hasAttribute("data-stats-reset-all")
     ) {
       readStatsForm();
       statsSelection.enabled = [];
       statsSelection.disabled = [];
+      if (button.hasAttribute("data-stats-all")) {
+        const keys = catalog.map((rule) => rule.key);
+        if (button.dataset.statsAll === "on") statsSelection.enabled = keys;
+        else statsSelection.disabled = keys;
+      }
       if (button.hasAttribute("data-stats-reset-all")) {
         statsSelection.player = "";
         statsSelection.opponent = "";
@@ -714,6 +733,28 @@ root.addEventListener("click", async (event) => {
     }
     if (button.dataset.ref) {
       const ref = JSON.parse(button.dataset.ref);
+      const now = performance.now();
+      const flipEligible =
+        ref[0] === state.viewer && state.game.legal.flip.includes(ref[1]);
+      const elapsed = lastCardTap ? now - lastCardTap.time : Infinity;
+      if (
+        !busy &&
+        event.detail > 0 &&
+        flipEligible &&
+        lastCardTap?.room === state.id &&
+        lastCardTap.version === state.version &&
+        same(lastCardTap.ref, ref) &&
+        elapsed <= 400
+      ) {
+        lastCardTap = null;
+        selected = [ref];
+        await move("flip");
+        return;
+      }
+      lastCardTap =
+        event.detail > 0 && flipEligible
+          ? { ref, time: now, version: state.version, room: state.id }
+          : null;
       if (selectedRef(ref)) selected = selected.filter((r) => !same(r, ref));
       else if (state.game.legal.bonus || state.game.legal.trade[0].length)
         selected = [...selected, ref].slice(-2);
@@ -777,7 +818,7 @@ root.addEventListener("submit", async (event) => {
     ) {
       await api(`/api/lobbies/${next.id}/leave`, "POST");
       throw new Error(
-        "The server is running an older version. Restart GolfBot and try again to use your selected match settings.",
+        "The server is running an older version. Restart Golf and try again to use your selected match settings.",
       );
     }
     enterRoom(next);

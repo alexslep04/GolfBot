@@ -504,6 +504,7 @@ input[type="checkbox"] {
     border-color 0.15s;
   flex: none;
   user-select: none;
+  touch-action: manipulation;
 }
 .card:hover {
   transform: translateY(-2px);

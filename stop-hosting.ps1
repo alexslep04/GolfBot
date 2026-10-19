@@ -21,7 +21,7 @@ foreach ($serviceName in 'share', 'tunnel', 'server') {
     }
     if (-not $expected) { throw "Refusing to stop an unrelated process ($hostProcessId)." }
     $termination = Invoke-CimMethod -InputObject $hostProcess -MethodName Terminate
-    if ($termination.ReturnValue -ne 0) { throw "Could not stop GolfBot $serviceName (code $($termination.ReturnValue))." }
+    if ($termination.ReturnValue -ne 0) { throw "Could not stop Golf $serviceName (code $($termination.ReturnValue))." }
     Remove-Item -LiteralPath $pidFile
-    Write-Host "Stopped GolfBot $serviceName."
+    Write-Host "Stopped Golf $serviceName."
 }

@@ -71,6 +71,21 @@ class BotTests(unittest.TestCase):
             game.rng.seed(seed + 99)
             self.assertEqual(policy.choose(game), action)
 
+    def test_final_reveal_search_preserves_the_pending_players_queue(self):
+        game = self.start()
+        for layout in game.players:
+            for slot in layout:
+                slot.visible = True
+        game.phase, game.current = 'bonus', 1
+        game.scoring_reveal, game.bonus_remaining, game.final_bonus_queue = True, 1, [0]
+        observed = public_position(game)
+        self.assertIsNot(observed.final_bonus_queue, game.final_bonus_queue)
+        action = Search(samples=1, transitions=200).choose(game)
+        self.assertEqual(game.final_bonus_queue, [0])
+        self.assertIn(action, legal_actions(game))
+        play_action(game, action)
+        self.assertEqual((game.current, game.phase), (0, 'bonus'))
+
     def test_samples_keep_public_cards_and_conserve_the_deck(self):
         game = self.start()
         for world in sample_positions(game, 12):

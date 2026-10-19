@@ -240,6 +240,73 @@ class GolfTests(unittest.TestCase):
         self.assertEqual(len(game.draw_pile), 38)
         self.assert_conservation(game)
 
+    def test_final_reveal_reserves_both_players_bonus_swaps_before_scoring(self):
+        game = self.start(rules=Rules(queen_swap=True, jack_swap=True))
+        place_cards(game, 0, {0: Card(12, 'H'), 1: Card(3, 'H'), 2: Card(4, 'H'),
+                              3: Card(12, 'S'), 4: Card(5, 'H'), 5: Card(6, 'H')})
+        place_cards(game, 1, {0: Card(11, 'H'), 1: Card(7, 'H'), 2: Card(8, 'H'),
+                              3: Card(11, 'S'), 4: Card(9, 'H'), 5: Card(10, 'H')})
+        game.players[0][3].visible = False
+        game.players[1][3].visible = False
+        game.current, game.finisher, game.final_player, game.is_final_turn = 1, 0, 1, True
+        game.draw()
+        game.discard()
+        self.assertEqual((game.phase, game.current, game.turns), ('bonus', 1, 1))
+        self.assertEqual(game.final_bonus_queue, [0])
+        # Breaking the other player's pair must not cancel their earned swap.
+        game.bonus_swap((0, 0), (0, 1))
+        self.assertEqual((game.phase, game.current), ('bonus', 0))
+        game.bonus_swap((0, 0), (0, 1))  # Restore the same physical pair.
+        self.assertEqual(game.phase, 'over')
+        self.assertEqual(len(game.used_pairs), 2)
+        self.assertEqual(game.turns, 1)
+        self.assertEqual(game.finisher, 0)
+        self.assert_conservation(game)
+
+    def test_scoring_bonus_reveals_incoming_hidden_cards_and_new_pairs_once(self):
+        game = self.prepare_pair()
+        for layout in game.players:
+            for slot in layout:
+                slot.visible = True
+        game.players[0][3].visible = False
+        # A second Q pair is earned only after moving the draw's Q into place.
+        place_cards(game, 0, {1: Card(12, 'D')})
+        queen = Card(12, 'C')
+        if queen not in game.draw_pile:
+            # Put this physical card on the pile without duplicating the deck.
+            for layout in game.players:
+                for slot in layout:
+                    if slot.card == queen:
+                        slot.card, game.draw_pile[-1] = game.draw_pile[-1], slot.card
+            if queen in game.discard_pile:
+                index = game.discard_pile.index(queen)
+                game.discard_pile[index], game.draw_pile[-1] = game.draw_pile[-1], queen
+        else:
+            index = game.draw_pile.index(queen)
+            game.draw_pile[index], game.draw_pile[-1] = game.draw_pile[-1], queen
+        game.current, game.finisher, game.final_player, game.is_final_turn = 1, 0, 1, True
+        game._complete_turn()
+        self.assertEqual((game.phase, game.current), ('bonus', 0))
+        game.bonus_swap(('draw', None), (0, 4))
+        self.assertTrue(game.players[0][4].visible)
+        self.assertEqual(game.phase, 'bonus')
+        game.bonus_swap((0, 2), (0, 5))
+        self.assertEqual(game.phase, 'over')
+        self.assertEqual(len(game.used_pairs), 2)
+        self.assert_conservation(game)
+
+    def test_final_reveal_does_not_activate_disabled_pairs_or_other_reveal_rewards(self):
+        game = self.start(rules=Rules(gamblers_row=True, poisoned_card=True))
+        place_cards(game, 0, {0: Card(7, 'H'), 1: Card(7, 'D'), 2: Card(7, 'S'),
+                              3: Card(12, 'H'), 4: Card(4, 'H'), 5: Card(12, 'S')})
+        game.players[0][2].visible = False
+        game.current, game.finisher, game.final_player, game.is_final_turn = 0, 1, 0, True
+        game._complete_turn()
+        self.assertEqual(game.phase, 'over')
+        self.assertEqual(game.gambler_earned, [False, False])
+        self.assertEqual(game.finisher, 1)
+        self.assertEqual(game.used_pairs, set())
+
     def test_queen_and_jack_toggles_are_independent(self):
         for rank, enabled in product((11, 12), (False, True)):
             rule = Rules(queen_swap=enabled) if rank == 12 else Rules(jack_swap=enabled)

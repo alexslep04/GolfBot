@@ -45,7 +45,7 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(overall['unfinished_matches'], 1)
         self.assertEqual(overall['total_points'], 23)
         self.assertEqual(overall['average_points'], 4.6)
-        self.assertEqual(overall['average_advantage'], -0.4)
+        self.assertEqual(overall['average_advantage'], 0.4)
         self.assertEqual((overall['best_round'], overall['worst_round']), (-2, 10))
         head = data['player']['head_to_head']
         reverse = data['comparison']['head_to_head']
@@ -53,6 +53,9 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(head['match_win_rate'], 1)
         self.assertEqual(reverse['round_wins'], head['round_losses'])
         self.assertEqual(reverse['total_points'], 19)
+        self.assertLess(head['average_advantage'], 0)
+        self.assertEqual(head['average_advantage'], -reverse['average_advantage'])
+        self.assertEqual(data['comparison']['profile']['label'], 'Golf (solo AI)')
 
     def test_final_divisions_are_ranked_and_legacy_details_remain_unknown(self):
         overall = build_stats(self.matches, 'player:tester')['player']['overall']
