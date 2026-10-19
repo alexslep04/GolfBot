@@ -1,4 +1,4 @@
-"""Persistent, browser-scoped match summaries; no cards or session secrets saved."""
+"""Shared match summaries; no cards or session secrets saved or exposed."""
 from dataclasses import asdict
 import hashlib
 import json
@@ -49,10 +49,12 @@ class MatchHistory:
                                     (room.match_id, browser_key(room.seats[0]), browser_key(room.seats[1]), payload["updated_at"], json.dumps(payload)))
 
     def for_browser(self, token, limit=100, offset=0):
+        """List everyone's matches; identify the viewer's seat only if they played."""
         key = browser_key(token)
         with self.lock:
-            rows = self.connection.execute("SELECT host, payload FROM matches WHERE (host=? OR guest=?) ORDER BY updated DESC, id LIMIT ? OFFSET ?", (key, key, limit, offset)).fetchall()
-        return [{**json.loads(payload), "viewer": 0 if host == key else 1} for host, payload in rows]
+            rows = self.connection.execute("SELECT host, guest, payload FROM matches ORDER BY updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+        return [{**json.loads(payload), "viewer": (0 if host == key else 1 if guest == key else None) if key else None}
+                for host, guest, payload in rows]
 
     def close(self):
         self.connection.close()

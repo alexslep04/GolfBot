@@ -65,11 +65,14 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(matches[1]['points'], [-2, 11])
         self.assertEqual(matches[1]['rounds'], old['rounds'])
 
-    def test_history_privacy_and_no_card_or_session_secret_payloads(self):
+    def test_shared_history_viewer_labels_and_no_card_or_session_secrets(self):
         self.finish([4, 10])
-        self.assertEqual(self.store.history.for_browser('outsider'), [])
+        others = self.store.history.for_browser('outsider')
+        self.assertEqual(len(others), 1)
+        self.assertIsNone(others[0]['viewer'])
+        self.assertEqual(others[0]['names'], ['Alex', 'Guest'])
         payload = json.dumps(self.store.history.for_browser('host-token'))
-        for forbidden in ('host-token', 'guest-token', 'draw_pile', 'held_card', 'golf_session'):
+        for forbidden in ('host-token', 'guest-token', browser_key('host-token'), browser_key('guest-token'), 'draw_pile', 'held_card', 'golf_session'):
             self.assertNotIn(forbidden, payload)
         self.assertEqual(len(browser_key('host-token')), 64)
 
@@ -80,6 +83,24 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(match['status'], 'abandoned')
         self.assertIsNone(match['winner'])
         self.assertEqual(match['points'], [4, 10])
+
+    def test_other_players_see_solo_and_multiplayer_matches_with_correct_viewer(self):
+        self.finish([4, 10])
+        multiplayer_id = self.room.match_id
+        self.room.match_id = 'another-players-solo'
+        self.room.solo, self.room.best_of = True, 1
+        self.room.seats, self.room.names = ['third-token', None], ['Another player', 'GolfBot']
+        self.room.history, self.room.wins = [], [0, 0]
+        self.finish([9, 2])
+        for token, expected in (
+            ('host-token', {multiplayer_id: 0, self.room.match_id: None}),
+            ('guest-token', {multiplayer_id: 1, self.room.match_id: None}),
+            ('third-token', {multiplayer_id: None, self.room.match_id: 0}),
+            (None, {multiplayer_id: None, self.room.match_id: None}),
+        ):
+            matches = self.store.history.for_browser(token)
+            self.assertEqual({match['id']: match['viewer'] for match in matches}, expected)
+            self.assertEqual({match['solo'] for match in matches}, {False, True})
 
     def test_solo_results_are_saved_and_keep_completed_status_after_leaving(self):
         self.room.solo, self.room.best_of = True, 1
@@ -93,7 +114,8 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(match['winner'], 0)
         self.assertEqual(match['points'], [2, 7])
         self.assertEqual(match['viewer'], 0)
-        self.assertEqual(self.store.history.for_browser('outsider'), [])
+        self.assertIsNone(self.store.history.for_browser('outsider')[0]['viewer'])
+        self.assertIsNone(self.store.history.for_browser(None)[0]['viewer'])
 
     def test_completed_multiplayer_match_survives_abandon_save(self):
         self.room.best_of = 1
@@ -153,7 +175,11 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(client.get('/api/history?offset=-1').status_code, 422)
             stranger = TestClient(create_app(self.store))
             stranger.get('/api/session')
-            self.assertEqual(stranger.get('/api/history').json()['matches'], [])
+            shared = stranger.get('/api/history').json()
+            self.assertEqual([m['id'] for m in shared['matches']], [m['id'] for m in first['matches']])
+            self.assertEqual(shared['next_offset'], 50)
+            self.assertTrue(all(m['viewer'] is None for m in shared['matches']))
+            self.assertEqual(len(stranger.get('/api/history?offset=50').json()['matches']), 1)
             stranger.close()
 
     def test_history_page_reload_and_rule_catalog(self):
@@ -206,7 +232,10 @@ class PersistenceTests(unittest.TestCase):
                 client.cookies.set(COOKIE, 'invalid', domain='testserver.local', path='/')
                 client.get('/api/session')
                 self.assertNotEqual(client.cookies.get(COOKIE), 'invalid')
-                self.assertEqual(client.get('/api/history').json()['matches'], [])
+                shared = client.get('/api/history').json()['matches']
+                self.assertEqual(len(shared), 1)
+                self.assertIsNone(shared[0]['viewer'])
+                self.assertEqual(shared[0]['points'], [-4, 7])
 
 
 if __name__ == '__main__':
