@@ -430,7 +430,8 @@ def create_app(store=None, google_client_id=None):
             return Response("Cross-origin changes are not allowed.", status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        local_http = request.url.scheme == 'http' and request.url.hostname in ('localhost', '127.0.0.1', '::1')
+        response.headers["Referrer-Policy"] = 'no-referrer-when-downgrade' if local_http else 'strict-origin-when-cross-origin'
         response.headers['Cross-Origin-Opener-Policy'] = 'same-origin-allow-popups'
         if request.url.path.removeprefix(request.scope.get("root_path", "")).startswith("/api"):
             response.headers["Cache-Control"] = "no-store"

@@ -139,3 +139,12 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(client.post('/api/solo', json={'username': 'Guest'}).status_code, 200)
             for path in ('/account', '/Golfgame/account', '/privacy', '/Golfgame/privacy'):
                 self.assertEqual(client.get(path).status_code, 200)
+
+    def test_google_popup_and_local_referrer_headers(self):
+        for origin, policy in [('http://localhost', 'no-referrer-when-downgrade'),
+                               ('http://127.0.0.1', 'no-referrer-when-downgrade'),
+                               ('https://sleptsov.dev', 'strict-origin-when-cross-origin')]:
+            with TestClient(create_app(Store(), ''), base_url=origin) as client:
+                response = client.get('/Golfgame/')
+                self.assertEqual(response.headers['referrer-policy'], policy)
+                self.assertEqual(response.headers['cross-origin-opener-policy'], 'same-origin-allow-popups')
