@@ -8,7 +8,7 @@ The single source of truth for this 52-card game. In solo play, select optional 
 
 **Start:** shuffle 52 cards. Deal each player six face-down cards in two rows of three. The rest form the go-fish pile; flip its top card to start the discard pile. Each player reveals any two of their own cards. The dealer plays first; turns alternate.
 
-In browser lobbies, the host chooses who goes first: host, guest, alternate, random, previous winner, or previous loser. Alternate starts with the host and changes each round. Winner/loser uses the previous round's result, falling back to alternate after a tie. Solo starts with you.
+In browser lobbies, the host chooses who goes first: host, guest, alternate, random, previous winner, or previous loser. Alternate starts with the host and changes each game. Winner/loser uses the previous game's result, falling back to alternate after a tie. Solo starts with you.
 
 ### 1. Flip one of your hidden cards
 
@@ -32,7 +32,7 @@ Normal replacements enter face up. After flipping a card during a turn, only tha
 
 ## Ending and scoring
 
-When either player has all six cards face up, finish the current turn and its bonuses, then give the other player one final turn. An already-triggered ending cannot be canceled. If a bonus reveals the non-acting player's sixth card, the acting player receives a fresh final turn. Finally reveal all hidden cards and score; these scoring reveals do not activate abilities. Lowest score wins; equal scores tie.
+When either player has all six cards face up, finish the current turn and its bonuses, then give the other player one final turn. An already-triggered ending cannot be canceled. If a bonus reveals the non-acting player's sixth card, the acting player receives a fresh final turn. Finally reveal all hidden cards. Resolve Q-Q/J-J bonus swaps for both players before scoring; other abilities do not activate from these reveals. The final-turn player resolves their swaps first. Earned swaps remain available if a later swap breaks the pair. Newly formed, unused pairs can earn further swaps. Cards brought in face down are revealed before checking pairs again. Lowest score wins; equal scores tie.
 
 | Card | Points |
 | --- | ---: |
@@ -44,19 +44,19 @@ When either player has all six cards face up, finish the current turn and its bo
 
 Two cards of the same rank in a column score zero, regardless of suit. Breaking the pair restores their normal points. Empty go-fish piles are refilled by shuffling the discards except the current top card. Round every division upward, including negative scores.
 
-**Matches:** best of N means first to (N + 1) / 2 wins. Tied rounds give no wins and may extend the match. Both players mark ready for each new round. After a finished match the host may offer a rematch, with the guest marking ready again.
+**Matches:** best of N means first to (N + 1) / 2 wins. Tied games give no wins and may extend the match. Both players mark ready for each new game. After a finished match the host may offer a rematch, with the guest marking ready again.
 
 ## Selectable rules
 
 ### Queen-Queen and Jack-Jack bonus swaps
 <!-- rule: queen_swap, jack_swap -->
 
-A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end, including either hand and both pile tops. Overrides locks. Each physical pair triggers once per round; different pairs can earn separate swaps.
+A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end or final reveal, including either hand and both pile tops. Overrides locks. Each physical pair triggers once per game; different pairs can earn separate swaps.
 
 ### Devil's Row (666)
 <!-- rule: devils_row -->
 
-Three visible 6s in a row lock those cards for the round. Only a bonus swap may move them; the locks remain.
+Three visible 6s in a row lock those cards for the game. Only a bonus swap may move them; the locks remain.
 
 ### Gambler's Row (777)
 <!-- rule: gamblers_row -->
@@ -139,11 +139,11 @@ Deal each player four additional cards they may inspect. Before a turn, ask for 
 
 ### Black Out
 
-Each card may be inspected once and marked as seen; showing it to opponents is optional. Claiming an ability reveals its cards for the round. Incorrect claims have no specified penalty. Reveal everything for final scoring.
+Each card may be inspected once and marked as seen; showing it to opponents is optional. Claiming an ability reveals its cards for the game. Incorrect claims have no specified penalty. Reveal everything for final scoring.
 
 ### Socialism
 
-After dealing the next round, the previous worst-scoring player may swap one of their two revealed cards with one of the previous best-scoring opponent's two revealed cards.
+After dealing the next game, the previous worst-scoring player may swap one of their two revealed cards with one of the previous best-scoring opponent's two revealed cards.
 
 ### Field Goal
 

@@ -1,4 +1,4 @@
-# GolfBot
+# Golf
 
 A browser-playable variant of six-card Golf, with solo play and two-player lobbies. Python runs the rules on a FastAPI server served by Uvicorn; the browser displays the table and receives live updates over WebSockets.
 
@@ -18,11 +18,11 @@ After updating the source, stop and restart the server so the Python backend and
 
 The menu offers **Join lobby**, **Host lobby**, and **Play solo**.
 
-- **Solo:** choose a best-of-1/3/5/7/9 match against GolfBot and who starts: you, GolfBot, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each round, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo rounds and series are saved in match history.
+- **Solo:** choose a best-of-1/3/5/7/9 match against Golf and who starts: you, Golf, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each game, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo games and series are saved in match history.
 - **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link. The game starts automatically when a guest joins.
 - **Join:** browse existing tables or open an invite link. Review the rules, enter your name, and join to start playing.
 
-GolfBot uses sampled lookahead to maximize the expected point difference **your score minus its score**. It considers its current turn and your reply, up to six decisions, including enabled scoring effects and bonus actions. Hidden cards and future draws are sampled from the unseen 52-card deck; the bot cannot inspect their actual identities or change the deal. The bounded search runs off the server event loop so other tables and emotes remain responsive. This is an approximate search, not a guarantee of the mathematically best move.
+Golf uses sampled lookahead to maximize the expected point difference **your score minus its score**. It considers its current turn and your reply, up to six decisions, including enabled scoring effects and bonus actions. Hidden cards and future draws are sampled from the unseen 52-card deck; the bot cannot inspect their actual identities or change the deal. The bounded search runs off the server event loop so other tables and emotes remain responsive. This is an approximate search, not a guarantee of the mathematically best move.
 
 Run `python -m benchmarks.bot_strength --deals 16` to compare the search and old basic bot on the same fixed deals against a basic opponent, with alternating starting seats. It reports wins and average point advantage; small samples describe these deals rather than overall playing strength.
 
@@ -32,6 +32,8 @@ Use **Select all rules** in match setup or the editable solo rules panel to enab
 
 Both players choose two opening cards. Click a card to select or unselect it; use **Flip**, **Swap**, **Draw**, or **Discard**. Selecting the go-fish pile and pressing Flip also draws. After a layout flip, **End turn** appears; Enter works too. Draw-first allows immediate discard, replacing an already visible card, or flipping a hidden card before replacing it.
 
+Double-tap an eligible face-down card in your own hand to flip it directly. Two taps on the same card within 400 ms activate this shortcut; a single tap still selects it. Card taps suppress double-tap zoom while keeping pinch zoom available.
+
 Enabled bonus swaps use the same Swap button with two selected table cards. Beggars presents a rank guess to the eligible opponent; 4 of a Kind presents column choices. Hover or focus **?** for concise rule explanations. Each hand shows **Visible** points and **Active** points with current effects, including multipliers. Hidden cards are excluded. The effects sidebar lists the individual adjustments.
 
 **V10** accepts any three 10s, Jacks, or Queens in either V, including repeated ranks. **Tricky straights** adds an ascending row's rightmost base points to the opponent, or subtracts a descending row's rightmost base points from its owner. **Poisoned Card** adds 5 to the first player to reveal all six cards. All score additions/subtractions happen before divisions, using unmodified card values to detect patterns.
@@ -40,21 +42,21 @@ Use the top-right **☺** button in the action panel to switch between game acti
 
 ## Match history
 
-Open the **Match history** tab to see everyone’s games on this server, including games against GolfBot and best-of series. You can view matches you did not participate in. Bot matches are labeled **Vs GolfBot** with their match length. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
+Open the **Match history** tab to see everyone’s games on this server, including games against Golf and best-of series. You can view matches you did not participate in. Bot matches are labeled **Vs Golf** with their match length. Each record shows every completed game's scores and winner, the series winner and game wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
 
-Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed round. Retained older bot records are included, but solo games that were never saved by previous versions cannot be reconstructed.
+Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed game. Retained older bot records are included, but solo games that were never saved by previous versions cannot be reconstructed.
 
 Results are saved in `data/matches.sqlite3`. Keep that file to retain history across server restarts. Anyone who can access this game server can browse saved match summaries, including player names, scores, and winners. History is shared across browsers and devices using the same server. The browser cookie is used only to mark your seat with **You** when you participated; it does not limit which records you can see. Session identifiers and hidden cards are not exposed. There are no player accounts.
 
 ## Player stats
 
-Open **Player stats** beside Match history. Choose a saved username, then optionally choose another player or **GolfBot (solo AI)**. Compare their overall records and head-to-head results: round and match/series wins, win rates, average points, point advantage, total points, best/worst rounds, and most common final score divisions. Names are case-sensitive; everyone using the same saved username shares one record. A human named GolfBot remains separate from the solo AI. Games with identical human usernames in both seats are excluded because those seats cannot be distinguished.
+Open **Player stats** beside Match history. Choose a saved username, then optionally choose another player or **Golf (solo AI)**. Compare their overall records and head-to-head results: game and series wins, win rates, average points, point advantage, total points, best/worst games, and most common final score divisions. Names are case-sensitive; everyone using the same saved username shares one record. A human named Golf remains separate from the solo AI. Games with identical human usernames in both seats are excluded because those seats cannot be distinguished.
 
-Rule filters offer **Any**, **On**, or **Off** for each rule. Any ignores that rule, On requires it, and Off excludes it. Set every rule explicitly for an exact combination, or Reset rules for overall stats. Filters apply to both players and both comparison tables; selections can be bookmarked in the page URL. Stats use all saved results, including older history pages. Opening stats keeps your current game running; return with Play.
+Rule filters offer **Any**, **On**, or **Off** for each rule. Any ignores that rule, On requires it, and Off excludes it. **All on** and **All off** apply every rule at once; **Reset rules** returns to overall stats. Filters apply to both players and both comparison tables; selections can be bookmarked in the page URL. Stats use all saved results, including older history pages. Opening stats keeps your current game running; return with Play.
 
-A round is one deal; a game/series is a full best-of match. Round win rate is wins divided by all matching rounds, including draws. Series win rate uses completed matches only; with rule filters, every round in a completed series must match. Completed rounds from unfinished series still count toward round averages and round win rates. Positive point advantage means the opponent scored more points.
+A game is one deal; a series is a full best-of match. Game win rate is wins divided by all matching games, including draws. Series win rate uses completed matches only; with rule filters, every game in a completed series must match. Completed games from unfinished series still count toward game averages and game win rates. Point advantage is your average minus your opponent’s; a negative value means you scored fewer points.
 
-New completed rounds save their own rule settings and final score divisor, including stacked Roman 5s, V10, and 777 effects. Multiplier frequencies include ×1 (no division) and use only rounds with recorded divisors. Older results contribute scores and wins, but missing multiplier details stay unknown; they cannot be reconstructed from final scores. Older rounds without separate rule settings use their saved match rules. No cards or browser identifiers are added to these results.
+New completed games save their own rule settings and final score divisor, including stacked Roman 5s, V10, and 777 effects. Multiplier frequencies include ×1 (no division) and use only games with recorded divisors. Older results contribute scores and wins, but missing multiplier details stay unknown; they cannot be reconstructed from final scores. Older games without separate rule settings use their saved match rules. No cards or browser identifiers are added to these results.
 
 ## Self-host and invite someone
 
@@ -84,13 +86,13 @@ The public address exposes this game server and its lobby directory. There are n
 
 [RULES.md](RULES.md) is the single source of truth, including descriptions loaded by the browser. All optional rules start disabled. Multiplayer rules are fixed for the match.
 
-Best of 3 means first to 2 wins; best of 5 means first to 3, and so on. Tied rounds award neither player a win and can extend the series. Both players mark ready for the next round. Alternate starts with the host; random chooses independently each round. Winner/loser policies use the previous decisive result, falling back to alternate when the previous round tied. The host may offer a rematch after a completed match; the guest marks ready again.
+Best of 3 means first to 2 wins; best of 5 means first to 3, and so on. Tied games award neither player a win and can extend the series. Both players mark ready for the next game. Alternate starts with the host; random chooses independently each game. Winner/loser policies use the previous decisive result, falling back to alternate when the previous game tied. The host may offer a rematch after a completed match; the guest marks ready again.
 
 Visible subtotals and effects exclude hidden cards. These are scoring aids. Future score-advantage and win-probability evaluation bars, stronger search, and reinforcement learning can use the UI-independent engine and server API.
 
 ## Deployment and development
 
-Run **one Uvicorn worker**: active lobbies and rounds live in memory and clear on restart. Match summaries persist in SQLite; interrupted series keep their completed games. Multiple workers or multiple servers need shared live game state before they can serve the same lobbies. Set `GOLFBOT_HISTORY_DB` to choose another database path.
+Run **one Uvicorn worker**: active lobbies and games live in memory and clear on restart. Match summaries persist in SQLite; interrupted series keep their completed games. Multiple workers or multiple servers need shared live game state before they can serve the same lobbies. Set `GOLFBOT_HISTORY_DB` to choose another database path.
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1

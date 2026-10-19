@@ -309,6 +309,31 @@ class WebTests(unittest.TestCase):
         self.assertEqual(next_state['game']['first_player'], 1)
         self.assertEqual(len(next_state['history']), 1)
 
+    def test_final_scoring_waits_for_each_players_forced_reveal_bonus(self):
+        self.start(best_of=3, rules={'queen_swap': True, 'jack_swap': True})
+        game = self.room.game
+        game.players = [
+            [Slot(Card(rank, suit), index != 3) for index, (rank, suit) in enumerate(
+                [(12, 'H'), (3, 'H'), (4, 'H'), (12, 'S'), (5, 'H'), (6, 'H')])],
+            [Slot(Card(rank, suit), index != 3) for index, (rank, suit) in enumerate(
+                [(11, 'H'), (7, 'H'), (8, 'H'), (11, 'S'), (9, 'H'), (10, 'H')])],
+        ]
+        game.current, game.finisher, game.final_player, game.is_final_turn = 1, 0, 1, True
+        self.move('draw', self.guest)
+        pending = self.move('discard', self.guest)
+        self.assertEqual(pending['status'], 'playing')
+        self.assertTrue(pending['game']['legal']['bonus'])
+        self.assertEqual(pending['history'], [])
+        self.move('swap', refs=[[0, 0], [0, 1]], status=403)
+        next_player = self.move('swap', self.guest, refs=[[0, 0], [0, 1]])
+        self.assertEqual(next_player['game']['decision_player'], 0)
+        self.assertEqual(next_player['history'], [])
+        completed = self.move('swap', refs=[[0, 0], [0, 1]])
+        self.assertEqual(completed['status'], 'round_over')
+        self.assertEqual(len(completed['history']), 1)
+        self.assertEqual(completed['history'][0]['scores'], [game.score(0), game.score(1)])
+        self.move('swap', refs=[[0, 0], [0, 1]], status=409)
+
     def test_websocket_broadcast_reconnect_and_nonmember_rejection(self):
         self.create()
         with self.host.websocket_connect(f'/ws/{self.id}') as ws:
@@ -449,7 +474,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(matches[0]['id'], old_match_id)
         self.assertTrue(matches[0]['solo'])
         self.assertEqual(matches[0]['best_of'], 3)
-        self.assertEqual(matches[0]['names'][1], 'GolfBot')
+        self.assertEqual(matches[0]['names'][1], 'Golf')
         self.assertEqual(matches[0]['status'], 'finished')
         self.assertEqual(matches[0]['winner'], 0)
         self.assertEqual(matches[0]['wins'], [2, 1])

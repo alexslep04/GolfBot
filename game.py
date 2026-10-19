@@ -93,6 +93,8 @@ class GolfGame:
         self.turns = 0
         self.bonus_remaining = 0
         self.used_pairs = set()
+        self.scoring_reveal = False
+        self.final_bonus_queue = []
         self.locked_cards = set()
         self.gambler_earned = [False, False]
         self.four_offered = [set(), set()]
@@ -103,7 +105,7 @@ class GolfGame:
 
     def set_rule(self, key, enabled):
         if self.phase != "setup" or key not in {key for key, _ in RULE_OPTIONS}:
-            raise ValueError("Choose rules during the opening reveal, before the round starts.")
+            raise ValueError("Choose rules during the opening reveal, before the game starts.")
         setattr(self.rules, key, bool(enabled))
         self.locked_cards.clear()
         self.gambler_earned = [False, False]
@@ -381,16 +383,21 @@ class GolfGame:
         self.last_move = f"{who} revealed {card.label}{card.suit} and ended the turn."
         self._finish_turn()
 
-    def _collect_bonuses(self):
+    def _new_bonuses(self, player):
+        count = 0
         for column in range(3):
-            first, second = self.players[self.current][column], self.players[self.current][column + 3]
+            first, second = self.players[player][column], self.players[player][column + 3]
             enabled = ((first.card.rank == 12 and self.rules.queen_swap) or
                        (first.card.rank == 11 and self.rules.jack_swap))
             if first.visible and second.visible and enabled and first.card.rank == second.card.rank:
                 pair = frozenset((first.card, second.card))
                 if pair not in self.used_pairs:
                     self.used_pairs.add(pair)
-                    self.bonus_remaining += 1
+                    count += 1
+        return count
+
+    def _collect_bonuses(self):
+        self.bonus_remaining += self._new_bonuses(self.current)
 
     def _finish_turn(self):
         self._update_combos()
@@ -442,6 +449,9 @@ class GolfGame:
         self._put_slot(second, a)
         self.bonus_remaining -= 1
         self.last_move = ("You" if self.current == 0 else "Opponent") + " used a bonus swap."
+        if self.scoring_reveal:
+            self._resolve_scoring_reveal()
+            return
         # Visibility follows cards into layouts. Piles use their own orientation.
         # Bonus swaps override locks, but an already locked card retains its lock.
         self._update_combos()
@@ -458,12 +468,8 @@ class GolfGame:
     def _complete_turn(self):
         self.turns += 1
         if self.is_final_turn:
-            for layout in self.players:
-                for slot in layout:
-                    slot.visible = True
-            self.phase = "over"
-            mine, theirs = self.score(0), self.score(1)
-            self.message = "You win!" if mine < theirs else "Opponent wins." if mine > theirs else "It's a draw!"
+            self.scoring_reveal = True
+            self._resolve_scoring_reveal()
             return
         self.current = self.final_player if self.final_player is not None else 1 - self.current
         self.is_final_turn = self.current == self.final_player
@@ -471,6 +477,24 @@ class GolfGame:
         self.message = "Your turn: Flip your card, Draw, or Swap with the discard." if self.current == 0 else "Opponent is thinking..."
         if self.current == self.final_player:
             self.message = "Your FINAL turn: Flip, Draw, or Swap." if self.current == 0 else "Opponent's final turn..."
+
+    def _resolve_scoring_reveal(self):
+        # Reserve both players' earned swaps before either can break a pair.
+        # Only Q-Q/J-J activate here; scoring reveals do not earn 777 or Poison.
+        for layout in self.players:
+            for slot in layout:
+                slot.visible = True
+        for player in (self.current, 1 - self.current):
+            self.final_bonus_queue.extend([player] * self._new_bonuses(player))
+        if self.final_bonus_queue:
+            self.current = self.final_bonus_queue.pop(0)
+            self.bonus_remaining = 1
+            self.phase = "bonus"
+            self.message = "Final reveal bonus: select any two table cards and Swap."
+            return
+        self.phase = "over"
+        mine, theirs = self.score(0), self.score(1)
+        self.message = "You win!" if mine < theirs else "Opponent wins." if mine > theirs else "It's a draw!"
 
     def _visible_column(self, player, index, replacement=None):
         slot = self.players[player][index]
