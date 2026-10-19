@@ -135,7 +135,7 @@ async function historyPage(more = false) {
     }
     historyEntries.push(...result.matches);
     historyOffset = result.next_offset;
-    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Your games against players and GolfBot, including best-of series. Points are summed per player; series winners are decided by round wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `History is saved for this browser on this site address.`}</p>${
+    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Everyone’s games against players and GolfBot on this server, including best-of series. Points are summed per player; series winners are decided by round wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `Match history is shared with everyone on this server.`}</p>${
       historyEntries
         .map((match) => {
           const winner =

@@ -40,11 +40,11 @@ Use the top-right **☺** button in the action panel to switch between game acti
 
 ## Match history
 
-Open the **Match history** tab to see games against other players and GolfBot, including best-of series. Bot matches are labeled **Vs GolfBot** with their match length. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
+Open the **Match history** tab to see everyone’s games on this server, including games against GolfBot and best-of series. You can view matches you did not participate in. Bot matches are labeled **Vs GolfBot** with their match length. Each record shows every completed game's scores and winner, the series winner and round wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
 
 Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed round. Retained older bot records are included, but solo games that were never saved by previous versions cannot be reconstructed.
 
-Results are saved in `data/matches.sqlite3`. Keep that file to retain history across server restarts. History access uses the same browser cookie on the same site address, not the username: clearing cookies, changing browsers, or restarting a temporary tunnel at a new hostname gives a separate identity. Other players cannot browse your history. There are no player accounts or cross-device history synchronization.
+Results are saved in `data/matches.sqlite3`. Keep that file to retain history across server restarts. Anyone who can access this game server can browse saved match summaries, including player names, scores, and winners. History is shared across browsers and devices using the same server. The browser cookie is used only to mark your seat with **You** when you participated; it does not limit which records you can see. Session identifiers and hidden cards are not exposed. There are no player accounts.
 
 ## Self-host and invite someone
 
