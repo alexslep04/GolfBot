@@ -112,6 +112,10 @@ class GolfGame:
     def visible_count(self, player):
         return sum(slot.visible for slot in self.players[player])
 
+    def score_divisor(self, player):
+        divisor = score_adjustments(self.players[player], self.rules)[1]
+        return divisor * (7 if self.rules.gamblers_row and self.gambler_earned[player] else 1)
+
     def score(self, player, visible_only=False):
         total = column_score(self.players[player], self.rules, visible_only)
         adjustment, divisor = score_adjustments(self.players[player], self.rules, visible_only)
