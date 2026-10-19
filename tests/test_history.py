@@ -81,13 +81,19 @@ class HistoryTests(unittest.TestCase):
         self.assertIsNone(match['winner'])
         self.assertEqual(match['points'], [4, 10])
 
-    def test_solo_results_are_not_saved(self):
+    def test_solo_results_are_saved_and_keep_completed_status_after_leaving(self):
         self.room.solo, self.room.best_of = True, 1
         self.room.seats[1], self.room.names[1] = None, 'GolfBot'
         self.finish([2, 7])
         self.store.history.save(self.room, abandoned=True)
-        self.assertEqual(self.store.history.for_browser('host-token'), [])
-        self.assertEqual(self.store.history.connection.execute('SELECT count(*) FROM matches').fetchone()[0], 0)
+        match = self.store.history.for_browser('host-token')[0]
+        self.assertTrue(match['solo'])
+        self.assertEqual(match['names'], ['Alex', 'GolfBot'])
+        self.assertEqual(match['status'], 'finished')
+        self.assertEqual(match['winner'], 0)
+        self.assertEqual(match['points'], [2, 7])
+        self.assertEqual(match['viewer'], 0)
+        self.assertEqual(self.store.history.for_browser('outsider'), [])
 
     def test_completed_multiplayer_match_survives_abandon_save(self):
         self.room.best_of = 1
@@ -98,7 +104,22 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(match['status'], 'finished')
         self.assertEqual(match['winner'], 0)
 
-    def test_old_solo_records_are_excluded_before_pagination(self):
+    def test_bot_series_records_bot_winner_ties_and_total_points(self):
+        self.room.solo = True
+        self.room.seats[1], self.room.names[1] = None, 'GolfBot'
+        for scores in ([6, 1], [2, 2], [5, -2]):
+            self.finish(scores)
+        match = self.store.history.for_browser('host-token')[0]
+        self.assertTrue(match['solo'])
+        self.assertEqual(match['best_of'], 3)
+        self.assertEqual(match['status'], 'finished')
+        self.assertEqual(match['winner'], 1)
+        self.assertEqual(match['wins'], [0, 2])
+        self.assertEqual(match['points'], [13, 1])
+        self.assertEqual(len(match['rounds']), 3)
+        self.assertIsNone(match['rounds'][1]['winner'])
+
+    def test_old_solo_records_are_included_in_mixed_history_pagination(self):
         self.finish([2, 7])
         match = self.store.history.for_browser('host-token')[0]
         for index in range(60):
@@ -108,8 +129,11 @@ class HistoryTests(unittest.TestCase):
                     (legacy['id'], browser_key('host-token'), None, 9999999999 + index, json.dumps(legacy)))
         visible = self.store.history.for_browser('host-token', limit=1)
         self.assertEqual(len(visible), 1)
-        self.assertEqual(visible[0]['id'], match['id'])
-        self.assertFalse(visible[0]['solo'])
+        self.assertEqual(visible[0]['id'], 'solo-59')
+        self.assertTrue(visible[0]['solo'])
+        older = self.store.history.for_browser('host-token', limit=1, offset=60)
+        self.assertEqual(older[0]['id'], match['id'])
+        self.assertFalse(older[0]['solo'])
 
     def test_api_pages_old_matches_and_rejects_unauthenticated_access(self):
         with TestClient(create_app(self.store)) as client:
