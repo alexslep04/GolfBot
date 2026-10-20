@@ -1,12 +1,14 @@
 """Statistics from saved results, grouped by username rather than browser identity."""
 from collections import Counter
+from game import RULE_OPTIONS
 
 BOT_ID = 'bot:golfbot'
 
 
 def identities(match):
-    return ['player:' + match['names'][0],
-            BOT_ID if match.get('solo') else 'player:' + match['names'][1]]
+    participants = match.get('participants') or [None, None]
+    return [(participants[seat] or {}).get('id') or
+            (BOT_ID if seat == 1 and match.get('solo') else 'player:' + match['names'][seat]) for seat in (0, 1)]
 
 
 def player_catalog(matches):
@@ -14,9 +16,13 @@ def player_catalog(matches):
     for match in matches:
         for seat, player_id in enumerate(identities(match)):
             bot = player_id == BOT_ID
-            name = 'Golf' if bot else match['names'][seat]
-            players[player_id] = {'id': player_id, 'username': name, 'is_bot': bot,
-                                  'label': 'Golf (solo AI)' if bot else name + (' (player)' if name == 'Golf' else '')}
+            profile = ((match.get('participants') or [None, None])[seat] or {})
+            unique = profile.get('unique_name')
+            name = 'Golf' if bot else unique or match['names'][seat]
+            aliases = set(players.get(player_id, {}).get('display_names', [])) | {match['names'][seat]}
+            players[player_id] = {'id': player_id, 'username': name, 'unique_name': unique, 'is_bot': bot,
+                                  'display_names': sorted(aliases), 'is_guest': not bot and not unique,
+                                  'label': 'Golf (solo AI)' if bot else '@' + unique if unique else name + ' (guest)'}
     return sorted(players.values(), key=lambda player: (player['is_bot'], player['username'].casefold(), player['id']))
 
 
@@ -27,7 +33,8 @@ def matches_rules(rules, enabled, disabled):
 def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None):
     wins = losses = draws = total_points = opponent_points = 0
     match_wins = match_losses = completed_matches = unfinished_matches = ambiguous_matches = 0
-    points, divisors = [], Counter()
+    points, activations, activation_wins = [], Counter(), Counter()
+    known_activations = 0
     for match in matches:
         seats = identities(match)
         if player_id not in seats:
@@ -49,10 +56,12 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None):
             points.append(own)
             total_points += own
             opponent_points += other
-            recorded = result.get('divisors')
-            if (isinstance(recorded, list) and len(recorded) == 2
-                    and type(recorded[seat]) is int and recorded[seat] >= 1):
-                divisors[recorded[seat]] += 1
+            recorded = result.get('activations')
+            if isinstance(recorded, list) and len(recorded) == 2 and isinstance(recorded[seat], list):
+                known_activations += 1
+                for key in set(recorded[seat]) & {key for key, _ in RULE_OPTIONS}:
+                    activations[key] += 1
+                    activation_wins[key] += own < other
         if rounds:
             if match['status'] != 'finished':
                 unfinished_matches += 1
@@ -62,7 +71,6 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None):
                 match_wins += match['winner'] == seat
                 match_losses += match['winner'] == 1 - seat
     count = len(points)
-    known = sum(divisors.values())
     return {
         'rounds': count, 'round_wins': wins, 'round_losses': losses, 'round_draws': draws,
         'round_win_rate': wins / count if count else None,
@@ -73,15 +81,21 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None):
         'average_opponent_points': opponent_points / count if count else None,
         'average_advantage': (total_points - opponent_points) / count if count else None,
         'best_round': min(points) if count else None, 'worst_round': max(points) if count else None,
-        'known_multiplier_rounds': known, 'unknown_multiplier_rounds': count - known,
-        'multipliers': [{'divisor': divisor, 'count': occurrences, 'rate': occurrences / known}
-                        for divisor, occurrences in sorted(divisors.items(), key=lambda item: (-item[1], item[0]))],
+        'known_activation_games': known_activations, 'unknown_activation_games': count - known_activations,
+        'rule_activations': [{'key': key, 'name': name, 'games': activations[key],
+                              'rate': activations[key] / known_activations if known_activations else None,
+                              'wins': activation_wins[key],
+                              'win_rate': activation_wins[key] / activations[key] if activations[key] else None}
+                             for key, name in RULE_OPTIONS],
     }
 
 
 def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=()):
     players = player_catalog(matches)
     by_id = {player['id']: player for player in players}
+    if not players:
+        # Bookmarked selections should show an empty page after a history reset.
+        player_id = opponent_id = None
     if player_id is None and players:
         player_id = players[0]['id']
     if player_id is not None and player_id not in by_id:

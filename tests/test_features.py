@@ -84,7 +84,7 @@ class FeatureTests(unittest.TestCase):
         hand = [Slot(card, True) for card in cards([12, 4, 10, 5, 11, 1])]
         game.players[0] = hand
         self.assertEqual(score_adjustments(hand, game.rules)[1], 15)
-        self.assertEqual(active_rule_effects(hand, game.rules), ["Roman 5s /3", "V10 /5"])
+        self.assertEqual(active_rule_effects(hand, game.rules), ["Roman 5s /3", "V10 engine /5"])
         self.assertEqual(game.score(0), 3)  # 40 / (3 * 5), rounded up.
         self.assertEqual(visible_effect_total(hand, game.rules), 3)
         game.gambler_earned[0] = True

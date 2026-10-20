@@ -21,8 +21,11 @@ def public_position(game):
     position.discard_pile = list(game.discard_pile)
     position.locked_cards = set(game.locked_cards)
     position.used_pairs = set(game.used_pairs)
+    position.used_bonus_cards = set(game.used_bonus_cards)
+    position.activated_rules = [set(keys) for keys in game.activated_rules]
     position.final_bonus_queue = list(game.final_bonus_queue)
     position.gambler_earned = list(game.gambler_earned)
+    position.angel_earned = list(game.angel_earned)
     position.four_offered = [set(ranks) for ranks in game.four_offered]
     position.guess_pending = dict(game.guess_pending) if game.guess_pending else None
     position.arrange_pending = dict(game.arrange_pending) if game.arrange_pending else None
@@ -42,6 +45,7 @@ def observation(game):
         game.scoring_reveal, game.final_bonus_queue,
         sorted((sorted(pair, key=repr) for pair in game.used_pairs), key=repr),
         sorted(game.locked_cards, key=repr), game.gambler_earned,
+        sorted(game.used_bonus_cards, key=repr), game.angel_earned,
         [sorted(ranks) for ranks in game.four_offered], game.guess_pending, game.arrange_pending,
     ))
 

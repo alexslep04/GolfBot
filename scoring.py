@@ -15,7 +15,7 @@ def v_pattern_effects(layout, rules, visible_only=False):
     if rules.roman_fives and any(sum(card.base_points for card in pattern) == 10 for pattern in cards):
         effects.append(("Roman 5s", 3))
     if rules.v10 and any(all(card.rank in (10, 11, 12) for card in pattern) for pattern in cards):
-        effects.append(("V10", 5))
+        effects.append(("V10 engine", 5))
     return effects
 
 
@@ -111,7 +111,26 @@ def column_score(layout, rules, visible_only=False):
     return total
 
 
-def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), opponent_layout=None, poisoned=False):
+def scoring_rule_keys(layout, rules):
+    """Scoring rules activated by known cards; independent of adjusted points."""
+    keys = set()
+    cards = [slot.card for slot in layout if slot.visible]
+    for name, _ in v_pattern_effects(layout, rules, True):
+        keys.add('v10' if name == 'V10 engine' else 'roman_fives')
+    if rules.holdem and holdem_categories(cards) & {'flush', 'straight', 'full_house', 'four_kind'}:
+        keys.add('holdem')
+    if any(straight_rows(layout, rules, True)):
+        keys.add('tricky_straights')
+    if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, True)):
+        keys.add('ripped_five')
+    if rules.king_queen and any(layout[i].visible and layout[i + 3].visible and
+                               {layout[i].card.rank, layout[i + 3].card.rank} == {12, 13} for i in range(3)):
+        keys.add('king_queen')
+    return keys
+
+
+def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), opponent_layout=None, poisoned=False,
+                        angel_earned=False, opponent_angel_earned=False):
     """Report effects proven by visible cards, without exposing hidden cards."""
     effects = []
     cards = [slot.card for slot in layout if slot.visible]
@@ -121,9 +140,13 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
         effects.append(f"{label}: 0 ({reduction:+d})")
     effects.extend(f"{name} /{divisor}" for name, divisor in v_pattern_effects(layout, rules, True))
     if rules.gamblers_row and gambler_earned:
-        effects.append("777 /7")
+        effects.append("Gamblers 777 /7")
+    if rules.angels_row and angel_earned:
+        effects.append("Angels 999: opponent ×9")
+    if rules.angels_row and opponent_angel_earned:
+        effects.append("Incoming Angels 999: ×9")
     if rules.devils_row and any(card in locked_cards for card in cards):
-        effects.append(f"666: {sum(card in locked_cards for card in cards)} locked")
+        effects.append(f"Devils 666: {sum(card in locked_cards for card in cards)} locked")
     if rules.holdem:
         categories = holdem_categories(cards) & {"flush", "straight", "full_house", "four_kind"}
         if categories:
@@ -145,7 +168,8 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     return effects
 
 
-def visible_effect_total(layout, rules, gambler_earned=False, opponent_layout=None, poisoned=False):
+def visible_effect_total(layout, rules, gambler_earned=False, opponent_layout=None, poisoned=False,
+                         opponent_angel_earned=False):
     subtotal = column_score(layout, rules, True) + score_adjustments(layout, rules, True)[0]
     if opponent_layout is not None:
         subtotal += straight_adjustments(opponent_layout, rules, True)[1]
@@ -153,4 +177,5 @@ def visible_effect_total(layout, rules, gambler_earned=False, opponent_layout=No
         subtotal += 5
     divisor = 7 if rules.gamblers_row and gambler_earned else 1
     divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules, True))
+    subtotal *= 9 if rules.angels_row and opponent_angel_earned else 1
     return (subtotal + divisor - 1) // divisor

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <base href="__GOLF_BASE__" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy · Golf</title>
+    <link rel="stylesheet" href="static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href=".">Golf</a><a href=".">Back to game</a>
+    </header>
+    <main class="form-wrap">
+      <h1>Privacy</h1>
+      <section class="panel">
+        <p>
+          Golf is a self-hosted card game. Google sign-in is optional; you can
+          also play as a guest.
+        </p>
+        <h2>Accounts and game results</h2>
+        <p>
+          When you sign in, the server verifies your Google identity and stores
+          Google's account identifier, an internal account ID, and the unique
+          name you choose. It does not store your Google email address, photo,
+          password, or Google access tokens. Display names can change between
+          games.
+        </p>
+        <p>
+          Saved game summaries include player identifiers, unique and display
+          names, scores, winners, rules selected, and rules activated. Match
+          history and player stats are visible to everyone with access to this
+          game server. Guest results are grouped by display name. Hidden card
+          layouts are not stored in match history.
+        </p>
+        <h2>Cookies</h2>
+        <p>
+          The game uses a browser session cookie for your table and a separate
+          cookie to remember Google sign-in for up to 30 days. Signing out
+          revokes that login session. Login tokens are stored as hashes on the
+          server. Emote and display-name preferences are saved in your browser.
+        </p>
+        <h2>Hosting and retention</h2>
+        <p>
+          The host stores accounts and results in a local database until they
+          are deleted. Network and hosting services, including Cloudflare when
+          used, process requests to deliver the game. Google processes sign-in
+          under its own privacy policy. Contact the person hosting this game to
+          request deletion of your account or results.
+        </p>
+        <p>
+          <a href="https://policies.google.com/privacy"
+            >Google Privacy Policy</a
+          >
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

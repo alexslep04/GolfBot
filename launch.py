@@ -17,7 +17,7 @@ def open_when_ready(port):
         try:
             with urlopen(url + "/health", timeout=0.5) as response:
                 if response.status == 200:
-                    webbrowser.open(url + "/Golfgame/")
+                    webbrowser.open(f"http://localhost:{port}/Golfgame/")
                     return
         except OSError:
             time.sleep(0.2)
@@ -36,7 +36,7 @@ def main():
     if running:
         print(f"Golf is already running on port {args.port}.")
         if not args.no_browser:
-            webbrowser.open(f"http://127.0.0.1:{args.port}/Golfgame/")
+            webbrowser.open(f"http://localhost:{args.port}/Golfgame/")
         return
     if not args.no_browser:
         threading.Thread(target=open_when_ready, args=(args.port,), daemon=True).start()

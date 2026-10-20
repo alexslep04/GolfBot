@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 from collections import Counter
 import random
-from scoring import score_adjustments, column_score, straight_adjustments
+from scoring import score_adjustments, column_score, straight_adjustments, scoring_rule_keys
 
 
 @dataclass(frozen=True)
@@ -39,10 +39,10 @@ class Slot:
 
 @dataclass
 class Rules:
-    queen_swap: bool = False
-    jack_swap: bool = False
+    royal_pairs: bool = False
     devils_row: bool = False
     gamblers_row: bool = False
+    angels_row: bool = False
     king_queen: bool = False
     holdem: bool = False
     v10: bool = False
@@ -55,13 +55,13 @@ class Rules:
 
 
 RULE_OPTIONS = [
-    ("queen_swap", "Queen-Queen: bonus swap"),
-    ("jack_swap", "Jack-Jack: bonus swap"),
-    ("devils_row", "666: locked row"),
-    ("gamblers_row", "777: final score / 7"),
+    ("royal_pairs", "J-J / Q-Q: bonus swap"),
+    ("devils_row", "Devils 666"),
+    ("gamblers_row", "Gamblers 777"),
+    ("angels_row", "Angels 999"),
     ("king_queen", "King-Queen: color scoring"),
     ("holdem", "Hold 'em"),
-    ("v10", "V10"),
+    ("v10", "V10 engine"),
     ("tricky_straights", "Tricky straights"),
     ("ripped_five", "The ripped 5"),
     ("roman_fives", "Roman 5s"),
@@ -93,10 +93,13 @@ class GolfGame:
         self.turns = 0
         self.bonus_remaining = 0
         self.used_pairs = set()
+        self.used_bonus_cards = set()
+        self.activated_rules = [set(), set()]
         self.scoring_reveal = False
         self.final_bonus_queue = []
         self.locked_cards = set()
         self.gambler_earned = [False, False]
+        self.angel_earned = [False, False]
         self.four_offered = [set(), set()]
         self.arrange_pending = None
         self.guess_pending = None
@@ -109,6 +112,8 @@ class GolfGame:
         setattr(self.rules, key, bool(enabled))
         self.locked_cards.clear()
         self.gambler_earned = [False, False]
+        self.angel_earned = [False, False]
+        self.activated_rules = [set(), set()]
         self._update_combos()
 
     def visible_count(self, player):
@@ -128,8 +133,13 @@ class GolfGame:
         if not visible_only:
             if self.rules.gamblers_row and self.gambler_earned[player]:
                 divisor *= 7
+            total *= 9 if self.rules.angels_row and self.angel_earned[1 - player] else 1
             total = (total + divisor - 1) // divisor
         return total
+
+    def _record_scoring_effects(self):
+        for player, layout in enumerate(self.players):
+            self.activated_rules[player].update(scoring_rule_keys(layout, self.rules))
 
     def _update_combos(self):
         for player, layout in enumerate(self.players):
@@ -138,8 +148,14 @@ class GolfGame:
                     continue
                 if self.rules.devils_row and all(slot.card.rank == 6 for slot in row):
                     self.locked_cards.update(slot.card for slot in row)
+                    self.activated_rules[player].add("devils_row")
                 if self.rules.gamblers_row and all(slot.card.rank == 7 for slot in row):
                     self.gambler_earned[player] = True
+                    self.activated_rules[player].add("gamblers_row")
+                if self.rules.angels_row and all(slot.card.rank == 9 for slot in row):
+                    self.angel_earned[player] = True
+                    self.activated_rules[player].add("angels_row")
+        self._record_scoring_effects()
 
     def _mark_finish(self):
         if self.finisher is None:
@@ -147,6 +163,8 @@ class GolfGame:
                 if self.visible_count(player) == 6:
                     self.finisher = player
                     self.final_player = 1 - player
+                    if self.rules.poisoned_card:
+                        self.activated_rules[player].add("poisoned_card")
                     break
 
     def reveal(self, index):
@@ -164,6 +182,7 @@ class GolfGame:
             other = 1 - self.current
             if highest[other] is not None and (highest[self.current] is None or highest[other] > highest[self.current]):
                 self.guess_pending = {"player": other, "target": index, "phase": self.phase}
+                self.activated_rules[other].add("beggars")
                 self.phase = "guess"
                 self.message = "Beggars: guess the selected opponent card's rank, or pass."
                 return
@@ -188,6 +207,7 @@ class GolfGame:
         if slot.visible:
             raise ValueError("Choose a face-down card to flip.")
         slot.visible = True
+        self._record_scoring_effects()
         if not self.multiplayer and self.visible_count(0) == 2:
             for other_index in self.rng.sample(range(6), 2):
                 self.players[1][other_index].visible = True
@@ -291,6 +311,7 @@ class GolfGame:
                     if not any(self.arrangement_plan(player, rank, cols) for cols in combinations(range(3), 2)):
                         continue
                     self.four_offered[player].add(rank)
+                    self.activated_rules[player].add("four_kind")
                     self.arrange_pending = {"player": player, "rank": rank, "resume": resume, "finish": finish}
                     self.phase = "arrange"
                     self.message = "4 of a Kind: choose two columns, or keep the layout."
@@ -387,12 +408,13 @@ class GolfGame:
         count = 0
         for column in range(3):
             first, second = self.players[player][column], self.players[player][column + 3]
-            enabled = ((first.card.rank == 12 and self.rules.queen_swap) or
-                       (first.card.rank == 11 and self.rules.jack_swap))
+            enabled = self.rules.royal_pairs and first.card.rank in (11, 12)
             if first.visible and second.visible and enabled and first.card.rank == second.card.rank:
                 pair = frozenset((first.card, second.card))
-                if pair not in self.used_pairs:
+                if not pair & self.used_bonus_cards:
                     self.used_pairs.add(pair)
+                    self.used_bonus_cards.update(pair)
+                    self.activated_rules[player].add("royal_pairs")
                     count += 1
         return count
 
@@ -484,6 +506,7 @@ class GolfGame:
         for layout in self.players:
             for slot in layout:
                 slot.visible = True
+        self._record_scoring_effects()
         for player in (self.current, 1 - self.current):
             self.final_bonus_queue.extend([player] * self._new_bonuses(player))
         if self.final_bonus_queue:

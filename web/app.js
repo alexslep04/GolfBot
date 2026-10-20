@@ -116,6 +116,102 @@ function markTab(active) {
       .getElementById(`${tab}-tab`)
       .setAttribute("aria-current", tab === active ? "page" : "false");
 }
+let googleScript = null;
+let initializedGoogleNonce = null;
+function renderAccountControl() {
+  const control = document.getElementById("account-control");
+  if (!session) return;
+  control.innerHTML = `<button class='button secondary' type='button' data-account>${session.account ? e(session.account.unique_name ? "@" + session.account.unique_name : "Choose unique name") : "Sign in with Google"}</button>`;
+}
+async function renderGoogleSignIn() {
+  const container = document.getElementById("google-signin-button");
+  if (!container || page !== "account") return;
+  if (session.account || !session.google_client_id || session.room_id) return;
+  try {
+    if (!window.google?.accounts?.id) {
+      googleScript ??= new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () =>
+          reject(
+            new Error(
+              "Google sign-in could not load. You can keep playing as a guest.",
+            ),
+          );
+        document.head.appendChild(script);
+      });
+      await googleScript;
+    }
+    if (
+      session.account ||
+      session.room_id ||
+      page !== "account" ||
+      !container.isConnected
+    )
+      return;
+    if (initializedGoogleNonce !== session.google_nonce)
+      google.accounts.id.initialize({
+        client_id: session.google_client_id,
+        nonce: session.google_nonce,
+        callback: async ({ credential }) => {
+          try {
+            const displayName = session.username;
+            session = await api("/api/auth/google", "POST", {
+              credential,
+              csrf_token: session.csrf_token,
+            });
+            session.username = displayName;
+            renderAccountControl();
+            if (!session.account.unique_name) accountPage();
+            else {
+              home();
+              toast("Signed in as @" + session.account.unique_name);
+            }
+          } catch (error) {
+            toast(error.message);
+          }
+        },
+      });
+    initializedGoogleNonce = session.google_nonce;
+    container.textContent = "";
+    google.accounts.id.renderButton(container, {
+      theme: "outline",
+      size: "medium",
+      text: "signin_with",
+      shape: "pill",
+    });
+  } catch (error) {
+    googleScript = null;
+    if (page === "account" && container.isConnected)
+      container.textContent = error.message;
+  }
+}
+function accountPage() {
+  page = "account";
+  markTab(null);
+  document.title = "Your account · Golf";
+  history.replaceState({}, "", appPath("/account"));
+  const account = session.account;
+  if (!socket) {
+    connection.textContent = account ? "Signed in" : "Guest";
+    connection.className = "connection";
+  }
+  root.innerHTML = `<section class='form-wrap'><div class='page-heading'><h1>${account ? "Your account" : "Sign in with Google"}</h1>${back()}</div><div class='panel'>${
+    account
+      ? account.unique_name
+        ? `<h2>@${e(account.unique_name)}</h2><p>Your games are grouped under this unique name in Player stats. Your display name at the table can change each game.</p>`
+        : `<h2>Choose your unique name</h2><p>This identifies you in Player stats across all your display names. Pick once; your display name can change whenever you play.</p><form id='account-name-form'><label class='field'><span>Unique name</span><input name='unique_name' aria-label='Unique name' minlength='3' maxlength='24' pattern='[a-zA-Z0-9_]{3,24}' autocomplete='username' required><small>3–24 letters, numbers or underscores. Names are lowercase and unique.</small></label><button type='submit' class='button gold'>Save unique name</button></form>`
+      : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id ? "<p class='hint'>Leave your current table before signing in.</p>" : session.google_client_id ? "<div id='google-signin-button' aria-live='polite'>Loading Google sign-in…</div>" : "<p class='hint'>Google sign-in is not available yet. You can keep playing as a guest.</p>"}`
+  }${account ? `<div class='button-row'><button class='button secondary' type='button' data-signout>Sign out</button></div>` : ""}<p class='hint'>Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div></section>`;
+  renderGoogleSignIn();
+}
+document
+  .getElementById("account-control")
+  .addEventListener("click", (event) => {
+    if (session && event.target.closest("[data-account]")) accountPage();
+  });
 async function historyPage(more = false) {
   const request = ++historyRequest;
   page = "history";
@@ -202,25 +298,11 @@ function readStatsForm() {
   }
 }
 
-function multiplierHtml(entry, scope) {
+function ruleActivationsHtml(entry, scope) {
   const stats = entry[scope];
-  return `<div class='multiplier-stats'><h3>${e(entry.profile.label)}</h3><p class='hint'>Final multipliers · ${stats.known_multiplier_rounds} recorded games</p>${
-    stats.multipliers.length
-      ? `<ul class='multiplier-list'>${stats.multipliers
-          .map((item) => {
-            const effects = [
-              [3, "Roman 5s"],
-              [5, "V10"],
-              [7, "777"],
-            ]
-              .filter(([factor]) => item.divisor % factor === 0)
-              .map(([, label]) => label)
-              .join(" + ");
-            return `<li><span>${item.divisor === 1 ? "×1 · no division" : `÷${item.divisor}${effects ? ` · ${effects}` : ""}`}</span><strong>${item.count} · ${statPercent(item.rate)}</strong><span class='multiplier-bar' aria-hidden='true'><span style='width:${item.rate * 100}%'></span></span></li>`;
-          })
-          .join("")}</ul>`
-      : `<p class='hint'>No recorded multiplier details for these results.</p>`
-  }${stats.unknown_multiplier_rounds ? `<p class='hint'>${stats.unknown_multiplier_rounds} older games have no multiplier details and are excluded from these percentages.</p>` : ""}</div>`;
+  if (!Array.isArray(stats.rule_activations))
+    return `<p class='hint'>Restart the game server to load rule activation stats.</p>`;
+  return `<div class='multiplier-stats'><h3>${e(entry.profile.label)}</h3>${entry.profile.unique_name ? `<p class='hint'>Display names: ${entry.profile.display_names.map(e).join(", ")}</p>` : ""}<p class='hint'>Rule activations · ${stats.known_activation_games} recorded games</p><div class='score-table-wrap'><table class='score-table rule-activation-table'><thead><tr><th>Rule</th><th>Games activated</th><th>Win rate</th></tr></thead><tbody>${stats.rule_activations.map((rule) => `<tr><th>${e(rule.name)}</th><td>${statPercent(rule.rate)} <small>(${rule.games})</small></td><td>${statPercent(rule.win_rate)}</td></tr>`).join("")}</tbody></table></div>${stats.unknown_activation_games ? `<p class='hint'>${stats.unknown_activation_games} games have no activation records and are excluded.</p>` : ""}</div>`;
 }
 
 function statsTable(entries, scope, title) {
@@ -247,7 +329,7 @@ function statsTable(entries, scope, title) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class='multiplier-columns'>${entries.map((entry) => multiplierHtml(entry, scope)).join("")}</div>${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same saved username in both human seats are excluded because the players cannot be distinguished.</p>` : ""}</section>`;
+  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class='multiplier-columns'>${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div>${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same guest display name in both seats are excluded because the guests cannot be distinguished.</p>` : ""}</section>`;
 }
 
 async function statsPage(fromUrl = false) {
@@ -303,7 +385,7 @@ async function statsPage(fromUrl = false) {
         .join("");
     const active =
       statsSelection.enabled.length + statsSelection.disabled.length;
-    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Look up a username, then choose another player or Golf to compare. Stats combine everyone using the same saved username. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${active ? active + " selected" : "overall / any rules"}</summary><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${statsSelection.enabled.includes(rule.key) ? "selected" : ""}>On</option><option value='off' ${statsSelection.disabled.includes(rule.key) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full best-of match. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Multiplier percentages use only games with recorded details. Older games use their saved match rules.</p></details></div></section>`;
+    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Choose a unique name, guest display name, or Golf to compare. Signed-in players use @unique names across display-name changes; guests are grouped by display name. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${active ? active + " selected" : "overall / any rules"}</summary><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${statsSelection.enabled.includes(rule.key) ? "selected" : ""}>On</option><option value='off' ${statsSelection.disabled.includes(rule.key) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full best-of match. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></section>`;
     if (focused) document.getElementById(focused)?.focus();
   } catch (error) {
     if (page === "stats" && request === statsRequest)
@@ -370,6 +452,7 @@ function back(label = "Back to menu") {
   return `<button class='button secondary' data-nav='home'>${label}</button>`;
 }
 function home() {
+  renderAccountControl();
   clearEmotes();
   emoteTable = "";
   page = "home";
@@ -378,7 +461,7 @@ function home() {
   state = null;
   closeSocket();
   history.replaceState({}, "", appPath());
-  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby</strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golf.</p></button></div><div class='profile'><label class='field'><span>Your name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
+  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby</strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golf.</p></button></div><div class='profile'><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
   connection.textContent = "Ready to play";
   connection.className = "connection";
 }
@@ -392,7 +475,7 @@ async function abandonExisting() {
 function hostForm(solo = false) {
   saveName(name());
   page = solo ? "solo" : "host";
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golf" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your username</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golf" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your display name</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
     solo ? { ...starter, host: "You first", guest: "Golf first" } : starter,
   )
     .map(
@@ -407,7 +490,7 @@ async function joinList() {
   page = "join";
   saveName(name());
   const lobbies = await api("/api/lobbies");
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Join a lobby</h1><div class='button-row' style='margin:0'><button class='button secondary' data-nav='join'>Refresh</button>${back()}</div></div><label class='field'><span>Your username</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><div class='lobby-list'>${lobbies.map((l) => `<div class='lobby-item'><div><strong>${e(l.name)}</strong><p>${e(l.names[0])} · ${l.players}/2 players · best of ${l.best_of} · ${e(l.status.replace("_", " "))}</p></div><button class='button ${l.players === 1 && l.status === "waiting" ? "" : "secondary"}' data-lobby='${e(l.id)}'>View lobby</button></div>`).join("") || `<div class='empty'>No lobbies yet. Host a table and invite a friend.</div>`}</div></div>`;
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Join a lobby</h1><div class='button-row' style='margin:0'><button class='button secondary' data-nav='join'>Refresh</button>${back()}</div></div><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><div class='lobby-list'>${lobbies.map((l) => `<div class='lobby-item'><div><strong>${e(l.name)}</strong><p>${e(l.names[0])} · ${l.players}/2 players · best of ${l.best_of} · ${e(l.status.replace("_", " "))}</p></div><button class='button ${l.players === 1 && l.status === "waiting" ? "" : "secondary"}' data-lobby='${e(l.id)}'>View lobby</button></div>`).join("") || `<div class='empty'>No lobbies yet. Host a table and invite a friend.</div>`}</div></div>`;
 }
 async function publicLobby(id) {
   saveName(name());
@@ -418,7 +501,7 @@ async function publicLobby(id) {
   }
   page = "public";
   history.replaceState({}, "", appPath(`/lobby/${id}`));
-  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>Best of ${info.best_of}</span><span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your username</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= 2 || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= 2 || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
+  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>Best of ${info.best_of}</span><span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= 2 || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= 2 || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
 }
 function closeSocket() {
   clearInterval(heartbeat);
@@ -465,7 +548,8 @@ function accept(next) {
   state = next;
   if (lastCardTap && lastCardTap.version !== next.version) lastCardTap = null;
   session.room_id = next.id;
-  if (["history", "stats"].includes(page)) return;
+  renderAccountControl();
+  if (["history", "stats", "account"].includes(page)) return;
   page = "room";
   markTab("play");
   if (changed) selected = [];
@@ -645,6 +729,16 @@ root.addEventListener("click", async (event) => {
   if (!button || button.disabled) return;
   if (!button.dataset.ref) lastCardTap = null;
   try {
+    if (button.hasAttribute("data-signout")) {
+      const displayName = session.username;
+      session = await api("/api/auth/logout", "POST", {
+        csrf_token: session.csrf_token,
+      });
+      session.username = displayName;
+      renderAccountControl();
+      home();
+      return;
+    }
     if (button.dataset.nav) {
       if (button.dataset.nav === "home") {
         home();
@@ -784,6 +878,22 @@ root.addEventListener("click", async (event) => {
   }
 });
 root.addEventListener("submit", async (event) => {
+  if (event.target.id === "account-name-form") {
+    event.preventDefault();
+    try {
+      const displayName = session.username;
+      session = await api("/api/account/name", "POST", {
+        unique_name: new FormData(event.target).get("unique_name"),
+        csrf_token: session.csrf_token,
+      });
+      session.username = displayName;
+      renderAccountControl();
+      accountPage();
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
   if (event.target.id === "stats-form") {
     event.preventDefault();
     readStatsForm();
@@ -865,7 +975,7 @@ root.addEventListener("change", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "Enter" &&
-    !["history", "stats"].includes(page) &&
+    !["history", "stats", "account"].includes(page) &&
     !["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName) &&
     state?.game?.legal.end_turn
   ) {
@@ -874,6 +984,10 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("popstate", () => {
+  if (currentPath() === "/account") {
+    accountPage();
+    return;
+  }
   if (currentPath() === "/stats") {
     statsPage(true);
     return;
@@ -895,8 +1009,10 @@ window.addEventListener("popstate", () => {
     try {
       session.username = localStorage.getItem("golf-name") || session.username;
     } catch {}
+    renderAccountControl();
     const id = currentPath().match(/^\/lobby\/([^/]+)$/)?.[1];
-    if (currentPath() === "/stats") await statsPage(true);
+    if (currentPath() === "/account") accountPage();
+    else if (currentPath() === "/stats") await statsPage(true);
     else if (currentPath() === "/history") await historyPage();
     else if (id) await publicLobby(id);
     else home();

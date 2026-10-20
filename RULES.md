@@ -49,19 +49,24 @@ Two cards of the same rank in a column score zero, regardless of suit. Breaking 
 ## Selectable rules
 
 ### Queen-Queen and Jack-Jack bonus swaps
-<!-- rule: queen_swap, jack_swap -->
+<!-- rule: royal_pairs -->
 
-A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end or final reveal, including either hand and both pile tops. Overrides locks. Each physical pair triggers once per game; different pairs can earn separate swaps.
+A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end or final reveal, including either hand and both pile tops. Overrides locks. Each physical Jack or Queen may activate a bonus only once per game. Both cards must be unused; replacing one with a third Jack or Queen cannot retrigger it. Fresh disjoint pairs can earn separate swaps.
 
-### Devil's Row (666)
+### Devils 666
 <!-- rule: devils_row -->
 
 Three visible 6s in a row lock those cards for the game. Only a bonus swap may move them; the locks remain.
 
-### Gambler's Row (777)
+### Gamblers 777
 <!-- rule: gamblers_row -->
 
 Three visible 7s in a row earn final score /7, rounded up. Earn once per player; the benefit remains if the row breaks.
+
+### Angels 999
+<!-- rule: angels_row -->
+
+Three visible 9s in a row multiply your opponent’s final score by 9. Earn once per player; the effect remains if the row breaks. Apply after additions and before the final rounded division. Final scoring reveals do not earn it.
 
 ### King-Queen Column
 <!-- rule: king_queen -->
@@ -73,7 +78,7 @@ A King-Queen column scores 5 if the suits share a color, or 15 if their colors d
 
 A five-card flush, straight, full house, or four of a kind subtracts 5 points. Apply once, even with multiple qualifying combinations. Aces may be low or high; straights do not wrap.
 
-### V10
+### V10 engine
 <!-- rule: v10 -->
 
 Any three cards chosen from 10, Jack, and Queen forming either V divide the final score by 5, rounded up. Repeated ranks count (e.g. Q-Q-10 or J-J-J). Apply once.
@@ -113,11 +118,11 @@ The first player to reveal all six cards adds 5 to their score before divisions.
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
 - **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
-- Score columns first, including ripped-5 cancellation and King-Queen values. Then apply all additions and subtractions: Tricky straights (including incoming opponent effects), Hold 'em, and Poisoned Card. Finally apply earned 777, Roman 5s, and V10 divisions. Modifiers may produce negative scores. Each player's divisions apply to their own adjusted score.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then any incoming Angels 999 ×9 and Gamblers 777, Roman 5s, and V10 engine divisions. Round upward once at the end. Modifiers may produce negative scores. Each player's divisions apply to their own adjusted score.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
 - A ripped-5 cross-row pair uses the first unmatched opposite-row 5 from left to right. No card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.
-- Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips and final scoring reveals do not activate interactive abilities.
+- Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips do not activate interactive abilities. Final scoring reveals activate only unused J-J/Q-Q bonuses; they do not earn Devils 666, Gamblers 777, Angels 999, 4 of a Kind, Beggars, or Poisoned Card.
 - A bonus swap carries visibility into a hand; the go-fish pile stays face down and the discard pile face up. Unused pairs created by a bonus may earn another bonus. Empty piles have no card to select.
 - Roman 5s keeps the approved **V total of 10** interpretation from the merged game, rather than three cards each worth 10.
 
