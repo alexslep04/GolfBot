@@ -102,6 +102,10 @@ Visible subtotals and effects exclude hidden cards. These are scoring aids. Futu
 
 Run **one Uvicorn worker**: active lobbies and games live in memory and clear on restart. Match summaries persist in SQLite; interrupted series keep their completed games. Multiple workers or multiple servers need shared live game state before they can serve the same lobbies. Set `GOLFBOT_HISTORY_DB` to choose another database path.
 
+AI searches run in a separate process pool with at most two CPU workers (one on small machines), shared across all solo tables. Each search has a one-second expansion limit and a four-second response timeout, including worker startup. Busy or failed searches use a quick legal move so games keep moving without an unbounded work queue. Under heavy load this trades some bot strength for responsiveness. Leaving a table cancels its pending wait; detached work cannot change the abandoned game. Reconnecting also resumes a bot turn if its task stopped. These AI workers do not replace the single Uvicorn web worker.
+
+Run `python -m benchmarks.bot_concurrency --games 8` for a repeatable eight-table HTTP responsiveness probe using fixed deals and an in-memory database. Add `--threads` to compare the previous threaded search. It does not touch live games or saved history.
+
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt

@@ -6,6 +6,7 @@ from hashlib import sha256
 from pathlib import Path
 import os
 import json
+import logging
 import re
 import secrets
 import time
@@ -22,13 +23,15 @@ from rule_help import load_rule_help
 from match_history import MatchHistory
 from player_stats import build_stats
 from scoring import active_rule_effects, visible_effect_total
-from bot import choose_action, legal_actions, play_action, public_position
+from bot import fallback_action, legal_actions, play_action, public_position
+from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
 START_POLICIES = ("host", "guest", "alternate", "random", "winner", "loser")
 EMOTE_SECONDS = 4
+log = logging.getLogger(__name__)
 
 
 class Emote(BaseModel):
@@ -401,8 +404,9 @@ def apply_move(room, token, move):
     room.touched = time.time()
 
 
-def create_app(store=None, google_client_id=None):
+def create_app(store=None, google_client_id=None, bot_workers=None):
     store = store or Store()
+    bot_workers = bot_workers or BotWorkers()
     if google_client_id is None:
         config = ROOT / 'data' / 'google-signin.json'
         google_client_id = os.environ.get('GOLFBOT_GOOGLE_CLIENT_ID', '')
@@ -419,6 +423,7 @@ def create_app(store=None, google_client_id=None):
                 task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+            await bot_workers.close()
             store.history.close()
     app = FastAPI(title="Golf", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.store = store
@@ -477,7 +482,7 @@ def create_app(store=None, google_client_id=None):
 
     async def bot_loop(room):
         try:
-            for _ in range(120):
+            while True:
                 await asyncio.sleep(0.45)
                 async with room.lock:
                     game = room.game
@@ -486,22 +491,33 @@ def create_app(store=None, google_client_id=None):
                     version = room.version
                     position = public_position(game)
                     position._root_actions = set(legal_actions(game))
-                # Search a detached observation off the event loop. Emotes and
-                # other tables remain responsive while the bot is thinking.
-                action = await asyncio.to_thread(choose_action, position)
+                try:
+                    action = await bot_workers.choose(position)
+                except Exception:
+                    log.exception("AI decision failed at table %s; using a legal fallback", room.id)
+                    action = None
                 async with room.lock:
-                    if (room.id not in store.rooms or room.status != "playing"
-                            or room.game is not game or room.version != version
-                            or game.decision_player != 1):
+                    if room.id not in store.rooms or room.status != "playing":
                         return
+                    if room.game is not game or room.version != version:
+                        # A player may have resolved an intervening decision.
+                        # Re-evaluate instead of silently losing the bot task.
+                        continue
+                    if game.decision_player != 1:
+                        return
+                    allowed = legal_actions(game)
+                    if action not in allowed:
+                        action = fallback_action(allowed)
                     if action is None:
+                        log.error("No legal AI move at table %s in phase %s", room.id, game.phase)
                         return
                     play_action(game, action)
                     room.record_result()
                     room.version += 1
                     await broadcast(room)
         finally:
-            room.bot_task = None
+            if room.bot_task is asyncio.current_task():
+                room.bot_task = None
 
     @app.get("/health")
     async def health():
@@ -666,7 +682,10 @@ def create_app(store=None, google_client_id=None):
     @app.get("/api/lobbies/{room_id}/state")
     async def state(room_id: str, request: Request):
         session = session_for(request)
-        return snapshot(find_room(room_id), session.token)
+        room = find_room(room_id)
+        result = snapshot(room, session.token)
+        kick_bot(room)
+        return result
 
     @app.post("/api/lobbies/{room_id}/action")
     async def action(room_id: str, move: Move, request: Request):
@@ -732,6 +751,7 @@ def create_app(store=None, google_client_id=None):
         await ws.accept()
         room.clients.setdefault(token, set()).add(ws)
         try:
+            kick_bot(room)
             await broadcast(room)
             while True:
                 await ws.receive_text()
