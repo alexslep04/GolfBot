@@ -47,9 +47,10 @@ class MatchHistory:
         payload = {
             "id": room.match_id, "lobby_name": room.name, "names": list(room.names),
             "solo": room.solo, "best_of": room.best_of, "rules": asdict(room.rules),
+            "house_rules": room.house_rules, "house_version": room.house_version,
             "participants": room.participants,
             "started_at": room.started_at, "updated_at": time.time(),
-            "status": "finished" if room.champion is not None else "abandoned" if abandoned else "in_progress",
+            "status": "finished" if room.champion is not None else "ended" if room.best_of is None and all(room.departed) else "abandoned" if abandoned else "in_progress",
             "winner": room.champion, "wins": list(room.wins),
             "rounds": room.history,
             "points": [sum(result["scores"][seat] for result in room.history) for seat in (0, 1)],

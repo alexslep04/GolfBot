@@ -129,7 +129,7 @@ class StatsApiTests(unittest.TestCase):
                 with store.history.connection:
                     store.history.connection.execute('INSERT INTO matches VALUES (?, ?, ?, ?, ?)',
                         (str(index), 'private-host-key', 'private-guest-key', index, json.dumps(payload)))
-            response = client.get('/Golfgame/api/stats', params={'player': 'player:tester', 'opponent': BOT_ID})
+            response = client.get('/Golfgame/api/stats', params={'player': 'player:tester', 'opponent': BOT_ID, 'house_rules': 'false'})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()['player']['overall']['rounds'], 65)
             self.assertEqual(response.headers['cache-control'], 'no-store')

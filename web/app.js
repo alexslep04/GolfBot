@@ -5,6 +5,7 @@ const currentPath = () => location.pathname.slice(basePath.length) || "/";
 const root = document.getElementById("app");
 const connection = document.getElementById("connection");
 let catalog = [],
+  matchOptions = null,
   session = null,
   state = null,
   selected = [],
@@ -106,6 +107,109 @@ const e = (value) =>
       ],
   );
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const matchLength = (match) =>
+  match.best_of === null ? "Continuous" : `Best of ${match.best_of}`;
+const houseBadge = (match) =>
+  match.house_rules ? "<span class='house-badge'>🔒 House rules</span>" : "";
+let presenceState = {
+    available_lobbies: 0,
+    players: [],
+    invitations: [],
+    invited: [],
+  },
+  presenceBusy = false,
+  socialMode = null,
+  socialSignature = "";
+const dismissedInvites = new Set();
+
+function lobbyIndicator() {
+  const badge = document.getElementById("lobby-count");
+  if (!badge) return;
+  badge.hidden = !presenceState.available_lobbies;
+  badge.textContent = presenceState.available_lobbies;
+  badge.setAttribute(
+    "aria-label",
+    `${presenceState.available_lobbies} available ${presenceState.available_lobbies === 1 ? "lobby" : "lobbies"}`,
+  );
+}
+function closeSocial() {
+  document.getElementById("social-dialog").close();
+  socialMode = null;
+  socialSignature = "";
+}
+function renderSocial() {
+  const dialog = document.getElementById("social-dialog");
+  if (socialMode === "players" && state?.status !== "waiting") closeSocial();
+  const invitation = session.room_id
+    ? null
+    : presenceState.invitations.find((item) => !dismissedInvites.has(item.id));
+  if (socialMode !== "players") socialMode = invitation ? "invitation" : null;
+  if (!socialMode) {
+    if (dialog.open) closeSocial();
+    return;
+  }
+  const signature = JSON.stringify([
+    socialMode,
+    socialMode === "players"
+      ? [presenceState.players, presenceState.invited]
+      : invitation,
+  ]);
+  if (signature === socialSignature) return;
+  socialSignature = signature;
+  dialog.innerHTML =
+    socialMode === "players"
+      ? `<div class='page-heading'><h2>Invite a player</h2><button class='button secondary' data-social-close aria-label='Close player list'>Close</button></div><p class='hint'>Players active in the last 30 seconds who are not at a table.</p><div class='online-players'>${presenceState.players.map((player) => `<div class='online-player'><div><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}</small></div><button class='button' data-invite-player='${e(player.id)}' ${presenceState.invited.includes(player.id) ? "disabled" : ""}>${presenceState.invited.includes(player.id) ? "Invited" : "Invite"}</button></div>`).join("") || "<p class='empty'>No available players online right now.</p>"}</div>`
+      : `<h2>You're invited</h2><p><strong>${e(invitation.host)}</strong> invited you to <strong>${e(invitation.lobby.name)}</strong>.</p><div class='waiting-meta'><span>${matchLength(invitation.lobby)}</span>${houseBadge(invitation.lobby)}</div><details class='invite-info'><summary>More info</summary><p>First player: ${e(starter[invitation.lobby.first])}</p>${rulesHtml(invitation.lobby.rules, false)}</details><div class='button-row invite-actions'><button class='button gold' data-invite-reply='accept' data-invitation='${e(invitation.id)}'>Accept</button><button class='button secondary' data-invite-reply='decline' data-invitation='${e(invitation.id)}'>Decline</button></div>`;
+  if (!dialog.open) dialog.showModal();
+}
+async function pollPresence() {
+  if (!session || presenceBusy) return;
+  presenceBusy = true;
+  try {
+    presenceState = await api("/api/presence", "POST", { username: name() });
+    lobbyIndicator();
+    renderSocial();
+  } catch {
+  } finally {
+    presenceBusy = false;
+  }
+}
+document
+  .getElementById("social-dialog")
+  .addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button || button.disabled) return;
+    try {
+      if (button.hasAttribute("data-social-close")) return closeSocial();
+      button.disabled = true;
+      if (button.dataset.invitePlayer) {
+        await api(`/api/lobbies/${state.id}/invite`, "POST", {
+          player_id: button.dataset.invitePlayer,
+        });
+        await pollPresence();
+      } else if (button.dataset.inviteReply) {
+        const next = await api(
+          `/api/invitations/${button.dataset.invitation}/respond`,
+          "POST",
+          { accept: button.dataset.inviteReply === "accept", username: name() },
+        );
+        dismissedInvites.add(button.dataset.invitation);
+        closeSocial();
+        if (button.dataset.inviteReply === "accept") enterRoom(next);
+        await pollPresence();
+      }
+    } catch (error) {
+      toast(error.message);
+      button.disabled = false;
+      await pollPresence();
+    }
+  });
+document.getElementById("social-dialog").addEventListener("cancel", (event) => {
+  if (socialMode === "invitation") {
+    event.preventDefault();
+    document.querySelector("[data-invite-reply='decline']")?.click();
+  } else closeSocial();
+});
 let historyEntries = [],
   historyOffset = null,
   historyRequest = 0;
@@ -253,7 +357,7 @@ async function historyPage(more = false) {
               abandoned: "Abandoned",
               interrupted: "Interrupted by server restart",
             }[match.status] || match.status;
-          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Vs Golf · " : ""}Best of ${match.best_of} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
+          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Vs Golf · " : ""}${matchLength(match)} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
         })
         .join("") ||
       `<div class='empty'>No completed games yet. Finish a game against a player or Golf to record its score here.</div>`
@@ -263,7 +367,13 @@ async function historyPage(more = false) {
       root.innerHTML = `<div class='empty'>${e(error.message)}<p><button class='button secondary' data-nav='history'>Try again</button></p></div>`;
   }
 }
-let statsSelection = { player: "", opponent: "", enabled: [], disabled: [] },
+let statsSelection = {
+    player: "",
+    opponent: "",
+    enabled: [],
+    disabled: [],
+    house_rules: true,
+  },
   statsRequest = 0;
 const statNumber = (value) =>
   value === null
@@ -288,10 +398,12 @@ function readStatsForm() {
     opponent: data.get("opponent") || "",
     enabled: [],
     disabled: [],
+    house_rules: data.has("house_rules"),
   };
   if (statsSelection.player === statsSelection.opponent)
     statsSelection.opponent = "";
   for (const rule of catalog) {
+    if (statsSelection.house_rules) break;
     const value = data.get("filter-" + rule.key);
     if (value === "on") statsSelection.enabled.push(rule.key);
     if (value === "off") statsSelection.disabled.push(rule.key);
@@ -313,11 +425,18 @@ function statsTable(entries, scope, title) {
       (s) => `${s.round_wins}–${s.round_losses}–${s.round_draws}`,
     ],
     ["Game win rate", (s) => statPercent(s.round_win_rate)],
-    ["Completed series", (s) => statNumber(s.completed_matches)],
-    ["Series record (W–L)", (s) => `${s.match_wins}–${s.match_losses}`],
-    ["Series win rate", (s) => statPercent(s.match_win_rate)],
+    [
+      "Series record (W–L) · win rate",
+      (s) =>
+        `${s.match_wins}–${s.match_losses} · ${statPercent(s.match_win_rate)}`,
+    ],
     ["Average points per game", (s) => statNumber(s.average_points)],
     ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
+    ["Average turns per game", (s) => statNumber(s.average_turns ?? null)],
+    [
+      "Average rules in play per game",
+      (s) => statNumber(s.average_rules_in_play ?? null),
+    ],
     [
       "Average point advantage",
       (s) =>
@@ -329,7 +448,7 @@ function statsTable(entries, scope, title) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><div class='multiplier-columns'>${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div>${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same guest display name in both seats are excluded because the guests cannot be distinguished.</p>` : ""}</section>`;
+  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details class='rule-activation-details'><summary>View rule activation</summary><div class='multiplier-columns'>${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p class='hint'>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same guest display name in both seats are excluded because the guests cannot be distinguished.</p>` : ""}</section>`;
 }
 
 async function statsPage(fromUrl = false) {
@@ -340,6 +459,7 @@ async function statsPage(fromUrl = false) {
       opponent: query.get("opponent") || "",
       enabled: query.getAll("enabled"),
       disabled: query.getAll("disabled"),
+      house_rules: query.get("house_rules") !== "false",
     };
   }
   const request = ++statsRequest;
@@ -349,6 +469,11 @@ async function statsPage(fromUrl = false) {
   markTab("stats");
   document.title = "Player stats · Golf";
   const query = new URLSearchParams();
+  if (!statsSelection.house_rules) query.set("house_rules", "false");
+  else {
+    statsSelection.enabled = [];
+    statsSelection.disabled = [];
+  }
   if (statsSelection.player) query.set("player", statsSelection.player);
   if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
   for (const key of statsSelection.enabled) query.append("enabled", key);
@@ -385,7 +510,7 @@ async function statsPage(fromUrl = false) {
         .join("");
     const active =
       statsSelection.enabled.length + statsSelection.disabled.length;
-    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Choose a unique name, guest display name, or Golf to compare. Signed-in players use @unique names across display-name changes; guests are grouped by display name. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${active ? active + " selected" : "overall / any rules"}</summary><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${statsSelection.enabled.includes(rule.key) ? "selected" : ""}>On</option><option value='off' ${statsSelection.disabled.includes(rule.key) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full best-of match. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></section>`;
+    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Choose a unique name, guest display name, or Golf to compare. Signed-in players use @unique names across display-name changes; guests are grouped by display name. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><label class='house-toggle stats-house'><input type='checkbox' aria-label='House rules' name='house_rules' data-stats-house ${statsSelection.house_rules ? "checked" : ""}><span>House rules ${statsSelection.house_rules ? "🔒" : ""}<small>Official stats · saved house-rule games only</small></span></label><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${statsSelection.house_rules ? "🔒 House rules" : active ? active + " selected" : "overall / any rules"}</summary><fieldset ${statsSelection.house_rules ? "disabled" : ""}><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${(statsSelection.house_rules ? matchOptions.house_rules[rule.key] : statsSelection.enabled.includes(rule.key)) ? "selected" : ""}>On</option><option value='off' ${(statsSelection.house_rules ? !matchOptions.house_rules[rule.key] : statsSelection.disabled.includes(rule.key)) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></fieldset></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by both players. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after both players leave: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></section>`;
     if (focused) document.getElementById(focused)?.focus();
   } catch (error) {
     if (page === "stats" && request === statsRequest)
@@ -461,7 +586,9 @@ function home() {
   state = null;
   closeSocket();
   history.replaceState({}, "", appPath());
-  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby</strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golf.</p></button></div><div class='profile'><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
+  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby <span id='lobby-count' class='lobby-count' hidden></span></strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golf.</p></button></div><div class='profile'><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
+  lobbyIndicator();
+  pollPresence();
   connection.textContent = "Ready to play";
   connection.className = "connection";
 }
@@ -475,22 +602,55 @@ async function abandonExisting() {
 function hostForm(solo = false) {
   saveName(name());
   page = solo ? "solo" : "host";
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golf" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your display name</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</select></label><label class='field'><span>Who goes first?</span><select name='first'>${Object.entries(
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golf" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your display name</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of' aria-label='Match length'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}<option value='continuous'>Continuous · play until you leave</option></select></label><label class='house-toggle'><input type='checkbox' aria-label='House rules' name='house_rules' data-house-toggle checked><span>House rules 🔒<small>All rules except Beggars · random first player</small></span></label><label class='field'><span>Who goes first? <span data-first-lock>🔒</span></span><select name='first' aria-label='Who goes first?'>${Object.entries(
     solo ? { ...starter, host: "You first", guest: "Golf first" } : starter,
   )
     .map(
       ([key, label]) =>
-        `<option value='${key}' ${key === (solo ? "host" : "alternate") ? "selected" : ""}>${label}</option>`,
+        `<option value='${key}' ${key === "random" ? "selected" : ""}>${label}</option>`,
     )
     .join(
       "",
-    )}</select></label><p class='hint'>Alternate starts with ${solo ? "you" : "the host"}. Previous winner/loser starts with ${solo ? "you" : "the host"} in the first game. Ties do not count as wins.</p></div><div><h3>Rules in play</h3><p class='hint'>Both players use the same rules. Hover over ? for details.</p>${rulesHtml({}, true)}</div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
+    )}</select></label><p class='hint'>Continuous games run until someone leaves. The series is recorded after both leave: most game wins, then lowest total points. Exact ties have no series winner.</p></div><div><h3>Rules in play</h3><p class='hint'>Turn off House rules to customize. Hover over ? for details.</p><div id='creation-rules'></div></div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
+  updateHouseForm();
+}
+function updateHouseForm() {
+  const locked = root.querySelector("[data-house-toggle]").checked;
+  const first = root.querySelector('[name="first"]');
+  root.querySelector(
+    "[data-house-toggle]",
+  ).nextElementSibling.firstChild.textContent = locked
+    ? "House rules 🔒"
+    : "House rules";
+  if (locked) first.value = "random";
+  first.disabled = locked;
+  root.querySelector("[data-first-lock]").hidden = !locked;
+  const container = document.getElementById("creation-rules");
+  const values = locked
+    ? matchOptions.house_rules
+    : Object.fromEntries(
+        catalog.map((rule) => [
+          rule.key,
+          container.querySelector(`[name="rule-${rule.key}"]`)?.checked ??
+            matchOptions.house_rules[rule.key],
+        ]),
+      );
+  container.innerHTML = rulesHtml(values, !locked);
+  if (locked)
+    container
+      .querySelectorAll(".rule label span")
+      .forEach((label) =>
+        label.insertAdjacentHTML(
+          "beforeend",
+          " <span class='rule-lock' aria-label='Locked by house rules'>🔒</span>",
+        ),
+      );
 }
 async function joinList() {
   page = "join";
   saveName(name());
   const lobbies = await api("/api/lobbies");
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Join a lobby</h1><div class='button-row' style='margin:0'><button class='button secondary' data-nav='join'>Refresh</button>${back()}</div></div><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><div class='lobby-list'>${lobbies.map((l) => `<div class='lobby-item'><div><strong>${e(l.name)}</strong><p>${e(l.names[0])} · ${l.players}/2 players · best of ${l.best_of} · ${e(l.status.replace("_", " "))}</p></div><button class='button ${l.players === 1 && l.status === "waiting" ? "" : "secondary"}' data-lobby='${e(l.id)}'>View lobby</button></div>`).join("") || `<div class='empty'>No lobbies yet. Host a table and invite a friend.</div>`}</div></div>`;
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Join a lobby</h1><div class='button-row' style='margin:0'><button class='button secondary' data-nav='join'>Refresh</button>${back()}</div></div><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><div class='lobby-list'>${lobbies.map((l) => `<div class='lobby-item'><div><strong>${e(l.name)}</strong><p>${e(l.names[0])} · ${l.players}/2 players · ${matchLength(l)} · ${e(l.status.replace("_", " "))}</p></div><button class='button ${l.players === 1 && l.status === "waiting" ? "" : "secondary"}' data-lobby='${e(l.id)}'>View lobby</button></div>`).join("") || `<div class='empty'>No lobbies yet. Host a table and invite a friend.</div>`}</div></div>`;
 }
 async function publicLobby(id) {
   saveName(name());
@@ -501,7 +661,7 @@ async function publicLobby(id) {
   }
   page = "public";
   history.replaceState({}, "", appPath(`/lobby/${id}`));
-  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>Best of ${info.best_of}</span><span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= 2 || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= 2 || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
+  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>${matchLength(info)}</span>${houseBadge(info)}<span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= 2 || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= 2 || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
 }
 function closeSocket() {
   clearInterval(heartbeat);
@@ -572,7 +732,7 @@ function shareHtml() {
 }
 function waitingRoom() {
   const viewer = state.viewer;
-  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(state.name)}</h1><button class='button secondary' data-leave>Leave lobby</button></div><div class='panel'><div class='eyebrow'>Invite a friend to the table</div>${shareHtml()}<div class='waiting-meta'><span>Best of ${state.best_of} · first to ${state.target}</span><span>${e(starter[state.first])}</span></div><div class='players-row'>${state.names.map((n, i) => `<div class='seat'><span class='pill'>${i === 0 ? "Host" : "Guest"}</span><strong>${e(n)}</strong><span class='hint'>${state.connected[i] ? "Connected" : i === 1 && state.players < 2 ? "Seat open" : "Offline"}${state.ready[i] ? " · Ready" : ""}${i === viewer ? " · You" : ""}</span></div>`).join("")}</div><h3>Rules in play</h3>${rulesHtml(state.rules, false, "config", true)}<p class='hint'>Waiting for a guest. The game starts automatically when they join.</p></div></div>`;
+  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(state.name)}</h1><button class='button secondary' data-leave>Leave lobby</button></div><div class='panel'><div class='eyebrow'>Invite a friend to the table</div>${shareHtml()}${viewer === 0 ? "<div class='button-row'><button class='button gold' data-invite-open>Invite player</button></div>" : ""}<div class='waiting-meta'><span>${matchLength(state)}${state.target ? ` · first to ${state.target}` : ""}</span>${houseBadge(state)}<span>${e(starter[state.first])}</span></div><div class='players-row'>${state.names.map((n, i) => `<div class='seat'><span class='pill'>${i === 0 ? "Host" : "Guest"}</span><strong>${e(n)}</strong><span class='hint'>${state.connected[i] ? "Connected" : i === 1 && state.players < 2 ? "Seat open" : "Offline"}${state.ready[i] ? " · Ready" : ""}${i === viewer ? " · You" : ""}</span></div>`).join("")}</div><h3>Rules in play</h3>${rulesHtml(state.rules, false, "config", true)}<p class='hint'>Waiting for a guest. The game starts automatically when they join.</p></div></div>`;
 }
 function selectedRef(ref) {
   return selected.some((r) => same(r, ref));
@@ -689,7 +849,7 @@ function renderRoom() {
     viewer = state.viewer;
   const roundResult = state.history.at(-1);
   const roundOver = ["round_over", "finished"].includes(state.status);
-  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Game ${state.round} · ${state.solo ? `Best of ${state.best_of} · first to ${state.target} wins · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "Golf first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next game"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Game ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
+  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Game ${state.round} · ${state.solo ? `${matchLength(state)}${state.target ? ` · first to ${state.target} wins` : ""} · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "Golf first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next game"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play ${houseBadge(state)}</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Game ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
@@ -729,6 +889,13 @@ root.addEventListener("click", async (event) => {
   if (!button || button.disabled) return;
   if (!button.dataset.ref) lastCardTap = null;
   try {
+    if (button.hasAttribute("data-invite-open")) {
+      socialMode = "players";
+      socialSignature = "";
+      await pollPresence();
+      renderSocial();
+      return;
+    }
     if (button.hasAttribute("data-signout")) {
       const displayName = session.username;
       session = await api("/api/auth/logout", "POST", {
@@ -906,15 +1073,22 @@ root.addEventListener("submit", async (event) => {
   const solo = form.id === "solo-form";
   const data = new FormData(form);
   const rules = {};
-  for (const rule of catalog) rules[rule.key] = data.has("rule-" + rule.key);
+  for (const rule of catalog)
+    rules[rule.key] = data.has("house_rules")
+      ? matchOptions.house_rules[rule.key]
+      : data.has("rule-" + rule.key);
   try {
     saveName(String(data.get("username")).trim());
     await abandonExisting();
     const requested = {
       username: session.username,
       ...(solo ? {} : { name: data.get("name") }),
-      best_of: Number(data.get("best_of")),
-      first: data.get("first"),
+      best_of:
+        data.get("best_of") === "continuous"
+          ? null
+          : Number(data.get("best_of")),
+      house_rules: data.has("house_rules"),
+      first: data.has("house_rules") ? "random" : data.get("first"),
       rules,
     };
     const next = await api(
@@ -937,13 +1111,24 @@ root.addEventListener("submit", async (event) => {
   }
 });
 root.addEventListener("change", async (event) => {
+  if (event.target.hasAttribute("data-house-toggle")) {
+    updateHouseForm();
+    return;
+  }
+  if (event.target.hasAttribute("data-stats-house")) {
+    readStatsForm();
+    await statsPage();
+    return;
+  }
   if (event.target.hasAttribute("data-stats-select")) {
     readStatsForm();
     await statsPage();
     return;
   }
-  if (event.target.id === "username")
+  if (event.target.id === "username") {
     saveName(event.target.value.trim() || "Player");
+    pollPresence();
+  }
   if (event.target.hasAttribute("data-rules-all")) {
     const enabled = event.target.checked;
     if (event.target.dataset.ruleType === "live") {
@@ -1002,14 +1187,17 @@ window.addEventListener("popstate", () => {
 });
 (async () => {
   try {
-    [session, catalog] = await Promise.all([
+    [session, catalog, matchOptions] = await Promise.all([
       api("/api/session"),
       api("/api/rules"),
+      api("/api/match-options"),
     ]);
     try {
       session.username = localStorage.getItem("golf-name") || session.username;
     } catch {}
     renderAccountControl();
+    pollPresence();
+    setInterval(pollPresence, 5000);
     const id = currentPath().match(/^\/lobby\/([^/]+)$/)?.[1];
     if (currentPath() === "/account") accountPage();
     else if (currentPath() === "/stats") await statsPage(true);
