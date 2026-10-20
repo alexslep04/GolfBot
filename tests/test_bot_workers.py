@@ -75,6 +75,29 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(factory.call_count, 2)
             await workers.close()
 
+    async def test_completed_future_releases_capacity_before_done_callback_runs(self):
+        loop = asyncio.get_running_loop()
+        for error in (None, BrokenProcessPool('worker exited')):
+            with self.subTest(error=error), patch('bot_workers.ProcessPoolExecutor'):
+                completed, recovered = loop.create_future(), loop.create_future()
+                if error:
+                    completed.set_exception(error)
+                else:
+                    completed.set_result(('draw',))
+                recovered.set_result(('draw',))
+                workers = BotWorkers(workers=1)
+                # Already-completed futures can be awaited without yielding.
+                # Their done callbacks remain queued until a later loop turn.
+                with patch.object(loop, 'run_in_executor', side_effect=[completed, recovered]):
+                    if error:
+                        with self.assertLogs('bot_workers', level='ERROR'):
+                            self.assertIsNone(await workers.choose(position()))
+                    else:
+                        self.assertEqual(await workers.choose(position()), ('draw',))
+                    self.assertEqual(len(workers.pending), 0)
+                    self.assertEqual(await workers.choose(position()), ('draw',))
+                await workers.close()
+
 
 if __name__ == '__main__':
     unittest.main()

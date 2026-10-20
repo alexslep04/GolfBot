@@ -30,6 +30,7 @@ class BotWorkers:
                 mp_context=multiprocessing.get_context("spawn"),
             )
         pool = self.pool
+        future = None
         try:
             future = asyncio.get_running_loop().run_in_executor(pool, choose_action, position)
             self.pending.add(future)
@@ -44,6 +45,12 @@ class BotWorkers:
                 self.pool = None
         except Exception:
             log.exception("AI search failed or timed out; using a legal fallback")
+        finally:
+            # Awaiting an already-completed future need not yield to the loop,
+            # so its scheduled done callback may not have released capacity yet.
+            # Keep unfinished work counted after a timeout or cancellation.
+            if future is not None and future.done():
+                self._finished(future)
         return None
 
     def _finished(self, future):
