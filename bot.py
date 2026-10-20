@@ -4,6 +4,7 @@ from dataclasses import asdict
 from hashlib import sha256
 from itertools import combinations, product
 import random
+from time import monotonic
 
 from game import Card, Slot
 
@@ -137,11 +138,16 @@ class Search:
     select a move using the hidden cards in a particular imagined world.
     A beam and transition budget keep large bonus-swap trees responsive.
     """
-    def __init__(self, samples=8, transitions=3200, beam=3, root_beam=8):
+    def __init__(self, samples=8, transitions=3200, beam=3, root_beam=8, max_seconds=None):
         self.samples = samples
         self.transitions = transitions
         self.beam = beam
         self.root_beam = root_beam
+        self.max_seconds = max_seconds
+        self.deadline = None
+
+    def expired(self):
+        return self.deadline is not None and monotonic() >= self.deadline
 
     def rank(self, game, budget, allowed=None):
         first = next(sample_positions(game, 1))
@@ -161,6 +167,8 @@ class Search:
             actions = [action for action in actions if action in common]
         ranked = []
         for action in actions:
+            if self.expired():
+                break
             children = []
             for world in worlds:
                 child = copy_world(world)
@@ -172,6 +180,8 @@ class Search:
         return ranked
 
     def value(self, game, turns, decisions, budget):
+        if self.expired():
+            return margin(game)
         if game.phase == "over":
             return margin(game)
         if turns <= 0 or decisions <= 0 or budget[0] <= 0:
@@ -205,6 +215,7 @@ class Search:
         return total / len(children)
 
     def choose(self, game):
+        self.deadline = None if self.max_seconds is None else monotonic() + self.max_seconds
         position = public_position(game)
         budget = [self.transitions]
         allowed = game._root_actions if hasattr(game, "_root_actions") else set(legal_actions(game))
@@ -215,6 +226,10 @@ class Search:
         values = []
         # Equal per-candidate budgets avoid giving an early move all the search.
         for immediate, action, children in candidates:
+            if self.expired():
+                # Finish comparing already ranked moves without more expansion.
+                values.append((immediate, immediate, action))
+                continue
             value = self.outcomes(position, children, 2, 6,
                                   [max(0, budget[0] // len(candidates))])
             values.append((value, immediate, action))
@@ -223,4 +238,14 @@ class Search:
 
 
 def choose_action(game):
-    return Search().choose(game)
+    return Search(max_seconds=1.0).choose(game)
+
+
+def fallback_action(actions):
+    """A fast, legal public-information move when search is busy or fails."""
+    actions = list(actions)
+    for kind in ("discard", "end", "arrange", "guess", "flip", "draw", "swap", "trade", "bonus"):
+        for action in actions:
+            if action[0] == kind:
+                return action
+    return None

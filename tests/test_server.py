@@ -1,5 +1,6 @@
 """HTTP/WebSocket authorization, hidden information, and multiplayer flow."""
 from contextlib import ExitStack
+import asyncio
 import random
 import time
 import unittest
@@ -484,14 +485,14 @@ class WebTests(unittest.TestCase):
     def test_bot_search_does_not_block_emotes_and_ignores_left_tables(self):
         entered, release = Event(), Event()
 
-        def thinking(position):
+        async def thinking(position):
             self.assertTrue(all(slot.card is None for hand in position.players for slot in hand if not slot.visible))
             self.assertTrue(all(card is None for card in position.draw_pile))
             entered.set()
-            release.wait(5)
+            await asyncio.to_thread(release.wait, 5)
             return ('draw',)
 
-        with patch('server.choose_action', side_effect=thinking):
+        with patch('server.BotWorkers.choose', side_effect=thinking):
             state = self.host.post('/api/solo', json={'first': 'guest'}).json()
             self.id, self.room = state['id'], self.store.rooms[state['id']]
             self.move('flip', index=0)
@@ -507,6 +508,45 @@ class WebTests(unittest.TestCase):
                 self.assertIsNone(self.room.game.held_card)
             finally:
                 release.set()
+
+    def test_failed_or_invalid_bot_search_still_completes_its_turn(self):
+        for failure in (RuntimeError('failed search'), None, ('invented',)):
+            with self.subTest(failure=failure), patch('server.BotWorkers.choose', side_effect=failure if isinstance(failure, Exception) else None,
+                                                      return_value=failure if not isinstance(failure, Exception) else None):
+                state = self.host.post('/api/solo', json={'first': 'guest'}).json()
+                self.id, self.room = state['id'], self.store.rooms[state['id']]
+                self.move('flip', index=0)
+                self.move('flip', index=1)
+                deadline = time.monotonic() + 4
+                while self.room.game.current == 1 and time.monotonic() < deadline:
+                    time.sleep(.02)
+                self.assertEqual(self.room.game.current, 0)
+                self.assertGreater(self.room.game.turns, 0)
+                self.host.post(f'/api/lobbies/{self.id}/leave').raise_for_status()
+
+    def test_stale_bot_result_retries_and_state_read_restarts_a_stalled_turn(self):
+        calls = []
+
+        async def changed_position(position):
+            calls.append(position.phase)
+            if len(calls) == 1:
+                self.room.version += 1
+            return ('draw',) if position.phase == 'choose' else ('discard',)
+
+        with patch('server.BotWorkers.choose', side_effect=changed_position):
+            state = self.host.post('/api/solo', json={}).json()
+            self.id, self.room = state['id'], self.store.rooms[state['id']]
+            self.move('flip', index=0)
+            self.move('flip', index=1)
+            # Simulate a table whose old bot task exited without completing.
+            self.room.game.current = 1
+            self.assertIsNone(self.room.bot_task)
+            self.state()
+            deadline = time.monotonic() + 4
+            while self.room.game.current == 1 and time.monotonic() < deadline:
+                time.sleep(.02)
+            self.assertEqual(self.room.game.current, 0)
+            self.assertEqual(calls, ['choose', 'choose', 'drawn'])
 
     def test_solo_preserves_rules_and_computer_turn(self):
         response = self.host.post('/api/solo', json={'username': 'Alex'})
