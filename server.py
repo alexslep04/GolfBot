@@ -26,6 +26,7 @@ from scoring import active_rule_effects, visible_effect_total
 from bot import fallback_action, legal_actions, play_action, public_position
 from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
+from match_settings import HOUSE_VERSION, house_rules
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -43,25 +44,35 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username: str = Field(default="Player", min_length=1, max_length=32)
     name: str = Field(default="Friendly Golf", min_length=1, max_length=48)
-    best_of: StrictInt = Field(default=3, ge=1, le=9)
+    best_of: StrictInt | None = Field(default=3, ge=1, le=9)
     first: Literal["host", "guest", "alternate", "random", "winner", "loser"] = "alternate"
     rules: dict[str, bool] = Field(default_factory=dict)
+    house_rules: bool = False
 
     @field_validator("best_of")
     @classmethod
     def odd_match_length(cls, value):
-        if value % 2 == 0:
+        if value is not None and value % 2 == 0:
             raise ValueError("Best of must be an odd number.")
         return value
 
 
 class SoloSettings(Settings):
-    best_of: StrictInt = Field(default=1, ge=1, le=9)
+    best_of: StrictInt | None = Field(default=1, ge=1, le=9)
     first: Literal["host", "guest", "alternate", "random", "winner", "loser"] = "host"
 
 
 class Join(BaseModel):
     username: str = Field(min_length=1, max_length=32)
+
+
+class InvitePlayer(BaseModel):
+    player_id: str = Field(min_length=1, max_length=32)
+
+
+class InviteReply(BaseModel):
+    accept: bool
+    username: str = Field(default="Player", min_length=1, max_length=32)
 
 
 class Move(BaseModel):
@@ -102,6 +113,9 @@ class Session:
     google_nonce: str = field(default_factory=lambda: secrets.token_urlsafe(32))
     nonce_expires: float = field(default_factory=lambda: time.time() + 600)
     auth_attempts: list = field(default_factory=list)
+    public_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
+    online_until: float = 0
+    invite_times: list = field(default_factory=list)
 
 
 @dataclass
@@ -109,7 +123,7 @@ class Room:
     id: str
     name: str
     rules: Rules
-    best_of: int
+    best_of: int | None
     first: str
     solo: bool
     seats: list
@@ -133,10 +147,22 @@ class Room:
     emotes: dict = field(default_factory=dict)
     emote_sequence: int = 0
     participants: list = field(default_factory=lambda: [None, None])
+    house_rules: bool = False
+    house_version: str | None = None
+    departed: list = field(default_factory=lambda: [False, False])
 
     @property
     def target(self):
-        return self.best_of // 2 + 1
+        return self.best_of // 2 + 1 if self.best_of is not None else None
+
+    def finish_continuous(self):
+        if self.best_of is not None or not all(self.departed) or not self.history:
+            return
+        if self.wins[0] != self.wins[1]:
+            self.champion = int(self.wins[1] > self.wins[0])
+        else:
+            points = [sum(result['scores'][p] for result in self.history) for p in (0, 1)]
+            self.champion = None if points[0] == points[1] else int(points[1] < points[0])
 
     def start_round(self):
         round_index = len(self.history)
@@ -159,6 +185,8 @@ class Room:
         winner = None if scores[0] == scores[1] else 0 if scores[0] < scores[1] else 1
         self.history.append({"round": len(self.history) + 1, "scores": scores, "winner": winner,
                              "rules": asdict(self.game.rules),
+                             "house_rules": self.house_rules, "house_version": self.house_version,
+                             "turns": self.game.turns,
                              "ended_at": time.time(),
                              "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in (0, 1)]})
@@ -167,7 +195,7 @@ class Room:
         self.ready = [False, self.solo]
         if winner is not None:
             self.wins[winner] += 1
-        if max(self.wins) >= self.target:
+        if self.target is not None and max(self.wins) >= self.target:
             self.champion = self.wins.index(max(self.wins))
             self.status = "finished"
         else:
@@ -182,6 +210,7 @@ class Store:
         self.rooms = {}
         self.history = MatchHistory(history_path)
         self.accounts = Accounts(self.history)
+        self.invitations = {}
 
     def session(self, token):
         session = self.sessions.get(token)
@@ -196,6 +225,8 @@ class Store:
             if room.touched < cutoff and not any(room.clients.values()):
                 if room.bot_task:
                     room.bot_task.cancel()
+                room.departed = [True, True]
+                room.finish_continuous()
                 self.history.save(room, abandoned=True)
                 del self.rooms[key]
         for token, session in list(self.sessions.items()):
@@ -228,7 +259,8 @@ def card_view(card):
 def public_room(room):
     return {"id": room.id, "name": room.name, "names": room.names, "status": room.status,
             "best_of": room.best_of, "first": room.first, "rules": asdict(room.rules),
-            "players": sum(seat is not None for seat in room.seats), "solo": room.solo}
+            "players": sum(seat is not None for seat in room.seats), "solo": room.solo,
+            "house_rules": room.house_rules, "house_version": room.house_version}
 
 
 def message(room, viewer):
@@ -292,7 +324,7 @@ def snapshot(room, token):
                     if game.arrangement_plan(game.arrange_pending["player"], game.arrange_pending["rank"], cols)]
                     if active and game.phase == "arrange" else [],
         "keep_layout": active and game.phase == "arrange",
-        "set_rules": room.solo and game.phase == "setup",
+        "set_rules": room.solo and not room.house_rules and game.phase == "setup",
     }
     last_move = game.last_move
     if last_move.startswith("You "):
@@ -363,7 +395,7 @@ def apply_move(room, token, move):
         if move.action == "flip" and game.phase == "setup":
             game.opening_reveal(seat, move.index)
         elif move.action in ("set_rule", "set_rules"):
-            if not room.solo or seat != 0 or game.phase != "setup":
+            if not room.solo or room.house_rules or seat != 0 or game.phase != "setup":
                 raise HTTPException(403, "Lobby rules stay fixed during a match.")
             if move.action == "set_rules":
                 if move.rules is None:
@@ -595,6 +627,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         descriptions = load_rule_help()
         return [{"key": key, "name": name, "title": descriptions[key][0], "description": descriptions[key][1]} for key, name in RULE_OPTIONS]
 
+    @app.get('/api/match-options')
+    async def match_options():
+        return {'house_rules': house_rules(), 'house_version': HOUSE_VERSION, 'first': 'random'}
+
     @app.get("/api/history")
     async def match_history(request: Request, offset: int = Query(default=0, ge=0)):
         matches = store.history.for_browser(session_for(request).token, limit=51, offset=offset)
@@ -604,13 +640,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def player_stats(request: Request,
                            player: str | None = Query(default=None, max_length=64),
                            opponent: str | None = Query(default=None, max_length=64),
-                           enabled: list[str] = Query(default=[]), disabled: list[str] = Query(default=[])):
+                           enabled: list[str] = Query(default=[]), disabled: list[str] = Query(default=[]),
+                           house_rules: bool = Query(default=True)):
         session_for(request)
         known = set(Rules.__dataclass_fields__)
         if (set(enabled) | set(disabled)) - known or set(enabled) & set(disabled):
             raise HTTPException(422, "Choose valid, non-conflicting rule filters.")
+        if house_rules and (enabled or disabled):
+            raise HTTPException(422, 'Turn off House rules to choose custom rule filters.')
         try:
-            return await asyncio.to_thread(lambda: build_stats(store.history.stats_results(), player, opponent, enabled, disabled))
+            return await asyncio.to_thread(lambda: build_stats(store.history.stats_results(), player, opponent, enabled, disabled, house_rules))
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -619,9 +658,90 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         store.cleanup()
         return [public_room(room) for room in store.rooms.values() if not room.solo and room.status != "closed"]
 
+    def at_table(session):
+        room = store.rooms.get(session.room_id)
+        return bool(room and session.token in room.seats and not room.departed[room.seats.index(session.token)])
+
+    def prune_invites():
+        for key, invitation in list(store.invitations.items()):
+            room = store.rooms.get(invitation['room'])
+            target = store.sessions.get(invitation['target'])
+            if (invitation['expires'] <= time.time() or not room or room.status != 'waiting'
+                    or room.seats[1] is not None or not target or at_table(target)):
+                del store.invitations[key]
+
+    def available_players(session):
+        players = {}
+        for other in store.sessions.values():
+            if (other.token == session.token or other.online_until <= time.time() or at_table(other)
+                    or session.account and other.account and session.account['id'] == other.account['id']):
+                continue
+            identity = ('account', other.account['id']) if other.account else ('guest', other.public_id)
+            players[identity] = other
+        return list(players.values())
+
+    @app.post('/api/presence')
+    async def presence(body: Join, request: Request):
+        session = session_for(request)
+        if not at_table(session):
+            session.username = clean_name(body.username)
+        session.online_until = time.time() + 30
+        prune_invites()
+        invitations = []
+        for key, item in store.invitations.items():
+            if item['target'] == session.token:
+                room = store.rooms[item['room']]
+                invitations.append({'id': key, 'lobby': public_room(room), 'host': room.names[0]})
+        return {
+            'available_lobbies': sum(not room.solo and room.status == 'waiting' and room.seats[1] is None
+                                     and session.token not in room.seats for room in store.rooms.values()),
+            'players': [{'id': other.public_id, 'display_name': other.username,
+                         'unique_name': (other.account or {}).get('unique_name')}
+                        for other in available_players(session)],
+            'invitations': invitations,
+            'invited': [store.sessions[item['target']].public_id for item in store.invitations.values()
+                        if item['host'] == session.token and item['target'] in store.sessions],
+        }
+
+    @app.post('/api/lobbies/{room_id}/invite')
+    async def invite_player(room_id: str, body: InvitePlayer, request: Request):
+        session = session_for(request)
+        room = find_room(room_id)
+        if room.solo or room.seats[0] != session.token or room.status != 'waiting' or room.seats[1] is not None:
+            raise HTTPException(403, 'Only the host of an open lobby can invite players.')
+        target = next((other for other in available_players(session) if other.public_id == body.player_id), None)
+        if not target:
+            raise HTTPException(409, 'That player is no longer available.')
+        prune_invites()
+        for invitation in store.invitations.values():
+            if invitation['room'] == room.id and invitation['target'] == target.token:
+                return {'sent': True}
+        session.invite_times = [stamp for stamp in session.invite_times if stamp > time.time() - 60]
+        if len(session.invite_times) >= 10:
+            raise HTTPException(429, 'Please wait before sending more invitations.')
+        session.invite_times.append(time.time())
+        store.invitations[secrets.token_urlsafe(12)] = {
+            'host': session.token, 'target': target.token, 'room': room.id, 'expires': time.time() + 90,
+        }
+        return {'sent': True}
+
+    @app.post('/api/invitations/{invitation_id}/respond')
+    async def respond_invitation(invitation_id: str, body: InviteReply, request: Request):
+        session = session_for(request)
+        prune_invites()
+        invitation = store.invitations.get(invitation_id)
+        if not invitation or invitation['target'] != session.token:
+            raise HTTPException(404, 'That invitation is no longer available.')
+        if not body.accept:
+            del store.invitations[invitation_id]
+            return {'declined': True}
+        result = await take_seat(find_room(invitation['room']), session, body.username)
+        prune_invites()
+        return result
+
     def leave_old(session, reason='creating or joining another'):
         old = store.rooms.get(session.room_id)
-        if old and session.token in old.seats:
+        if old and session.token in old.seats and not old.departed[old.seats.index(session.token)]:
             raise HTTPException(409, f"Leave your current table before {reason}.")
 
     @app.post("/api/lobbies")
@@ -632,7 +752,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables. Try again later.")
         session.username = clean_name(settings.username)
-        room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(settings.rules), settings.best_of, settings.first, False, [session.token, None], [session.username, "Waiting..."], history_store=store.history)
+        room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(house_rules() if settings.house_rules else settings.rules), settings.best_of, 'random' if settings.house_rules else settings.first, False, [session.token, None], [session.username, "Waiting..."], history_store=store.history,
+                    house_rules=settings.house_rules, house_version=HOUSE_VERSION if settings.house_rules else None)
         room.participants[0] = profile_for(session)
         store.rooms[room.id] = room
         session.room_id = room.id
@@ -646,7 +767,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         session.username = clean_name(settings.username)
-        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(settings.rules), settings.best_of, settings.first, True, [session.token, None], [session.username, "Golf"], history_store=store.history)
+        room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(house_rules() if settings.house_rules else settings.rules), settings.best_of, 'random' if settings.house_rules else settings.first, True, [session.token, None], [session.username, "Golf"], history_store=store.history,
+                    house_rules=settings.house_rules, house_version=HOUSE_VERSION if settings.house_rules else None)
         room.participants = [profile_for(session), {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golf'}]
         room.start_round()
         store.rooms[room.id] = room
@@ -661,13 +783,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def join_lobby(room_id: str, body: Join, request: Request):
         session = session_for(request)
         room = find_room(room_id)
+        return await take_seat(room, session, body.username)
+
+    async def take_seat(room, session, username):
         async with room.lock:
             if session.token in room.seats:
                 return snapshot(room, session.token)
             leave_old(session)
             if room.solo or room.status != "waiting" or room.seats[1] is not None:
                 raise HTTPException(409, "This lobby is full or already playing.")
-            session.username = clean_name(body.username)
+            session.username = clean_name(username)
             profile = profile_for(session)
             room.seats[1], room.names[1] = session.token, session.username
             room.participants[1] = profile
@@ -725,11 +850,18 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if session.token not in room.seats:
                 raise HTTPException(403, "You are not at this table.")
             seat = room.seats.index(session.token)
-            session.room_id = None
+            if room.departed[seat]:
+                return {'left': True}
+            if session.room_id == room.id:
+                session.room_id = None
             if room.status == "waiting" and seat == 1:
                 room.seats[1], room.names[1], room.ready[1] = None, "Waiting...", False
             else:
                 room.status = "closed"
+                room.departed[seat] = True
+                if room.solo:
+                    room.departed[1] = True
+                room.finish_continuous()
                 store.history.save(room, abandoned=True)
                 if room.bot_task:
                     room.bot_task.cancel()

@@ -18,9 +18,13 @@ After updating the source, stop and restart the server so the Python backend and
 
 The menu offers **Join lobby**, **Host lobby**, and **Play solo**.
 
-- **Solo:** choose a best-of-1/3/5/7/9 match against Golf and who starts: you, Golf, alternate, random, previous winner, or previous loser. Pick rules in setup or before your second opening flip. After each game, continue the series until someone reaches the required wins; ties do not count as wins. Rematches keep your match settings. Solo games and series are saved in match history.
-- **Host:** choose your username, lobby name, rules, best-of match length, and starting-player policy. Share the lobby link. The game starts automatically when a guest joins.
+- **Solo:** choose a best-of-1/3/5/7/9 or Continuous match against Golf. House rules defaults on, locking every optional rule on except Beggars, which stays off, and fixing the first-player policy to random. Turn it off to customize the rules and first player. Rematches keep your match settings. Solo games and series are saved in match history.
+- **Host:** choose your display name, lobby name, match length, and house or custom rules. Share the lobby link or use **Invite player** to invite an available online player. The game starts automatically when a guest joins or accepts an invitation.
 - **Join:** browse existing tables or open an invite link. Review the rules, enter your name, and join to start playing.
+
+The red number on **Join lobby** counts open tables other than your own. Presence and invitation updates poll every five seconds; a player is online for 30 seconds after their last heartbeat. Only players outside a table appear in the invitation list; signed-in duplicates are grouped by account. Invitations expire after 90 seconds and disappear when the table fills or closes. They show host, lobby, match length, house status, and expandable rule/start details, with Accept and Decline. Presence IDs are separate from private session cookies; invitations are in memory and clear on restart.
+
+**Continuous** has no win target. Ready up after each game to continue. The first departure closes play; after both players explicitly leave, most game wins decides the series, then lower total points. An exact tie keeps the game results without a series winner. Solo departure closes both seats. An abandoned table eventually expires under the existing 12-hour cleanup; temporary disconnects still preserve the seat. Unfinished games are not scored.
 
 Golf uses sampled lookahead to maximize the expected point difference **your score minus its score**. It considers its current turn and your reply, up to six decisions, including enabled scoring effects and bonus actions. Hidden cards and future draws are sampled from the unseen 52-card deck; the bot cannot inspect their actual identities or change the deal. The bounded search runs off the server event loop so other tables and emotes remain responsive. This is an approximate search, not a guarantee of the mathematically best move.
 
@@ -28,7 +32,7 @@ Run `python -m benchmarks.bot_strength --deals 16` to compare the search and old
 
 On mobile, each hand keeps its upright 2-by-3 layout, with the player name vertically on the left and Visible/Active scores vertically on the right. The draw and discard piles sit between the hands as compact sideways cards; a drawn card appears beside them while you decide.
 
-Use **Select all rules** in match setup or the editable solo rules panel to enable every optional rule; unchecking it clears them all.
+With House rules off, use **Select all rules** in match setup or the editable solo rules panel to enable every optional rule; unchecking it clears them all.
 
 Both players choose two opening cards. Click a card to select or unselect it; use **Flip**, **Swap**, **Draw**, or **Discard**. Selecting the go-fish pile and pressing Flip also draws. After a layout flip, **End turn** appears; Enter works too. Draw-first allows immediate discard, replacing an already visible card, or flipping a hidden card before replacing it.
 
@@ -42,7 +46,7 @@ Use the top-right **☺** button in the action panel to switch between game acti
 
 ## Match history
 
-Open the **Match history** tab to see everyone’s games on this server, including games against Golf and best-of series. You can view matches you did not participate in. Bot matches are labeled **Vs Golf** with their match length. Each record shows every completed game's scores and winner, the series winner and game wins, total points per player, and combined points. The overall series winner is decided by wins, even if the other player has fewer summed points. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
+Open the **Match history** tab to see everyone’s games on this server, including games against Golf and best-of series. You can view matches you did not participate in. Bot matches are labeled **Vs Golf** with their match length. Each record shows every completed game's scores and winner, the series winner and game wins, total points per player, and combined points. Series winners are decided by game wins; Continuous uses lower summed points only to break a tie on wins. Rematches create separate records; unfinished series are labeled in progress, abandoned, or interrupted.
 
 Switching tabs keeps your current table open; use **Play** to return. Refresh updates the list, and Load older matches retrieves earlier entries. History starts with the first completed game. Retained older bot records are included, but solo games that were never saved by previous versions cannot be reconstructed.
 
@@ -52,11 +56,11 @@ Results are saved in `data/matches.sqlite3`. Keep that file to retain history ac
 
 Open **Player stats** beside Match history. Signed-in players appear as **@unique_name** across display-name changes and devices. Guests are grouped by display name and labeled **(guest)**. The solo AI remains separate. Compare overall and head-to-head game/series wins, win rates, average points, point advantage, total points, and best/worst games. Accounts and guests using the same text are distinct; ambiguous same-name guest games are excluded.
 
-Rule filters offer **Any**, **On**, or **Off** for each rule. **All on** and **All off** apply every rule at once; **Reset rules** returns to overall stats. Filters apply to both players and both comparison tables; selections can be bookmarked. Stats use all saved results. Opening stats keeps your current table open.
+**House rules** defaults on and shows official results from games created with a locked, versioned house preset. Turn it off to unlock custom filters and include earlier unmarked results. Rule filters offer **Any**, **On**, or **Off** for each rule. **All on** and **All off** apply every rule at once; **Reset rules** returns to overall stats. Filters apply to both players and both comparison tables; selections can be bookmarked. Stats use all saved results. Opening stats keeps your current table open.
 
-A game is one deal; a series is a full best-of match. Game win rate includes draws in the denominator. Series win rate uses completed series only; with filters, every game in the series must match. Completed games from unfinished series count toward game stats. Point advantage is your average minus your opponent’s; negative means you scored fewer points.
+A game is one deal; a series is a full match. Average turns counts completed turns by both players and excludes older games without turn records. Average rules in play counts enabled optional rules, independently of activations. Game win rate includes draws in the denominator. Series win rate uses completed series only; with filters, every game in the series must match. Completed games from unfinished series count toward game stats. Point advantage is your average minus your opponent’s; negative means you scored fewer points.
 
-The **Rule activations** tracker reports each rule's activation percentage and win rate in games where that player activated it. Activation percentage uses all filtered games with activation records, including games with the rule disabled. Each rule counts at most once per player per game, even if triggered repeatedly. An effect targeting the opponent is credited to its creator. The log preserves earlier activations even if the layout later changes. Static scoring rules also count when they apply at final reveal. Older games without activation records are excluded from these percentages; they cannot be reconstructed from final scores.
+The **View rule activation** dropdown reports each rule's activation percentage and win rate in games where that player activated it. Activation percentage uses all filtered games with activation records, including games with the rule disabled. Each rule counts at most once per player per game, even if triggered repeatedly. An effect targeting the opponent is credited to its creator. The log preserves earlier activations even if the layout later changes. Static scoring rules also count when they apply at final reveal. Older games without activation records are excluded from these percentages; they cannot be reconstructed from final scores.
 
 ## Optional Google accounts
 
@@ -92,7 +96,7 @@ The public address exposes this game server and its lobby directory. There are n
 
 ## Rules and matches
 
-[RULES.md](RULES.md) is the single source of truth, including descriptions loaded by the browser. All optional rules start disabled. Multiplayer rules are fixed for the match.
+[RULES.md](RULES.md) is the single source of truth, including descriptions loaded by the browser. House rules defaults on in the creation UI. Its versioned pool is defined in `match_settings.py`; increment the version when changing it. The server enforces the preset and random starting policy. API clients can request it with `house_rules: true`; omitted flags retain custom-match compatibility. Multiplayer rules are fixed for the match.
 
 Best of 3 means first to 2 wins; best of 5 means first to 3, and so on. Tied games award neither player a win and can extend the series. Both players mark ready for the next game. Alternate starts with the host; random chooses independently each game. Winner/loser policies use the previous decisive result, falling back to alternate when the previous game tied. The host may offer a rematch after a completed match; the guest marks ready again.
 

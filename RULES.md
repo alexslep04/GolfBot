@@ -1,6 +1,10 @@
 # Golf rules
 
-The single source of truth for this 52-card game. In solo play, select optional rules before the second opening flip. In multiplayer, the host selects rules before creating the lobby; they stay fixed for the match. Hover help reads the short marked descriptions below.
+The single source of truth for this 52-card game. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers**, which stays off, and choose the first player randomly each game. The preset and first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
+
+**Match length:** choose Best of 1, 3, 5, 7, or 9, or **Continuous**. Continuous has no win target; ready up for another game until someone leaves. After both players leave, most game wins decides the series; lower total points breaks a tie. Equal wins and equal points means no series winner. In solo, leaving also closes the bot's seat. Completed games always count in stats. Leaving during a game does not score that unfinished game.
+
+**Official stats:** the House rules filter counts games explicitly started with a locked house preset. Saved results retain the preset version in use at the time. Older unmarked games and custom games remain available with the filter off.
 
 ## Base version
 
@@ -8,7 +12,7 @@ The single source of truth for this 52-card game. In solo play, select optional 
 
 **Start:** shuffle 52 cards. Deal each player six face-down cards in two rows of three. The rest form the go-fish pile; flip its top card to start the discard pile. Each player reveals any two of their own cards. The dealer plays first; turns alternate.
 
-In browser lobbies, the host chooses who goes first: host, guest, alternate, random, previous winner, or previous loser. Alternate starts with the host and changes each game. Winner/loser uses the previous game's result, falling back to alternate after a tie. Solo starts with you.
+Custom browser matches can start with host, guest, alternate, random, previous winner, or previous loser. In solo, host means you and guest means Golf. Alternate starts with the host and changes each game. Winner/loser uses the previous game's result, falling back to alternate after a tie. House rules fixes the start policy to random.
 
 ### 1. Flip one of your hidden cards
 
