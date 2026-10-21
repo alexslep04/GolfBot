@@ -56,23 +56,23 @@ class RevisedRulesTests(unittest.TestCase):
 
     def test_poison_targets_first_finisher_before_divisions(self):
         game = GolfGame(rules=Rules(poisoned_card=True, roman_fives=True))
-        game.players[0] = hand([8, 4, 2, 3, 4, 10])
+        game.players[0] = hand([8, 4, 2, 3, 4, 9])
         game.players[1] = hand([1, 4, 1, 5, 11, 1])
-        self.assertEqual(game.score(0), 7)
+        self.assertEqual(game.score(0), 6)
         game.players[0][5].visible = False
         game.players[1][5].visible = False
         game.phase = 'choose'
         game.reveal(5)
         self.assertEqual(game.finisher, 0)
-        self.assertEqual(game.score(0), 8)  # (19 + 5) / 3, rounded up.
+        self.assertEqual(game.score(0), 7)  # (18 + 3) / 3; the former +5 would score 8.
         game.end_turn()
         game.draw()
         game.discard()
         self.assertEqual(game.phase, 'over')
         self.assertEqual(game.finisher, 0)
         self.assertEqual(game.score(1), 7)  # Final scoring reveals do not poison player 1.
-        self.assertEqual(visible_effect_total(game.players[0], game.rules, poisoned=True), 8)
-        self.assertIn('Poisoned Card: +5', active_rule_effects(game.players[0], game.rules, poisoned=True))
+        self.assertEqual(visible_effect_total(game.players[0], game.rules, poisoned=True), 7)
+        self.assertIn('Poisoned Card: +3', active_rule_effects(game.players[0], game.rules, poisoned=True))
 
     def test_bonus_finishing_opponent_assigns_poison_once_and_keeps_it(self):
         game = GolfGame(rules=Rules(poisoned_card=True))
@@ -88,8 +88,8 @@ class RevisedRulesTests(unittest.TestCase):
         self.assertEqual(game.finisher, 1)
         poisoned = game.score(1)
         game.rules.poisoned_card = False
-        self.assertEqual(poisoned - game.score(1), 5)
-        self.assertNotIn('Poisoned Card: +5', active_rule_effects(game.players[1], game.rules, poisoned=True))
+        self.assertEqual(poisoned - game.score(1), 3)
+        self.assertNotIn('Poisoned Card: +3', active_rule_effects(game.players[1], game.rules, poisoned=True))
 
     def test_live_totals_agree_with_scores_when_all_cards_known(self):
         for seat in (0, 1):
