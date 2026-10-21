@@ -115,7 +115,7 @@ Four visible cards of one rank may immediately be moved into any two columns, or
 ### Poisoned Card
 <!-- rule: poisoned_card -->
 
-The first player to reveal all six cards adds 5 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
+The first player to reveal all six cards adds 3 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
 
 ## Shared conventions
 

@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 from collections import Counter
 import random
-from scoring import score_adjustments, column_score, straight_adjustments, scoring_rule_keys
+from scoring import score_adjustments, column_score, straight_adjustments, scoring_rule_keys, POISON_POINTS
 
 
 @dataclass(frozen=True)
@@ -129,7 +129,7 @@ class GolfGame:
         total += adjustment
         total += straight_adjustments(self.players[1 - player], self.rules, visible_only)[1]
         if self.rules.poisoned_card and self.finisher == player:
-            total += 5
+            total += POISON_POINTS
         if not visible_only:
             if self.rules.gamblers_row and self.gambler_earned[player]:
                 divisor *= 7

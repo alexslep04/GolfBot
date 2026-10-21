@@ -4,6 +4,7 @@ from itertools import combinations
 from math import prod
 
 V_PATTERNS = ((0, 4, 2), (3, 1, 5))
+POISON_POINTS = 3
 
 
 def v_pattern_effects(layout, rules, visible_only=False):
@@ -159,7 +160,7 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
             if direction == 1:
                 effects.append(f"Incoming straight row {row}: {value:+d}")
     if rules.poisoned_card and poisoned:
-        effects.append("Poisoned Card: +5")
+        effects.append(f"Poisoned Card: +{POISON_POINTS}")
     if rules.king_queen:
         for i in range(3):
             if layout[i].visible and layout[i + 3].visible and {layout[i].card.rank, layout[i + 3].card.rank} == {12, 13}:
@@ -174,7 +175,7 @@ def visible_effect_total(layout, rules, gambler_earned=False, opponent_layout=No
     if opponent_layout is not None:
         subtotal += straight_adjustments(opponent_layout, rules, True)[1]
     if rules.poisoned_card and poisoned:
-        subtotal += 5
+        subtotal += POISON_POINTS
     divisor = 7 if rules.gamblers_row and gambler_earned else 1
     divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules, True))
     subtotal *= 9 if rules.angels_row and opponent_angel_earned else 1
