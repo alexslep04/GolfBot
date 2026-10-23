@@ -22,6 +22,7 @@ class MatchHistory:
             self.connection.execute("CREATE TABLE IF NOT EXISTS matches (id TEXT PRIMARY KEY, host TEXT NOT NULL, guest TEXT, updated REAL NOT NULL, payload TEXT NOT NULL)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS matches_host ON matches(host)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS matches_guest ON matches(guest)")
+            self.connection.execute('CREATE TABLE IF NOT EXISTS match_seats (match_id TEXT NOT NULL, seat INTEGER NOT NULL, browser TEXT NOT NULL, PRIMARY KEY(match_id, seat))')
             self.connection.execute('CREATE TABLE IF NOT EXISTS history_meta (key TEXT PRIMARY KEY, value REAL NOT NULL)')
             # Older hosts may still have a pre-reset series in memory. Prevent
             # those summaries from repopulating the database after a reset.
@@ -48,24 +49,32 @@ class MatchHistory:
             "id": room.match_id, "lobby_name": room.name, "names": list(room.names),
             "solo": room.solo, "best_of": room.best_of, "rules": asdict(room.rules),
             "house_rules": room.house_rules, "house_version": room.house_version,
+            "patch": room.patch, "series_mode": room.series_mode, "game_type": room.game_type,
             "participants": room.participants,
             "started_at": room.started_at, "updated_at": time.time(),
-            "status": "finished" if room.champion is not None else "ended" if room.best_of is None and all(room.departed) else "abandoned" if abandoned else "in_progress",
+            "status": "finished" if room.series_complete or room.champion is not None else "ended" if room.best_of is None and all(room.departed) else "abandoned" if abandoned else "in_progress",
             "winner": room.champion, "wins": list(room.wins),
+            "series_leaders": room.series_leaders,
             "rounds": room.history,
-            "points": [sum(result["scores"][seat] for result in room.history) for seat in (0, 1)],
+            "points": room.points,
+            "last_game_ended_at": max(result.get('ended_at', room.started_at) for result in room.history),
         }
         with self.lock, self.connection:
             self.connection.execute("INSERT INTO matches VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated, payload=excluded.payload",
                                     (room.match_id, browser_key(room.seats[0]), browser_key(room.seats[1]), payload["updated_at"], json.dumps(payload)))
+            for seat, token in enumerate(room.seats):
+                if token:
+                    self.connection.execute('INSERT INTO match_seats VALUES (?, ?, ?) ON CONFLICT(match_id, seat) DO UPDATE SET browser=excluded.browser',
+                                            (room.match_id, seat, browser_key(token)))
 
     def for_browser(self, token, limit=100, offset=0):
         """List everyone's matches; identify the viewer's seat only if they played."""
         key = browser_key(token)
         with self.lock:
-            rows = self.connection.execute("SELECT host, guest, payload FROM matches ORDER BY updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-        return [{**json.loads(payload), "viewer": (0 if host == key else 1 if guest == key else None) if key else None}
-                for host, guest, payload in rows]
+            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+            viewers = {match_id: seat for match_id, seat in self.connection.execute('SELECT match_id, seat FROM match_seats WHERE browser=?', (key,))} if key else {}
+        return [{**json.loads(payload), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
+                for match_id, host, guest, payload in rows]
 
     def results(self):
         """All result payloads for aggregation, without private browser keys."""
@@ -82,6 +91,7 @@ class MatchHistory:
             count = self.connection.execute('SELECT COUNT(*) FROM matches').fetchone()[0]
             self.connection.execute("INSERT INTO history_meta VALUES ('reset_at', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (time.time(),))
             self.connection.execute('DELETE FROM matches')
+            self.connection.execute('DELETE FROM match_seats')
         return count
 
     def close(self):

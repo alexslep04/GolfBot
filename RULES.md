@@ -1,8 +1,12 @@
 # Golf rules
 
-The single source of truth for this 52-card game. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers**, which stays off, and choose the first player randomly each game. The preset and first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
+The single source of truth for Golf. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers**, **4 of a Kind**, and **Suited rows**. Those three stay off. **All in red/black** is included in House rules. The preset and random first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
 
-**Match length:** choose Best of 1, 3, 5, 7, or 9, or **Continuous**. Continuous has no win target; ready up for another game until someone leaves. After both players leave, most game wins decides the series; lower total points breaks a tie. Equal wins and equal points means no series winner. In solo, leaving also closes the bot's seat. Completed games always count in stats. Leaving during a game does not score that unfinished game.
+**Match length:** choose a single game; Best of 3, 5, or 9 (first to 2, 3, or 5 wins); a fixed 3-, 5-, or 9-game series (lowest total points wins, equal totals draw); or **Continuous**. Fixed series play every scheduled game, including after a player builds a lead. Continuous has no win target; ready up until someone leaves. After everyone leaves, most game wins decides Continuous; lower total points breaks a tie. Equal wins and points means no winner. Completed games count in stats; unfinished games do not. In solo, leaving closes Golfbot's seat too.
+
+**Classic queue:** two queued players both accept a five-game series with House rules and random first player. Lowest total points wins; equal totals draw. You may play Golfbot while waiting. Accepting alone does not interrupt solo; switching after both accept discards only the unfinished game. Declined, expired, or offline offers are canceled.
+
+**Many players:** 3–30 human players; the host starts the lobby. Randomize turn order each game. Use 2 decks for 3–5 players, 3 for 6–8, 4 for 9–11, and so on: `1 + floor(players / 3)` decks. Duplicate cards are separate physical cards. Opponent effects apply to **every other player**, regardless of the hand being viewed. Show the current player's hand, or the next player's hand on your own turn; swipe to browse other hands. The view resets on the next turn.
 
 **Official stats:** the House rules filter counts games explicitly started with a locked house preset. Saved results retain the preset version in use at the time. Older unmarked games and custom games remain available with the filter off.
 
@@ -12,7 +16,7 @@ The single source of truth for this 52-card game. Match creation defaults to **H
 
 **Start:** shuffle 52 cards. Deal each player six face-down cards in two rows of three. The rest form the go-fish pile; flip its top card to start the discard pile. Each player reveals any two of their own cards. The dealer plays first; turns alternate.
 
-Custom browser matches can start with host, guest, alternate, random, previous winner, or previous loser. In solo, host means you and guest means Golf. Alternate starts with the host and changes each game. Winner/loser uses the previous game's result, falling back to alternate after a tie. House rules fixes the start policy to random.
+Custom 1v1 matches can start with host, guest, alternate, random, previous winner, or previous loser. In solo, guest means Golfbot. Alternate starts with the host and changes each game. Winner/loser falls back to alternate after a tie. House rules and many-player games use random starts.
 
 ### 1. Flip one of your hidden cards
 
@@ -36,7 +40,7 @@ Normal replacements enter face up. After flipping a card during a turn, only tha
 
 ## Ending and scoring
 
-When either player has all six cards face up, finish the current turn and its bonuses, then give the other player one final turn. An already-triggered ending cannot be canceled. If a bonus reveals the non-acting player's sixth card, the acting player receives a fresh final turn. Finally reveal all hidden cards. Resolve Q-Q/J-J bonus swaps for both players before scoring; other abilities do not activate from these reveals. The final-turn player resolves their swaps first. Earned swaps remain available if a later swap breaks the pair. Newly formed, unused pairs can earn further swaps. Cards brought in face down are revealed before checking pairs again. Lowest score wins; equal scores tie.
+When a player has all six cards face up, finish the current turn and bonuses, then give **every other player one final turn**, in turn order. An ending cannot be canceled. If a bonus finishes a non-acting player, the acting player also receives a fresh final turn. Finally reveal all hidden cards and resolve unused Q-Q/J-J swaps for everyone before scoring, starting with the last acting player. Other interactive or earned abilities do not activate from these reveals. Earned swaps remain if a pair breaks; fresh unused pairs may earn swaps. Reveal cards brought in face down before checking pairs again. Lowest score wins; equal lowest scores tie.
 
 | Card | Points |
 | --- | ---: |
@@ -46,7 +50,7 @@ When either player has all six cards face up, finish the current turn and its bo
 | Jack, Queen | 10 |
 | King | 0 |
 
-Two cards of the same rank in a column score zero, regardless of suit. Breaking the pair restores their normal points. Empty go-fish piles are refilled by shuffling the discards except the current top card. Round every division upward, including negative scores.
+Two cards of the same rank in a column score zero, regardless of suit. Breaking the pair restores their normal points. Empty go-fish piles are refilled by shuffling the discards except the current top card. Round upward once after all final-score operations, including negative totals.
 
 **Matches:** best of N means first to (N + 1) / 2 wins. Tied games give no wins and may extend the match. Both players mark ready for each new game. After a finished match the host may offer a rematch, with the guest marking ready again.
 
@@ -110,19 +114,29 @@ The player with the highest visible card value may guess an opponent's chosen hi
 ### 4 of a Kind
 <!-- rule: four_kind -->
 
-Four visible cards of one rank may immediately be moved into any two columns, or left in place. Offer once per rank per player. Preserve hidden cards and locks; resume the turn afterward.
+Four visible cards of one rank may immediately be moved into any two columns, or left in place. With extra decks, choose four of the matches with the least movement. Offer once per rank per player. Preserve hidden cards and locks; resume the turn afterward.
 
 ### Poisoned Card
 <!-- rule: poisoned_card -->
 
 The first player to reveal all six cards adds 3 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
 
+### Suited rows
+<!-- rule: suited_rows -->
+
+A row of three cards of one suit uses the middle card's base Golf points: red adds them to every opponent's final score; black subtracts them from your final score. Each row counts separately. Apply before multipliers and divisions.
+
+### All in red/black
+<!-- rule: all_in_color -->
+
+Six red cards multiply every opponent's final score by 2. Six black cards divide your final score by 2. Check the final hand; apply once per player, after additions and before rounding up once.
+
 ## Shared conventions
 
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
 - **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
-- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then any incoming Angels 999 ×9 and Gamblers 777, Roman 5s, and V10 engine divisions. Round upward once at the end. Modifiers may produce negative scores. Each player's divisions apply to their own adjusted score.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, and All in black divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
 - A ripped-5 cross-row pair uses the first unmatched opposite-row 5 from left to right. No card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.
@@ -157,10 +171,6 @@ After dealing the next game, the previous worst-scoring player may swap one of t
 ### Field Goal
 
 A player finishing within 3 points of an opponent may try a paper-football field goal from 3 ft. Success changes their score to the opponent's, creating a tie.
-
-### Suited Rows
-
-Three cards of one suit in a row each take the middle card's face value.
 
 ### Gambler's Row dice variants
 

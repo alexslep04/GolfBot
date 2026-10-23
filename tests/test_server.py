@@ -475,7 +475,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(matches[0]['id'], old_match_id)
         self.assertTrue(matches[0]['solo'])
         self.assertEqual(matches[0]['best_of'], 3)
-        self.assertEqual(matches[0]['names'][1], 'Golf')
+        self.assertEqual(matches[0]['names'][1], 'Golfbot')
         self.assertEqual(matches[0]['status'], 'finished')
         self.assertEqual(matches[0]['winner'], 0)
         self.assertEqual(matches[0]['wins'], [2, 1])

@@ -1,11 +1,11 @@
 """Versioned house presets; change the version for rule or scoring revisions."""
 from game import Rules
 
-HOUSE_VERSION = "3"
+HOUSE_VERSION = "5"
 HOUSE_KEYS = frozenset({
     'royal_pairs', 'devils_row', 'gamblers_row', 'angels_row', 'king_queen',
     'holdem', 'v10', 'tricky_straights', 'ripped_five', 'roman_fives',
-    'four_kind', 'poisoned_card',
+    'poisoned_card', 'all_in_color',
 })
 
 

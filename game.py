@@ -1,9 +1,9 @@
-"""UI-independent rules and turn state for 52-card Golf."""
+"""UI-independent rules and turn state for six-card Golf."""
 from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 from collections import Counter
 import random
-from scoring import score_adjustments, column_score, straight_adjustments, scoring_rule_keys, POISON_POINTS
+from scoring import score_adjustments, column_score, opponent_adjustment, color_multiplier, scoring_rule_keys, POISON_POINTS
 
 
 @dataclass(frozen=True)
@@ -11,6 +11,7 @@ class Card:
     """Immutable face rank/suit; scoring effects never change a card's base points."""
     rank: int
     suit: str
+    deck: int = 0
 
     @property
     def label(self):
@@ -52,6 +53,8 @@ class Rules:
     beggars: bool = False
     four_kind: bool = False
     poisoned_card: bool = False
+    suited_rows: bool = False
+    all_in_color: bool = False
 
 
 RULE_OPTIONS = [
@@ -68,20 +71,29 @@ RULE_OPTIONS = [
     ("beggars", "Beggars Will be Choosers"),
     ("four_kind", "4 of a Kind"),
     ("poisoned_card", "Poisoned Card"),
+    ("suited_rows", "Suited rows"),
+    ("all_in_color", "All in red/black"),
 ]
 
 
 class GolfGame:
-    def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0):
-        if first_player not in (0, 1):
-            raise ValueError("First player must be seat 0 or 1.")
+    def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0, player_count=2, turn_order=None):
+        if type(player_count) is not int or not 2 <= player_count <= 30 or first_player not in range(player_count):
+            raise ValueError("Choose 2–30 players and an existing first player.")
+        if player_count > 2 and not multiplayer:
+            raise ValueError("Many-player games require human players.")
+        self.player_count = player_count
+        self.turn_order = list(range(player_count)) if turn_order is None else list(turn_order)
+        if sorted(self.turn_order) != list(range(player_count)):
+            raise ValueError("Turn order must contain each player once.")
         self.multiplayer = multiplayer
         self.first_player = first_player
         self.rules = replace(rules) if rules else Rules()
         self.rng = random.Random(seed)
-        self.draw_pile = [Card(rank, suit) for suit in "SHDC" for rank in range(1, 14)]
+        self.deck_count = 1 if player_count == 2 else 1 + player_count // 3
+        self.draw_pile = [Card(rank, suit, deck) for deck in range(self.deck_count) for suit in "SHDC" for rank in range(1, 14)]
         self.rng.shuffle(self.draw_pile)
-        self.players = [[Slot(self.draw_pile.pop()) for _ in range(6)] for _ in range(2)]
+        self.players = [[Slot(self.draw_pile.pop()) for _ in range(6)] for _ in range(player_count)]
         self.discard_pile = [self.draw_pile.pop()]
         self.current = first_player
         self.phase = "setup"
@@ -90,17 +102,18 @@ class GolfGame:
         self.finisher = None
         self.final_player = None
         self.is_final_turn = False
+        self.final_turn_queue = None
         self.turns = 0
         self.bonus_remaining = 0
         self.used_pairs = set()
         self.used_bonus_cards = set()
-        self.activated_rules = [set(), set()]
+        self.activated_rules = [set() for _ in self.players]
         self.scoring_reveal = False
         self.final_bonus_queue = []
         self.locked_cards = set()
-        self.gambler_earned = [False, False]
-        self.angel_earned = [False, False]
-        self.four_offered = [set(), set()]
+        self.gambler_earned = [False] * player_count
+        self.angel_earned = [False] * player_count
+        self.four_offered = [set() for _ in self.players]
         self.arrange_pending = None
         self.guess_pending = None
         self.message = "Select one of your cards and Flip. Reveal two to start."
@@ -111,13 +124,23 @@ class GolfGame:
             raise ValueError("Choose rules during the opening reveal, before the game starts.")
         setattr(self.rules, key, bool(enabled))
         self.locked_cards.clear()
-        self.gambler_earned = [False, False]
-        self.angel_earned = [False, False]
-        self.activated_rules = [set(), set()]
+        self.gambler_earned = [False] * self.player_count
+        self.angel_earned = [False] * self.player_count
+        self.activated_rules = [set() for _ in self.players]
         self._update_combos()
 
     def visible_count(self, player):
         return sum(slot.visible for slot in self.players[player])
+
+    def next_player(self, player):
+        return self.turn_order[(self.turn_order.index(player) + 1) % self.player_count]
+
+    def players_from(self, player):
+        index = self.turn_order.index(player)
+        return self.turn_order[index:] + self.turn_order[:index]
+
+    def opponents(self, player):
+        return [p for p in self.turn_order if p != player]
 
     def score_divisor(self, player):
         divisor = score_adjustments(self.players[player], self.rules)[1]
@@ -127,13 +150,15 @@ class GolfGame:
         total = column_score(self.players[player], self.rules, visible_only)
         adjustment, divisor = score_adjustments(self.players[player], self.rules, visible_only)
         total += adjustment
-        total += straight_adjustments(self.players[1 - player], self.rules, visible_only)[1]
+        total += sum(opponent_adjustment(self.players[p], self.rules, visible_only) for p in self.opponents(player))
         if self.rules.poisoned_card and self.finisher == player:
             total += POISON_POINTS
         if not visible_only:
             if self.rules.gamblers_row and self.gambler_earned[player]:
                 divisor *= 7
-            total *= 9 if self.rules.angels_row and self.angel_earned[1 - player] else 1
+            for other in self.opponents(player):
+                total *= (9 if self.rules.angels_row and self.angel_earned[other] else 1)
+                total *= color_multiplier(self.players[other], self.rules)
             total = (total + divisor - 1) // divisor
         return total
 
@@ -159,10 +184,12 @@ class GolfGame:
 
     def _mark_finish(self):
         if self.finisher is None:
-            for player in (self.current, 1 - self.current):
+            for player in self.players_from(self.current):
                 if self.visible_count(player) == 6:
                     self.finisher = player
-                    self.final_player = 1 - player
+                    self.final_turn_queue = ([] if self.is_final_turn else
+                                             [p for p in self.players_from(self.next_player(self.current)) if p != player])
+                    self.final_player = self.final_turn_queue[0] if self.final_turn_queue else self.next_player(player)
                     if self.rules.poisoned_card:
                         self.activated_rules[player].add("poisoned_card")
                     break
@@ -178,9 +205,10 @@ class GolfGame:
             raise ValueError("Choose a face-down card to flip.")
         if self.phase != "setup" and self.rules.beggars:
             visible = [[i for i, card_slot in enumerate(layout) if card_slot.visible] for layout in self.players]
-            highest = [max((self.players[p][i].card.base_points for i in visible[p]), default=None) for p in range(2)]
-            other = 1 - self.current
-            if highest[other] is not None and (highest[self.current] is None or highest[other] > highest[self.current]):
+            highest = [max((self.players[p][i].card.base_points for i in visible[p]), default=-3) for p in range(self.player_count)]
+            leaders = [p for p, value in enumerate(highest) if value == max(highest)]
+            other = leaders[0]
+            if len(leaders) == 1 and other != self.current and highest[other] > -3:
                 self.guess_pending = {"player": other, "target": index, "phase": self.phase}
                 self.activated_rules[other].add("beggars")
                 self.phase = "guess"
@@ -200,7 +228,7 @@ class GolfGame:
         self._offer_four(self.phase)
 
     def opening_reveal(self, player, index):
-        if (self.phase != "setup" or player not in (0, 1) or index not in range(6)
+        if (self.phase != "setup" or player not in range(self.player_count) or index not in range(6)
                 or self.visible_count(player) >= 2 or (not self.multiplayer and player != 0)):
             raise ValueError("Reveal exactly two of your own cards to start.")
         slot = self.players[player][index]
@@ -211,7 +239,7 @@ class GolfGame:
         if not self.multiplayer and self.visible_count(0) == 2:
             for other_index in self.rng.sample(range(6), 2):
                 self.players[1][other_index].visible = True
-        if all(self.visible_count(p) == 2 for p in (0, 1)):
+        if all(self.visible_count(p) == 2 for p in range(self.player_count)):
             self.phase = "choose"
             self.current = self.first_player
             self.message = "Your turn: Flip your card, Draw, or Swap with the discard."
@@ -250,7 +278,7 @@ class GolfGame:
             return [], []
         player = self.guess_pending["player"]
         own = [(player, i) for i, slot in enumerate(self.players[player]) if slot.visible]
-        other = [(1 - player, i) for i, slot in enumerate(self.players[1 - player]) if slot.visible]
+        other = [(self.current, i) for i, slot in enumerate(self.players[self.current]) if slot.visible]
         if not own or not other:
             return [], []
         highest = max(self.table_slot(ref).card.base_points for ref in own)
@@ -282,32 +310,33 @@ class GolfGame:
         if len(columns) != 2 or len(set(columns)) != 2 or any(c not in range(3) for c in columns):
             raise ValueError("Choose two distinct columns.")
         layout = self.players[player]
-        group = [slot for slot in layout if slot.visible and slot.card.rank == rank]
-        if len(group) != 4:
+        matching = [slot for slot in layout if slot.visible and slot.card.rank == rank]
+        if len(matching) < 4:
             return None
-        rest = [slot for slot in layout if slot not in group]
         destinations = [c + row * 3 for c in sorted(columns) for row in (0, 1)]
         remaining = [i for i in range(6) if i not in destinations]
         best, movement = None, 7
-        for ordered in permutations(group):
-            for leftover in permutations(rest):
-                plan = [None] * 6
-                for i, slot in zip(destinations + remaining, ordered + leftover):
-                    plan[i] = Slot(slot.card, slot.visible)
-                if any(old.card in self.locked_cards and plan[i].card != old.card for i, old in enumerate(layout)):
-                    continue
-                moves = sum(old.card != plan[i].card for i, old in enumerate(layout))
-                if moves < movement:
-                    best, movement = plan, moves
+        for group in combinations(matching, 4):
+            rest = [slot for slot in layout if slot not in group]
+            for ordered in permutations(group):
+                for leftover in permutations(rest):
+                    plan = [None] * 6
+                    for i, slot in zip(destinations + remaining, ordered + leftover):
+                        plan[i] = Slot(slot.card, slot.visible)
+                    if any(old.card in self.locked_cards and plan[i].card != old.card for i, old in enumerate(layout)):
+                        continue
+                    moves = sum(old.card != plan[i].card for i, old in enumerate(layout))
+                    if moves < movement:
+                        best, movement = plan, moves
         return best
 
     def _offer_four(self, resume, finish=False):
         if not self.rules.four_kind:
             return False
-        for player in (self.current, 1 - self.current):
+        for player in self.players_from(self.current):
             counts = Counter(slot.card.rank for slot in self.players[player] if slot.visible)
             for rank, count in counts.items():
-                if count == 4 and rank not in self.four_offered[player]:
+                if count >= 4 and rank not in self.four_offered[player]:
                     if not any(self.arrangement_plan(player, rank, cols) for cols in combinations(range(3), 2)):
                         continue
                     self.four_offered[player].add(rank)
@@ -382,7 +411,7 @@ class GolfGame:
         self.players[self.current][index] = Slot(incoming, True)
         self.held_card = None
         self.discard_pile.append(outgoing)
-        who = "You" if self.current == 0 else "Opponent"
+        who = f"Player {self.current + 1}"
         self.last_move = f"{who} swapped {outgoing.label}{outgoing.suit} for {incoming.label}{incoming.suit}."
         self._finish_turn()
 
@@ -392,7 +421,7 @@ class GolfGame:
         card = self.held_card
         self.discard_pile.append(card)
         self.held_card = None
-        who = "You" if self.current == 0 else "Opponent"
+        who = f"Player {self.current + 1}"
         self.last_move = f"{who} discarded {card.label}{card.suit}."
         self._finish_turn()
 
@@ -400,7 +429,7 @@ class GolfGame:
         if self.phase != "revealed":
             raise ValueError("You may end without another action only after flipping your own card.")
         card = self.players[self.current][self.flipped].card
-        who = "You" if self.current == 0 else "Opponent"
+        who = f"Player {self.current + 1}"
         self.last_move = f"{who} revealed {card.label}{card.suit} and ended the turn."
         self._finish_turn()
 
@@ -436,7 +465,7 @@ class GolfGame:
             self._complete_turn()
 
     def table_refs(self):
-        refs = [(player, index) for player in range(2) for index in range(6)]
+        refs = [(player, index) for player in range(self.player_count) for index in range(6)]
         if self.draw_pile:
             refs.append(("draw", None))
         if self.discard_pile:
@@ -470,7 +499,7 @@ class GolfGame:
         self._put_slot(first, b)
         self._put_slot(second, a)
         self.bonus_remaining -= 1
-        self.last_move = ("You" if self.current == 0 else "Opponent") + " used a bonus swap."
+        self.last_move = f"Player {self.current + 1} used a bonus swap."
         if self.scoring_reveal:
             self._resolve_scoring_reveal()
             return
@@ -489,11 +518,21 @@ class GolfGame:
 
     def _complete_turn(self):
         self.turns += 1
+        if self.finisher is not None and self.final_turn_queue is not None:
+            if self.final_turn_queue:
+                self.current = self.final_turn_queue.pop(0)
+                self.is_final_turn = True
+                self.phase = "choose"
+                self.message = "Final turn: Flip, Draw, or Swap."
+                return
+            self.scoring_reveal = True
+            self._resolve_scoring_reveal()
+            return
         if self.is_final_turn:
             self.scoring_reveal = True
             self._resolve_scoring_reveal()
             return
-        self.current = self.final_player if self.final_player is not None else 1 - self.current
+        self.current = self.final_player if self.final_player is not None else self.next_player(self.current)
         self.is_final_turn = self.current == self.final_player
         self.phase = "choose"
         self.message = "Your turn: Flip your card, Draw, or Swap with the discard." if self.current == 0 else "Opponent is thinking..."
@@ -507,7 +546,7 @@ class GolfGame:
             for slot in layout:
                 slot.visible = True
         self._record_scoring_effects()
-        for player in (self.current, 1 - self.current):
+        for player in self.players_from(self.current):
             self.final_bonus_queue.extend([player] * self._new_bonuses(player))
         if self.final_bonus_queue:
             self.current = self.final_bonus_queue.pop(0)
@@ -516,8 +555,9 @@ class GolfGame:
             self.message = "Final reveal bonus: select any two table cards and Swap."
             return
         self.phase = "over"
-        mine, theirs = self.score(0), self.score(1)
-        self.message = "You win!" if mine < theirs else "Opponent wins." if mine > theirs else "It's a draw!"
+        scores = [self.score(p) for p in range(self.player_count)]
+        winners = [p for p, score in enumerate(scores) if score == min(scores)]
+        self.message = f"Player {winners[0] + 1} wins." if len(winners) == 1 else "It's a draw!"
 
     def _visible_column(self, player, index, replacement=None):
         slot = self.players[player][index]
