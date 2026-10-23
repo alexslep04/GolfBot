@@ -42,6 +42,7 @@ class Scoring111Tests(unittest.TestCase):
     def test_rows_require_identical_suit_not_just_color_and_each_row_counts(self):
         game = GolfGame(rules=Rules(suited_rows=True))
         game.players[0] = hand([1, 5, 3, 4, 6, 8], 'HDHHHH')
+        game.players[1] = hand([2, 4, 7, 9, 11, 13], 'SCHDSC')
         baseline = column_score(game.players[1], game.rules)
         self.assertEqual(game.score(1), baseline + 6)
         game.players[0][1].card = Card(5, 'H')
