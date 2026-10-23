@@ -17,7 +17,7 @@
     <header class="topbar">
       <a class="brand" href="." aria-label="Golf home"
         ><span class="brand-mark">G</span> Golf
-        <small>52 cards. Your rules.</small></a
+        <small>Six cards. Your rules.</small></a
       >
       <nav class="main-tabs" aria-label="Main navigation">
         <button id="play-tab" class="button secondary" type="button">
@@ -27,6 +27,9 @@
         ><button id="stats-tab" class="button secondary" type="button">
           Player stats
         </button>
+        <button id="patches-tab" class="button secondary" type="button">
+          Patch notes
+        </button>
         <span id="account-control"
           ><button class="button secondary" type="button" data-account>
             Sign in with Google
@@ -35,6 +38,7 @@
       </nav>
       <span id="connection" class="connection">Connecting</span>
     </header>
+    <div id="queue-banner" class="queue-banner" hidden></div>
     <main id="app" aria-live="polite">
       <div class="loading">Shuffling the table…</div>
     </main>

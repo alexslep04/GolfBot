@@ -70,6 +70,29 @@ def straight_rows(layout, rules, visible_only=False):
                     yield index + 1, direction, row[-1].card.base_points
 
 
+def suited_rows(layout, rules, visible_only=False):
+    if rules.suited_rows:
+        for index, row in enumerate((layout[:3], layout[3:])):
+            if (not visible_only or all(slot.visible for slot in row)) and len({slot.card.suit for slot in row}) == 1:
+                yield index + 1, row[1].card.red, row[1].card.base_points
+
+
+def all_color(layout, rules, visible_only=False):
+    if not rules.all_in_color or (visible_only and not all(slot.visible for slot in layout)):
+        return None
+    colors = {slot.card.red for slot in layout}
+    return next(iter(colors)) if len(colors) == 1 else None
+
+
+def color_multiplier(layout, rules, visible_only=False):
+    return 2 if all_color(layout, rules, visible_only) is True else 1
+
+
+def opponent_adjustment(layout, rules, visible_only=False):
+    return straight_adjustments(layout, rules, visible_only)[1] + sum(
+        value for _, red, value in suited_rows(layout, rules, visible_only) if red)
+
+
 def score_adjustments(layout, rules, visible_only=False):
     cards = [slot.card for slot in layout if slot.visible or not visible_only]
     adjustment, divisor = 0, 1
@@ -78,9 +101,12 @@ def score_adjustments(layout, rules, visible_only=False):
         if categories & {"flush", "straight", "full_house", "four_kind"}:
             adjustment -= 5
     adjustment += straight_adjustments(layout, rules, visible_only)[0]
+    adjustment -= sum(value for _, red, value in suited_rows(layout, rules, visible_only) if not red)
     # Divisions are final-score operations, never included in visible subtotals.
     if not visible_only:
         divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules))
+        if all_color(layout, rules) is False:
+            divisor *= 2
     return adjustment, divisor
 
 
@@ -122,6 +148,10 @@ def scoring_rule_keys(layout, rules):
         keys.add('holdem')
     if any(straight_rows(layout, rules, True)):
         keys.add('tricky_straights')
+    if any(suited_rows(layout, rules, True)):
+        keys.add('suited_rows')
+    if all_color(layout, rules, True) is not None:
+        keys.add('all_in_color')
     if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, True)):
         keys.add('ripped_five')
     if rules.king_queen and any(layout[i].visible and layout[i + 3].visible and
@@ -131,7 +161,7 @@ def scoring_rule_keys(layout, rules):
 
 
 def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), opponent_layout=None, poisoned=False,
-                        angel_earned=False, opponent_angel_earned=False):
+                        angel_earned=False, opponent_angel_earned=False, *, opponent_layouts=None, incoming_angels=None):
     """Report effects proven by visible cards, without exposing hidden cards."""
     effects = []
     cards = [slot.card for slot in layout if slot.visible]
@@ -144,8 +174,9 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
         effects.append("Gamblers 777 /7")
     if rules.angels_row and angel_earned:
         effects.append("Angels 999: opponent ×9")
-    if rules.angels_row and opponent_angel_earned:
-        effects.append("Incoming Angels 999: ×9")
+    angel_count = int(opponent_angel_earned) if incoming_angels is None else incoming_angels
+    if rules.angels_row and angel_count:
+        effects.append(f"Incoming Angels 999: ×{9 ** angel_count}")
     if rules.devils_row and any(card in locked_cards for card in cards):
         effects.append(f"Devils 666: {sum(card in locked_cards for card in cards)} locked")
     if rules.holdem:
@@ -155,10 +186,22 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     for row, direction, value in straight_rows(layout, rules, True):
         target = "opponent " if direction == 1 else ""
         effects.append(f"Straight row {row}: {target}{value if direction == 1 else -value:+d}")
-    if opponent_layout is not None:
-        for row, direction, value in straight_rows(opponent_layout, rules, True):
+    for row, red, value in suited_rows(layout, rules, True):
+        effects.append(f"Suited row {row}: {'opponents ' if red else ''}{value if red else -value:+d}")
+    color = all_color(layout, rules, True)
+    if color is not None:
+        effects.append("All in red: opponents ×2" if color else "All in black: /2")
+    incoming = opponent_layouts if opponent_layouts is not None else [opponent_layout] if opponent_layout is not None else []
+    for other_index, other_layout in enumerate(incoming):
+        source = f" (opponent {other_index + 1})" if len(incoming) > 1 else ""
+        for row, direction, value in straight_rows(other_layout, rules, True):
             if direction == 1:
-                effects.append(f"Incoming straight row {row}: {value:+d}")
+                effects.append(f"Incoming straight row {row}{source}: {value:+d}")
+        for row, red, value in suited_rows(other_layout, rules, True):
+            if red:
+                effects.append(f"Incoming suited row {row}{source}: {value:+d}")
+        if all_color(other_layout, rules, True) is True:
+            effects.append(f"Incoming All in red{source}: ×2")
     if rules.poisoned_card and poisoned:
         effects.append(f"Poisoned Card: +{POISON_POINTS}")
     if rules.king_queen:
@@ -170,13 +213,17 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
 
 
 def visible_effect_total(layout, rules, gambler_earned=False, opponent_layout=None, poisoned=False,
-                         opponent_angel_earned=False):
+                         opponent_angel_earned=False, *, opponent_layouts=None, incoming_angels=None):
     subtotal = column_score(layout, rules, True) + score_adjustments(layout, rules, True)[0]
-    if opponent_layout is not None:
-        subtotal += straight_adjustments(opponent_layout, rules, True)[1]
+    incoming = opponent_layouts if opponent_layouts is not None else [opponent_layout] if opponent_layout is not None else []
+    subtotal += sum(opponent_adjustment(other, rules, True) for other in incoming)
     if rules.poisoned_card and poisoned:
         subtotal += POISON_POINTS
     divisor = 7 if rules.gamblers_row and gambler_earned else 1
     divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules, True))
-    subtotal *= 9 if rules.angels_row and opponent_angel_earned else 1
+    if all_color(layout, rules, True) is False:
+        divisor *= 2
+    angel_count = int(opponent_angel_earned) if incoming_angels is None else incoming_angels
+    subtotal *= 9 ** angel_count if rules.angels_row else 1
+    subtotal *= prod(color_multiplier(other, rules, True) for other in incoming)
     return (subtotal + divisor - 1) // divisor

@@ -95,10 +95,11 @@ class LobbyFeatureTests(unittest.TestCase):
                 self.guest.post(self.path + '/leave').raise_for_status()
                 self.assertEqual(self.room.champion, winner)
                 record = next(record for record in self.store.history.results() if record['id'] == self.room.match_id)
-                self.assertEqual(record['status'], 'finished' if winner is not None else 'ended')
+                self.assertEqual(record['status'], 'finished')
                 stats = build_stats([record], 'player:Host')['player']['overall']
                 self.assertEqual(stats['rounds'], 2)
-                self.assertEqual(stats['completed_matches'], int(winner is not None))
+                self.assertEqual(stats['completed_matches'], 1)
+                self.assertEqual(stats['match_draws'], int(winner is None))
 
     def test_solo_continuous_closes_both_seats_when_the_human_leaves(self):
         state = self.host.post('/Golfgame/api/solo', json={'best_of': None}).json()
@@ -159,7 +160,7 @@ class LobbyFeatureTests(unittest.TestCase):
         stats = self.host.get('/Golfgame/api/stats', params={'player': 'player:Host'}).json()
         self.assertTrue(stats['filters']['house_rules'])
         self.assertEqual(stats['player']['overall']['average_turns'], 18)
-        self.assertEqual(stats['player']['overall']['average_rules_in_play'], 12)
+        self.assertEqual(stats['player']['overall']['average_rules_in_play'], 11)
         self.assertEqual(self.host.get('/Golfgame/api/stats?enabled=beggars').status_code, 422)
         custom = self.host.get('/Golfgame/api/stats?house_rules=false&disabled=beggars')
         self.assertEqual(custom.status_code, 200)

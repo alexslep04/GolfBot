@@ -14,6 +14,7 @@ let catalog = [],
   retry = null,
   busy = false,
   page = "home",
+  tableEpoch = 0,
   toastTimer;
 const suit = { S: "♠", H: "♥", D: "♦", C: "♣" };
 const emoteNames = {
@@ -84,8 +85,12 @@ function quickEmotes() {
 }
 async function sendEmote(id) {
   if (!state?.game) return;
+  const roomId = state.id;
   try {
-    accept(await api(`/api/lobbies/${state.id}/emote`, "POST", { emote: id }));
+    const next = await api(`/api/lobbies/${roomId}/emote`, "POST", {
+      emote: id,
+    });
+    if (session.room_id === roomId) accept(next);
   } catch (error) {
     toast(error.message);
   }
@@ -108,7 +113,13 @@ const e = (value) =>
   );
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const matchLength = (match) =>
-  match.best_of === null ? "Continuous" : `Best of ${match.best_of}`;
+  match.best_of === null
+    ? "Continuous"
+    : match.best_of === 1
+      ? "Single game"
+      : match.series_mode === "points"
+        ? `${match.best_of} games · lowest total wins`
+        : `Best of ${match.best_of}`;
 const houseBadge = (match) =>
   match.house_rules ? "<span class='house-badge'>🔒 House rules</span>" : "";
 let presenceState = {
@@ -137,8 +148,88 @@ function closeSocial() {
   socialMode = null;
   socialSignature = "";
 }
+let hiddenQueueOffer = null,
+  queueEntering = false;
+function renderQueueBanner() {
+  const banner = document.getElementById("queue-banner");
+  const queue = presenceState.queue;
+  banner.hidden = !queue || !["waiting", "offer"].includes(queue.status);
+  if (banner.hidden) return;
+  banner.innerHTML = `<span>${queue.status === "offer" ? (queue.accepted ? "Classic match accepted · waiting for opponent" : "Classic match found") : "In the 1v1 queue · you can play Golfbot while waiting"}</span><div>${queue.status === "offer" ? `<button class='button secondary' data-queue-view>View match</button>` : ""}<button class='button secondary' data-queue-leave>Leave queue</button></div>`;
+}
+async function joinQueue() {
+  saveName(name());
+  presenceState.queue = await api("/api/queue/join", "POST", {
+    username: session.username,
+  });
+  hiddenQueueOffer = null;
+  toast("You joined the 1v1 queue. You can play the AI while waiting.");
+  renderQueueBanner();
+  renderSocial();
+}
+async function enterQueueMatch() {
+  if (queueEntering) return;
+  queueEntering = true;
+  try {
+    const next = await api("/api/queue/enter", "POST");
+    tableEpoch++;
+    presenceState.queue = { status: "off" };
+    closeSocial();
+    renderQueueBanner();
+    enterRoom(next);
+    toast("Classic golf match · 5 games · lowest total wins.");
+  } finally {
+    queueEntering = false;
+  }
+}
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest(
+    "[data-queue-reply], [data-queue-leave], [data-queue-view], [data-queue-hide]",
+  );
+  if (!button || button.disabled) return;
+  try {
+    if (button.hasAttribute("data-queue-hide")) {
+      hiddenQueueOffer = presenceState.queue.id;
+      return closeSocial();
+    }
+    if (button.hasAttribute("data-queue-view")) {
+      hiddenQueueOffer = null;
+      socialSignature = "";
+      return renderSocial();
+    }
+    button.disabled = true;
+    if (button.hasAttribute("data-queue-leave")) {
+      presenceState.queue = await api("/api/queue/leave", "POST");
+    } else {
+      presenceState.queue = await api(
+        `/api/queue/offers/${presenceState.queue.id}/respond`,
+        "POST",
+        { accept: button.dataset.queueReply === "accept", username: name() },
+      );
+      if (presenceState.queue.status === "matched") await enterQueueMatch();
+    }
+    socialSignature = "";
+    renderQueueBanner();
+    renderSocial();
+  } catch (error) {
+    toast(error.message);
+    button.disabled = false;
+    await pollPresence();
+  }
+});
 function renderSocial() {
   const dialog = document.getElementById("social-dialog");
+  const offer = presenceState.queue;
+  if (offer?.status === "offer" && hiddenQueueOffer !== offer.id) {
+    socialMode = "queue";
+    const signature = JSON.stringify(offer);
+    if (signature !== socialSignature) {
+      socialSignature = signature;
+      dialog.innerHTML = `<h2>Classic golf match</h2><p>Your opponent: <strong>${e(offer.opponent)}</strong></p><div class='waiting-meta'><span>5 games · lowest total wins</span>${houseBadge(offer.lobby)}</div><p class='hint'>Both players must accept. Your unfinished solo game will not count in stats.</p><details class='invite-info'><summary>More info</summary><p>Random first player each game. Equal total points draw. This offer expires after 60 seconds.</p>${rulesHtml(offer.lobby.rules, false, "config", true)}</details><div class='button-row invite-actions'><button class='button gold' data-queue-reply='accept' ${offer.accepted ? "disabled" : ""}>${offer.accepted ? "Waiting for opponent…" : "Accept"}</button><button class='button secondary' data-queue-reply='decline'>Decline</button>${offer.accepted ? `<button class='button secondary' data-queue-hide>Keep playing</button>` : ""}</div>`;
+    }
+    if (!dialog.open) dialog.showModal();
+    return;
+  }
   if (socialMode === "players" && state?.status !== "waiting") closeSocial();
   const invitation = session.room_id
     ? null
@@ -168,6 +259,21 @@ async function pollPresence() {
   try {
     presenceState = await api("/api/presence", "POST", { username: name() });
     lobbyIndicator();
+    renderQueueBanner();
+    if (presenceState.queue?.notice) toast(presenceState.queue.notice);
+    if (
+      presenceState.queue?.status === "matched" &&
+      presenceState.queue.room_id !== session.room_id
+    )
+      await enterQueueMatch();
+    if (
+      presenceState.queue?.status === "offer" &&
+      state &&
+      !state.solo &&
+      session.room_id === state.id &&
+      state.status !== "closed"
+    )
+      presenceState.queue = { status: "off" };
     renderSocial();
   } catch {
   } finally {
@@ -179,6 +285,7 @@ document
   .addEventListener("click", async (event) => {
     const button = event.target.closest("button");
     if (!button || button.disabled) return;
+    if (button.matches("[data-queue-reply], [data-queue-hide]")) return;
     try {
       if (button.hasAttribute("data-social-close")) return closeSocial();
       button.disabled = true;
@@ -205,6 +312,12 @@ document
     }
   });
 document.getElementById("social-dialog").addEventListener("cancel", (event) => {
+  if (socialMode === "queue") {
+    event.preventDefault();
+    hiddenQueueOffer = presenceState.queue.id;
+    closeSocial();
+    return;
+  }
   if (socialMode === "invitation") {
     event.preventDefault();
     document.querySelector("[data-invite-reply='decline']")?.click();
@@ -215,7 +328,7 @@ let historyEntries = [],
   historyRequest = 0;
 let lastCardTap = null;
 function markTab(active) {
-  for (const tab of ["play", "history", "stats"])
+  for (const tab of ["play", "history", "stats", "patches"])
     document
       .getElementById(`${tab}-tab`)
       .setAttribute("aria-current", tab === active ? "page" : "false");
@@ -337,13 +450,13 @@ async function historyPage(more = false) {
     }
     historyEntries.push(...result.matches);
     historyOffset = result.next_offset;
-    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Everyone’s games against players and Golf on this server, including best-of series. Points are summed per player; series winners are decided by game wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `Match history is shared with everyone on this server.`}</p>${
+    root.innerHTML = `<section class='history-page'><div class='page-heading'><h1>Match history</h1><button class='button secondary' data-nav='history'>Refresh</button></div><p class='hint'>Everyone’s completed games, newest ending first. Fixed series use total points; Best of series use game wins.</p><p class='hint'>${session.room_id ? `Your table is still open. Use Play to return without leaving.` : `Match history is shared with everyone on this server.`}</p>${
       historyEntries
         .map((saved) => {
           const match = {
             ...saved,
             names: saved.names.map((name, seat) =>
-              saved.solo && seat === 1 ? "Golf" : name,
+              saved.solo && seat === 1 ? "Golfbot" : name,
             ),
           };
           const winner =
@@ -357,10 +470,14 @@ async function historyPage(more = false) {
               abandoned: "Abandoned",
               interrupted: "Interrupted by server restart",
             }[match.status] || match.status;
-          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>${e(new Date(match.started_at * 1000).toLocaleString())} · ${match.solo ? "Vs Golf · " : ""}${matchLength(match)} · ${e(status)}</p></div><span class='pill'>${match.wins[0]} : ${match.wins[1]} wins</span></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th><th scope='col'>${e(match.names[0])}${match.viewer === 0 ? " · You" : ""}</th><th scope='col'>${e(match.names[1])}${match.viewer === 1 ? " · You" : ""}</th><th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((round) => `<tr><th scope='row'>${round.round}</th><td>${round.scores[0]}</td><td>${round.scores[1]}</td><td>${round.winner === null ? "Draw" : e(match.names[round.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th><td>${match.points[0]}</td><td>${match.points[1]}</td><td>Combined: ${match.points[0] + match.points[1]}</td></tr></tfoot></table></div></article>`;
+          const ended =
+            match.last_game_ended_at ||
+            Math.max(...match.rounds.map((game) => game.ended_at || 0)) ||
+            match.updated_at;
+          return `<article class='panel match-record'><div class='record-heading'><div><h2>${e(match.lobby_name)}</h2><p class='hint'>Last game ended ${e(new Date(ended * 1000).toLocaleString())} · ${match.solo ? "Vs Golfbot · " : ""}${matchLength(match)} · ${e(status)} · ${e(match.patch || "Earlier patches")}</p></div></div><p class='record-winner'>Overall winner: ${e(winner)}</p><div class='score-table-wrap'><table class='score-table'><thead><tr><th scope='col'>Game</th>${match.names.map((name, p) => `<th scope='col'>${e(name)}${match.viewer === p ? " · You" : ""}</th>`).join("")}<th scope='col'>Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope='row'>${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope='row'>Total points</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope='row'>Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
         })
         .join("") ||
-      `<div class='empty'>No completed games yet. Finish a game against a player or Golf to record its score here.</div>`
+      `<div class='empty'>No completed games yet. Finish a game against a player or Golfbot to record its score here.</div>`
     }${historyOffset !== null ? `<button class='button secondary' data-history-more>Load older matches</button>` : ""}</section>`;
   } catch (error) {
     if (page === "history" && request === historyRequest)
@@ -373,6 +490,7 @@ let statsSelection = {
     enabled: [],
     disabled: [],
     house_rules: true,
+    patch: "",
   },
   statsRequest = 0;
 const statNumber = (value) =>
@@ -399,6 +517,7 @@ function readStatsForm() {
     enabled: [],
     disabled: [],
     house_rules: data.has("house_rules"),
+    patch: data.get("patch") || "",
   };
   if (statsSelection.player === statsSelection.opponent)
     statsSelection.opponent = "";
@@ -426,9 +545,9 @@ function statsTable(entries, scope, title) {
     ],
     ["Game win rate", (s) => statPercent(s.round_win_rate)],
     [
-      "Series record (W–L) · win rate",
+      "Series record (W–L–D) · win rate",
       (s) =>
-        `${s.match_wins}–${s.match_losses} · ${statPercent(s.match_win_rate)}`,
+        `${s.match_wins}–${s.match_losses}–${s.match_draws || 0} · ${statPercent(s.match_win_rate)}`,
     ],
     ["Average points per game", (s) => statNumber(s.average_points)],
     ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
@@ -448,7 +567,7 @@ function statsTable(entries, scope, title) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details class='rule-activation-details'><summary>View rule activation</summary><div class='multiplier-columns'>${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p class='hint'>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games with the same guest display name in both seats are excluded because the guests cannot be distinguished.</p>` : ""}</section>`;
+  return `<section class='panel stats-results'><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p class='empty'>No games match this selection.</p>` : ""}<div class='score-table-wrap'><table class='score-table stats-table'><thead><tr><th scope='col'>Statistic</th>${entries.map((entry) => `<th scope='col'>${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope='row'>${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details class='rule-activation-details'><summary>View rule activation</summary><div class='multiplier-columns'>${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p class='hint'>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p class='hint'>Games where a selected guest name identifies multiple seats are excluded because those guests cannot be distinguished.</p>` : ""}</section>`;
 }
 
 async function statsPage(fromUrl = false) {
@@ -460,6 +579,7 @@ async function statsPage(fromUrl = false) {
       enabled: query.getAll("enabled"),
       disabled: query.getAll("disabled"),
       house_rules: query.get("house_rules") !== "false",
+      patch: query.get("patch") || "",
     };
   }
   const request = ++statsRequest;
@@ -474,6 +594,7 @@ async function statsPage(fromUrl = false) {
     statsSelection.enabled = [];
     statsSelection.disabled = [];
   }
+  if (statsSelection.patch) query.set("patch", statsSelection.patch);
   if (statsSelection.player) query.set("player", statsSelection.player);
   if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
   for (const key of statsSelection.enabled) query.append("enabled", key);
@@ -497,7 +618,7 @@ async function statsPage(fromUrl = false) {
     statsSelection.player = result.player?.profile.id || "";
     statsSelection.opponent = result.comparison?.profile.id || "";
     if (!result.players.length) {
-      root.innerHTML = `<section class='stats-page'><h1>Player stats</h1><div class='empty'>No saved games yet. Finish a game against a player or Golf to see player statistics here.</div></section>`;
+      root.innerHTML = `<section class='stats-page'><h1>Player stats</h1><div class='empty'>No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</div></section>`;
       return;
     }
     const options = (selected, exclude = "") =>
@@ -510,7 +631,7 @@ async function statsPage(fromUrl = false) {
         .join("");
     const active =
       statsSelection.enabled.length + statsSelection.disabled.length;
-    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Choose a unique name, guest display name, or Golf to compare. Signed-in players use @unique names across display-name changes; guests are grouped by display name. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label></div><label class='house-toggle stats-house'><input type='checkbox' aria-label='House rules' name='house_rules' data-stats-house ${statsSelection.house_rules ? "checked" : ""}><span>House rules ${statsSelection.house_rules ? "🔒" : ""}<small>Official stats · saved house-rule games only</small></span></label><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${statsSelection.house_rules ? "🔒 House rules" : active ? active + " selected" : "overall / any rules"}</summary><fieldset ${statsSelection.house_rules ? "disabled" : ""}><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${(statsSelection.house_rules ? matchOptions.house_rules[rule.key] : statsSelection.enabled.includes(rule.key)) ? "selected" : ""}>On</option><option value='off' ${(statsSelection.house_rules ? !matchOptions.house_rules[rule.key] : statsSelection.disabled.includes(rule.key)) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></fieldset></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by both players. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after both players leave: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></section>`;
+    root.innerHTML = `<section class='stats-page'><div class='page-heading'><h1>Player stats</h1><button type='button' class='button secondary' data-nav='stats'>Refresh</button></div><p class='hint'>Choose a unique name, guest display name, or Golfbot to compare. Signed-in players use @unique names across display-name changes; guests are grouped by display name. ${session.room_id ? "Your table is still open; use Play to return." : ""}</p><form id='stats-form' class='panel stats-filters'><div class='stats-selectors'><label class='field'><span>Player</span><select aria-label='Player' id='stats-player' name='player' data-stats-select>${options(statsSelection.player)}</select></label><label class='field'><span>Compare with</span><select aria-label='Compare with' id='stats-opponent' name='opponent' data-stats-select><option value=''>Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select></label><label class='field'><span>Patch</span><select id='stats-patch' name='patch' aria-label='Patch' data-stats-select><option value=''>All time</option>${result.patches.map((patch) => `<option value='${e(patch)}' ${statsSelection.patch === patch ? "selected" : ""}>${e(patch === "legacy" ? "Earlier patches" : patch)}</option>`).join("")}</select></label></div><label class='house-toggle stats-house'><input type='checkbox' aria-label='House rules' name='house_rules' data-stats-house ${statsSelection.house_rules ? "checked" : ""}><span>House rules ${statsSelection.house_rules ? "🔒" : ""}<small>Official stats · saved house-rule games only</small></span></label><details id='stats-rules' ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${statsSelection.house_rules ? "🔒 House rules" : active ? active + " selected" : "overall / any rules"}</summary><fieldset ${statsSelection.house_rules ? "disabled" : ""}><p class='hint'>Any allows either setting. On requires the rule; Off excludes it. Set every rule to On or Off to match an exact combination.</p><div class='button-row'><button type='button' class='button secondary' data-stats-all='on'>All on</button><button type='button' class='button secondary' data-stats-all='off'>All off</button></div><div class='stats-rule-grid'>${catalog.map((rule) => `<label class='field'><span>${e(rule.name)}</span><select name='filter-${e(rule.key)}' aria-label='${e(rule.name)} filter'><option value='any'>Any</option><option value='on' ${(statsSelection.house_rules ? matchOptions.house_rules[rule.key] : statsSelection.enabled.includes(rule.key)) ? "selected" : ""}>On</option><option value='off' ${(statsSelection.house_rules ? !matchOptions.house_rules[rule.key] : statsSelection.disabled.includes(rule.key)) ? "selected" : ""}>Off</option></select></label>`).join("")}</div></fieldset></details><div class='button-row'><button class='button gold' type='submit'>Apply filters</button><button class='button secondary' type='button' data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form><div id='stats-content'>${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head · against each other") : `<p class='hint'>Choose a comparison player above for head-to-head results.</p>`}<details class='stats-definitions'><summary>How stats are counted</summary><p class='hint'>A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></section>`;
     if (focused) document.getElementById(focused)?.focus();
   } catch (error) {
     if (page === "stats" && request === statsRequest)
@@ -586,24 +707,28 @@ function home() {
   state = null;
   closeSocket();
   history.replaceState({}, "", appPath());
-  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby <span id='lobby-count' class='lobby-count' hidden></span></strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golf.</p></button></div><div class='profile'><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
+  root.innerHTML = `<section class='hero'><div class='eyebrow'>The card game, at your table</div><h1>Pick your table.</h1><p>Six cards, a little memory, and a good time to finish.<br>Play together or take on the bot.</p></section><div class='menu'><button class='menu-card' data-nav='join'><span class='symbol'>♧</span><span class='arrow'>↗</span><strong>Join lobby <span id='lobby-count' class='lobby-count' hidden></span></strong><p>Find a table and meet your opponent.</p></button><button class='menu-card' data-nav='host'><span class='symbol'>♔</span><span class='arrow'>↗</span><strong>Host lobby</strong><p>Your name. Your rules. Your match.</p></button><button class='menu-card' data-nav='solo'><span class='symbol'>♠</span><span class='arrow'>↗</span><strong>Play solo</strong><p>The same Golf game, against Golfbot.</p></button><button class='menu-card' data-queue-join><span class='symbol'>⚑</span><span class='arrow'>↗</span><strong>Join 1v1 queue</strong><p>Classic Golf · House rules · 5 games · lowest total wins.</p></button></div><div class='profile'><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label>${session.room_id ? `<button class='button secondary resume' data-nav='resume'>Resume your table</button>` : ""}</div>`;
   lobbyIndicator();
+  renderQueueBanner();
   pollPresence();
   connection.textContent = "Ready to play";
   connection.className = "connection";
 }
 async function abandonExisting() {
-  if (session.room_id) {
-    await api(`/api/lobbies/${session.room_id}/leave`, "POST");
-    session.room_id = null;
+  const roomId = session.room_id,
+    epoch = tableEpoch;
+  if (roomId) {
+    await api(`/api/lobbies/${roomId}/leave`, "POST");
+    if (epoch === tableEpoch && session.room_id === roomId)
+      session.room_id = null;
   }
-  closeSocket();
+  if (epoch === tableEpoch) closeSocket();
 }
 function hostForm(solo = false) {
   saveName(name());
   page = solo ? "solo" : "host";
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golf" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your display name</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label>`}<label class='field'><span>Match length</span><select name='best_of' aria-label='Match length'>${[1, 3, 5, 7, 9].map((n) => `<option value='${n}' ${n === (solo ? 1 : 3) ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}<option value='continuous'>Continuous · play until you leave</option></select></label><label class='house-toggle'><input type='checkbox' aria-label='House rules' name='house_rules' data-house-toggle checked><span>House rules 🔒<small>All rules except Beggars · random first player</small></span></label><label class='field'><span>Who goes first? <span data-first-lock>🔒</span></span><select name='first' aria-label='Who goes first?'>${Object.entries(
-    solo ? { ...starter, host: "You first", guest: "Golf first" } : starter,
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>${solo ? "Play against Golfbot" : "Host a lobby"}</h1>${back()}</div><form id='${solo ? "solo-form" : "host-form"}' class='panel'><div class='form-grid'><div><label class='field'><span>Your display name</span><input id='username' name='username' maxlength='32' required value='${e(session.username)}' autocomplete='nickname'></label>${solo ? "" : `<label class='field'><span>Lobby name</span><input name='name' maxlength='48' required value='Friendly Golf'></label><label class='field'><span>Game type</span><select name='game_type' aria-label='Game type' data-game-type><option value='1v1'>1v1</option><option value='many'>Many players</option></select></label>`}<label class='field'><span>Match length</span><select name='length' aria-label='Match length'><option value='wins:1' ${solo ? "selected" : ""}>Single game</option><optgroup label='Best of · game wins'>${[3, 5, 9].map((n) => `<option value='wins:${n}' ${!solo && n === 3 ? "selected" : ""}>Best of ${n} · first to ${Math.floor(n / 2) + 1} wins</option>`).join("")}</optgroup><optgroup label='Fixed series · total points'>${[3, 5, 9].map((n) => `<option value='points:${n}'>${n} games · lowest total wins</option>`).join("")}</optgroup><option value='wins:continuous'>Continuous · play until you leave</option></select></label><label class='house-toggle'><input type='checkbox' aria-label='House rules' name='house_rules' data-house-toggle checked><span>House rules 🔒<small>Locked preset · random first player</small></span></label><label class='field'><span>Who goes first? <span data-first-lock>🔒</span></span><select name='first' aria-label='Who goes first?'>${Object.entries(
+    solo ? { ...starter, host: "You first", guest: "Golfbot first" } : starter,
   )
     .map(
       ([key, label]) =>
@@ -611,7 +736,7 @@ function hostForm(solo = false) {
     )
     .join(
       "",
-    )}</select></label><p class='hint'>Continuous games run until someone leaves. The series is recorded after both leave: most game wins, then lowest total points. Exact ties have no series winner.</p></div><div><h3>Rules in play</h3><p class='hint'>Turn off House rules to customize. Hover over ? for details.</p><div id='creation-rules'></div></div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
+    )}</select></label><p class='hint' data-mode-info>1v1 starts when a guest joins. Fixed series play every game; equal total points draw. Continuous ends when someone leaves.</p></div><div><details class='creation-rules'><summary>Rules in play</summary><p class='hint'>Turn off House rules to customize. Hover over ? for details.</p><div id='creation-rules'></div></details></div></div><div class='button-row'><button class='button gold' type='submit'>${solo ? "Start solo match" : "Create lobby"}</button></div></form></div>`;
   updateHouseForm();
 }
 function updateHouseForm() {
@@ -622,9 +747,13 @@ function updateHouseForm() {
   ).nextElementSibling.firstChild.textContent = locked
     ? "House rules 🔒"
     : "House rules";
-  if (locked) first.value = "random";
-  first.disabled = locked;
-  root.querySelector("[data-first-lock]").hidden = !locked;
+  const many = root.querySelector('[name="game_type"]')?.value === "many";
+  if (locked || many) first.value = "random";
+  first.disabled = locked || many;
+  root.querySelector("[data-first-lock]").hidden = !(locked || many);
+  root.querySelector("[data-mode-info]").textContent = many
+    ? "3–30 players. The host starts the game. Turn order is randomized each game; opponent effects target everyone else."
+    : "Fixed series play every game; lowest total wins, tied totals draw. Best of counts game wins. Continuous ends when someone leaves.";
   const container = document.getElementById("creation-rules");
   const values = locked
     ? matchOptions.house_rules
@@ -650,7 +779,7 @@ async function joinList() {
   page = "join";
   saveName(name());
   const lobbies = await api("/api/lobbies");
-  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Join a lobby</h1><div class='button-row' style='margin:0'><button class='button secondary' data-nav='join'>Refresh</button>${back()}</div></div><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><div class='lobby-list'>${lobbies.map((l) => `<div class='lobby-item'><div><strong>${e(l.name)}</strong><p>${e(l.names[0])} · ${l.players}/2 players · ${matchLength(l)} · ${e(l.status.replace("_", " "))}</p></div><button class='button ${l.players === 1 && l.status === "waiting" ? "" : "secondary"}' data-lobby='${e(l.id)}'>View lobby</button></div>`).join("") || `<div class='empty'>No lobbies yet. Host a table and invite a friend.</div>`}</div></div>`;
+  root.innerHTML = `<div class='form-wrap'><div class='page-heading'><h1>Join a lobby</h1><div class='button-row' style='margin:0'><button class='button secondary' data-nav='join'>Refresh</button>${back()}</div></div><label class='field'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><div class='lobby-list'>${lobbies.map((l) => `<div class='lobby-item'><div><strong>${e(l.name)}</strong><p>${e(l.names[0])} · ${l.players}/${l.capacity} players · ${matchLength(l)} · ${e(l.status.replace("_", " "))}</p></div><button class='button ${l.players === 1 && l.status === "waiting" ? "" : "secondary"}' data-lobby='${e(l.id)}'>View lobby</button></div>`).join("") || `<div class='empty'>No lobbies yet. Host a table and invite a friend.</div>`}</div></div>`;
 }
 async function publicLobby(id) {
   saveName(name());
@@ -661,7 +790,7 @@ async function publicLobby(id) {
   }
   page = "public";
   history.replaceState({}, "", appPath(`/lobby/${id}`));
-  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>${matchLength(info)}</span>${houseBadge(info)}<span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= 2 || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= 2 || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
+  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(info.name)}</h1>${back()}</div><div class='panel'><div class='waiting-meta'><span>Hosted by ${e(info.names[0])}</span><span>${matchLength(info)}</span>${houseBadge(info)}<span>${e(starter[info.first])}</span></div><h3>Rules in play</h3>${rulesHtml(info.rules, false, "config", true)}<div class='button-row'><label class='field' style='margin:0;flex:1'><span>Your display name</span><input id='username' maxlength='32' value='${e(session.username)}' autocomplete='nickname'></label><button class='button gold' data-join='${e(id)}' ${info.players >= info.capacity || info.status !== "waiting" ? "disabled" : ""}>Join this lobby</button></div>${info.players >= info.capacity || info.status !== "waiting" ? `<p class='hint'>This table is full or already playing.</p>` : ""}</div></div>`;
 }
 function closeSocket() {
   clearInterval(heartbeat);
@@ -709,7 +838,7 @@ function accept(next) {
   if (lastCardTap && lastCardTap.version !== next.version) lastCardTap = null;
   session.room_id = next.id;
   renderAccountControl();
-  if (["history", "stats", "account"].includes(page)) return;
+  if (["history", "stats", "account", "patches"].includes(page)) return;
   page = "room";
   markTab("play");
   if (changed) selected = [];
@@ -724,15 +853,17 @@ function enterRoom(next) {
 }
 async function resume(id = session.room_id) {
   if (!id) return home();
-  enterRoom(await api(`/api/lobbies/${id}/state`));
+  const epoch = tableEpoch;
+  const next = await api(`/api/lobbies/${id}/state`);
+  if (epoch === tableEpoch) enterRoom(next);
 }
 function shareHtml() {
   const url = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   return `<div class='share'><input readonly aria-label='Lobby invite link' value='${e(url)}'><button class='button secondary' data-copy='${e(url)}'>Copy link</button></div>`;
 }
 function waitingRoom() {
-  const viewer = state.viewer;
-  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(state.name)}</h1><button class='button secondary' data-leave>Leave lobby</button></div><div class='panel'><div class='eyebrow'>Invite a friend to the table</div>${shareHtml()}${viewer === 0 ? "<div class='button-row'><button class='button gold' data-invite-open>Invite player</button></div>" : ""}<div class='waiting-meta'><span>${matchLength(state)}${state.target ? ` · first to ${state.target}` : ""}</span>${houseBadge(state)}<span>${e(starter[state.first])}</span></div><div class='players-row'>${state.names.map((n, i) => `<div class='seat'><span class='pill'>${i === 0 ? "Host" : "Guest"}</span><strong>${e(n)}</strong><span class='hint'>${state.connected[i] ? "Connected" : i === 1 && state.players < 2 ? "Seat open" : "Offline"}${state.ready[i] ? " · Ready" : ""}${i === viewer ? " · You" : ""}</span></div>`).join("")}</div><h3>Rules in play</h3>${rulesHtml(state.rules, false, "config", true)}<p class='hint'>Waiting for a guest. The game starts automatically when they join.</p></div></div>`;
+  const many = state.game_type === "many";
+  root.innerHTML = `<div class='waiting'><div class='page-heading'><h1>${e(state.name)}</h1><button class='button secondary' data-leave>Leave lobby</button></div><div class='panel'><div class='eyebrow'>${many ? "Gather your table" : "Invite a friend"}</div>${shareHtml()}${state.viewer === 0 ? `<div class='button-row'><button class='button gold' data-invite-open>Invite player</button>${many ? `<button class='button gold' data-action='start' ${state.players < 3 ? "disabled" : ""}>Start game</button>` : ""}</div>` : ""}<div class='waiting-meta'><span>${matchLength(state)}</span>${houseBadge(state)}<span>${state.players}/${state.capacity} players</span><span>${e(starter[state.first])}</span></div><div class='players-row'>${state.names.map((n, i) => `<div class='seat'><span class='pill'>${i === 0 ? "Host" : "Player " + (i + 1)}</span><strong>${e(n)}</strong><span class='hint'>${state.connected[i] ? "Connected" : !many && i === 1 ? "Seat open" : "Offline"}${i === state.viewer ? " · You" : ""}</span></div>`).join("")}</div><details class='creation-rules'><summary>Rules in play</summary>${rulesHtml(state.rules, false, "config", true)}</details><p class='hint'>${many ? "The host starts when at least three players have joined." : "The game starts automatically when a guest joins."}</p></div></div>`;
 }
 function selectedRef(ref) {
   return selected.some((r) => same(r, ref));
@@ -838,21 +969,61 @@ function turnControls() {
           .join("")}</div>`
   }</div><div class='small-actions'>${g.legal.end_turn ? `<button class='button secondary' data-action='end_turn'>End turn ↵</button>` : ""}</div><p class='hint' style='margin:12px 0 0'>${e(g.last_move)}</p></section>`;
 }
+let viewedOpponent = null,
+  viewedTurn = "";
+function opponentSeat() {
+  const g = state.game,
+    order = g.turn_order;
+  const turn = `${state.id}:${state.round}:${g.turns}:${g.current}`;
+  if (
+    turn !== viewedTurn ||
+    viewedOpponent === state.viewer ||
+    !order.includes(viewedOpponent)
+  ) {
+    viewedTurn = turn;
+    viewedOpponent =
+      g.current === state.viewer
+        ? order[(order.indexOf(g.current) + 1) % order.length]
+        : g.current;
+  }
+  return viewedOpponent;
+}
+function cycleOpponent(direction) {
+  if (!state?.game || state.names.length < 3) return;
+  const others = state.game.turn_order.filter((p) => p !== state.viewer);
+  const current = opponentSeat();
+  viewedOpponent =
+    others[
+      (others.indexOf(current) + direction + others.length) % others.length
+    ];
+  renderRoom();
+}
 function renderRoom() {
   if (!state) return;
   document.title = `${state.name} · Golf`;
-  if (!state.game) {
-    waitingRoom();
-    return;
-  }
+  if (!state.game) return waitingRoom();
   const g = state.game,
-    viewer = state.viewer;
-  const roundResult = state.history.at(-1);
-  const roundOver = ["round_over", "finished"].includes(state.status);
-  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint' style='margin:6px 0 0'>Game ${state.round} · ${state.solo ? `${matchLength(state)}${state.target ? ` · first to ${state.target} wins` : ""} · ` : ""}${e(state.solo && state.first === "host" ? "You first" : state.solo && state.first === "guest" ? "Golf first" : starter[state.first])} · ${g.final_turn ? "Final turn" : g.phase === "setup" ? "Opening reveal" : "Lowest score wins"}</p></div><div class='match-score'>${e(state.names[0])} ${state.wins[0]} : ${state.wins[1]} ${e(state.names[1])}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><aside class='panel table-side' aria-label='The table'><h3>The table</h3><p>Select your card and Swap to take the discard. A draw stays visible until you decide.</p><div class='piles'><div><div class='pile-label'>Go-fish pile</div>${cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}<div class='pile-count'>${g.draw_count} cards</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div>${g.held ? `<div class='drawn'><span class='hint'>Drawn card</span><div class='card ${["H", "D"].includes(g.held.suit) ? "red" : ""}'><span class='rank'>${e(g.held.label)}</span><span class='suit'>${suit[g.held.suit]}</span></div></div>` : ""}<p class='hint'>Same-rank column pairs score zero. Suits matter only for selected rules.</p></aside><div class='hands'>${handHtml(1 - viewer)}${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${state.status === "finished" ? e(state.names[state.champion]) + " wins the match." : e(state.message)}</strong><p class='hint'>${e(state.names[0])}: ${roundResult.scores[0]} · ${e(state.names[1])}: ${roundResult.scores[1]}</p><div class='button-row' style='margin-top:12px'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for opponent…" : "Ready for next game"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : `<span class='hint'>The host can start a rematch.</span>`}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><h3>Rules in play ${houseBadge(state)}</h3>${g.legal.set_rules ? `<div class='solo-settings'>Choose before your second opening flip.</div>` : ""}${rulesHtml(state.rules, g.legal.set_rules, "live")}</section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, 1 - viewer].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint' style='margin:12px 0 0'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((r) => `<div>Game ${r.round}: ${r.scores[0]}–${r.scores[1]} · ${r.winner === null ? "Draw" : e(state.names[r.winner])}</div>`).join("")}</div></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${[0, 1].map(playerEmote).join("")}</div>${modalHtml()}`;
+    viewer = state.viewer,
+    opponent = opponentSeat();
+  const roundResult = state.history.at(-1),
+    roundOver = ["round_over", "finished"].includes(state.status);
+  const yourDecision =
+    state.status === "playing" &&
+    (g.phase === "setup"
+      ? g.legal.flip.length > 0
+      : g.decision_player === viewer);
+  const finalMessage =
+    state.status === "finished"
+      ? state.champion === null
+        ? "Series drawn."
+        : `${state.names[state.champion]} wins the series.`
+      : state.message;
+  root.innerHTML = `<div class='board-heading'><div><h2>${e(state.name)}</h2><p class='hint'>Game ${state.round} · ${matchLength(state)} · ${g.final_turn ? "Final turns" : g.phase === "setup" ? "Opening reveal" : e(state.names[g.current]) + "’s turn"}</p></div><div class='match-score'>${state.names.map((name, p) => `<span>${e(name)}: ${state.series_mode === "points" ? state.points[p] + " pts" : state.wins[p] + " wins"}</span>`).join("")}</div><div class='button-row' style='margin:0'>${!state.solo ? `<button class='button secondary' data-copy='${e(location.origin + appPath("/lobby/" + state.id))}'>Invite link</button>` : ""}<button class='button secondary' data-leave>Menu</button></div></div>${state.status === "closed" ? `<div class='closed-banner'>${e(state.message)}</div>` : ""}<div class='table-layout'><div class='play-area ${yourDecision ? "your-decision" : ""}'><div class='opponent-view' aria-label='Opponent hands'>${state.names.length > 2 ? `<div class='opponent-nav'><button class='button secondary' data-cycle='-1' aria-label='Previous opponent'>‹</button><span>${e(state.names[opponent])} · ${g.current === opponent ? "playing now" : g.current === viewer && g.turn_order[(g.turn_order.indexOf(viewer) + 1) % g.turn_order.length] === opponent ? "up next" : "viewing"} · swipe to browse</span><button class='button secondary' data-cycle='1' aria-label='Next opponent'>›</button></div>` : ""}${handHtml(opponent)}</div><aside class='panel table-side' aria-label='The table'><div class='piles'><div><div class='pile-label'>Go-fish pile${g.held ? " · drawn" : ""}</div><div class='draw-stack ${g.held ? "has-draw" : ""}'>${g.held ? `<div class='card back stack-under' aria-hidden='true'><span class='monogram'>G</span></div>${cardHtml(g.held, true, ["held", null], "Your drawn " + g.held.label + suit[g.held.suit])}` : cardHtml(null, false, ["draw", null], "Select go-fish pile", g.legal.bonus && g.draw_count > 0)}</div><div class='pile-count'>${g.draw_count} cards below</div></div><div><div class='pile-label'>Discard</div>${cardHtml(g.discard, true, ["discard", null], "Top discard " + g.discard.label + suit[g.discard.suit], g.legal.bonus)}<div class='pile-count'>Top card</div></div></div></aside>${handHtml(viewer)}${turnControls()}${roundOver ? `<section class='round-summary'><strong>${e(finalMessage)}</strong><p class='hint'>${state.names.map((name, p) => `${e(name)}: ${roundResult.scores[p]}`).join(" · ")}</p><div class='button-row'>${state.status === "round_over" ? `<button class='button gold' data-action='next_round' ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for other players…" : "Ready for next game"}</button>` : viewer === 0 ? `<button class='button gold' data-action='rematch'>Play again</button>` : '<span class="hint">The host can start a rematch.</span>'}</div></section>` : ""}</div><aside class='sidebar'><section class='panel'><details class='creation-rules'><summary>Rules in play ${houseBadge(state)}</summary>${g.legal.set_rules ? '<p class="hint">Choose before your second opening flip.</p>' : ""}${rulesHtml(state.rules, g.legal.set_rules, "live", !g.legal.set_rules)}</details></section><section class='panel'><h3>Active effects</h3><div class='effects'>${[viewer, ...g.turn_order.filter((p) => p !== viewer)].map((p) => `<div class='effect-group'><strong>${e(state.names[p])}: ${g.phase === "over" ? "final" : "visible with effects"} ${g.effect_totals[p]}</strong>${(g.effects[p].length ? g.effects[p] : ["None"]).map((effect) => `<div>${e(effect)}</div>`).join("")}</div>`).join("")}</div><p class='hint'>Hidden cards are excluded before scoring.</p></section>${state.history.length ? `<section class='panel'><h3>Match history</h3><div class='history'>${state.history.map((game) => `<div>Game ${game.round}: ${game.scores.join(" · ")} · ${game.winner === null ? "Draw" : e(state.names[game.winner])}</div>`).join("")}</div></section>` : ""}${state.names.length > 2 ? `<section class='panel'><h3>Turn order · ${g.deck_count} decks</h3><ol class='turn-order'>${g.turn_order.map((p) => `<li class='${p === g.current ? "current-name" : ""}'>${e(state.names[p])}${p === g.current ? " · current" : ""}</li>`).join("")}</ol></section>` : ""}</aside></div><div class='table-emotes' aria-label='Player reactions'>${state.names.map((_, p) => playerEmote(p)).join("")}</div>${modalHtml()}`;
+  renderQueueBanner();
 }
 async function move(action, extra = {}) {
   if (busy || !state) return;
+  const roomId = state.id;
   busy = true;
   try {
     let actual = action;
@@ -866,6 +1037,7 @@ async function move(action, extra = {}) {
       body.index = selected[0][1];
     if (actual === "swap" && selected.length === 2) body.refs = selected;
     const next = await api(`/api/lobbies/${state.id}/action`, "POST", body);
+    if (session.room_id !== roomId) return;
     selected = [];
     accept(next);
     if (actual === "flip" && next.game?.legal.swap.length === 1) {
@@ -881,7 +1053,7 @@ async function move(action, extra = {}) {
     }
   } finally {
     busy = false;
-    if (state) renderRoom();
+    if (state && page === "room") renderRoom();
   }
 }
 root.addEventListener("click", async (event) => {
@@ -889,6 +1061,9 @@ root.addEventListener("click", async (event) => {
   if (!button || button.disabled) return;
   if (!button.dataset.ref) lastCardTap = null;
   try {
+    if (button.hasAttribute("data-queue-join")) return await joinQueue();
+    if (button.dataset.cycle)
+      return cycleOpponent(Number(button.dataset.cycle));
     if (button.hasAttribute("data-invite-open")) {
       socialMode = "players";
       socialSignature = "";
@@ -911,6 +1086,7 @@ root.addEventListener("click", async (event) => {
         home();
       } else if (button.dataset.nav === "history") await historyPage();
       else if (button.dataset.nav === "stats") await statsPage();
+      else if (button.dataset.nav === "patches") await patchesPage();
       else if (button.dataset.nav === "host") hostForm();
       else if (button.dataset.nav === "join") await joinList();
       else if (button.dataset.nav === "resume") await resume();
@@ -933,6 +1109,7 @@ root.addEventListener("click", async (event) => {
       if (button.hasAttribute("data-stats-reset-all")) {
         statsSelection.player = "";
         statsSelection.opponent = "";
+        statsSelection.patch = "";
       }
       await statsPage();
       return;
@@ -946,17 +1123,23 @@ root.addEventListener("click", async (event) => {
       return;
     }
     if (button.dataset.join) {
+      const epoch = tableEpoch;
       saveName(name());
       await abandonExisting();
-      enterRoom(
-        await api(`/api/lobbies/${button.dataset.join}/join`, "POST", {
+      const next = await api(
+        `/api/lobbies/${button.dataset.join}/join`,
+        "POST",
+        {
           username: session.username,
-        }),
+        },
       );
+      if (epoch === tableEpoch) enterRoom(next);
       return;
     }
     if (button.hasAttribute("data-leave")) {
+      const epoch = tableEpoch;
       await abandonExisting();
+      if (epoch !== tableEpoch) return;
       state = null;
       home();
       return;
@@ -976,9 +1159,11 @@ root.addEventListener("click", async (event) => {
         localStorage.setItem("golf-mute-emotes", String(opponentEmotesMuted));
       } catch {}
       if (opponentEmotesMuted) {
-        const opponent = 1 - state.viewer;
-        clearTimeout(emoteTimers[opponent]);
-        delete activeEmotes[opponent];
+        for (const opponent of Object.keys(activeEmotes)) {
+          if (Number(opponent) === state.viewer) continue;
+          clearTimeout(emoteTimers[opponent]);
+          delete activeEmotes[opponent];
+        }
       }
       renderRoom();
       return;
@@ -996,7 +1181,8 @@ root.addEventListener("click", async (event) => {
       const ref = JSON.parse(button.dataset.ref);
       const now = performance.now();
       const flipEligible =
-        ref[0] === state.viewer && state.game.legal.flip.includes(ref[1]);
+        (ref[0] === "draw" && state.game.legal.draw) ||
+        (ref[0] === state.viewer && state.game.legal.flip.includes(ref[1]));
       const elapsed = lastCardTap ? now - lastCardTap.time : Infinity;
       if (
         !busy &&
@@ -1071,6 +1257,7 @@ root.addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.target;
   const solo = form.id === "solo-form";
+  const epoch = tableEpoch;
   const data = new FormData(form);
   const rules = {};
   for (const rule of catalog)
@@ -1084,9 +1271,11 @@ root.addEventListener("submit", async (event) => {
       username: session.username,
       ...(solo ? {} : { name: data.get("name") }),
       best_of:
-        data.get("best_of") === "continuous"
+        data.get("length").split(":")[1] === "continuous"
           ? null
-          : Number(data.get("best_of")),
+          : Number(data.get("length").split(":")[1]),
+      series_mode: data.get("length").split(":")[0],
+      game_type: data.get("game_type") || "1v1",
       house_rules: data.has("house_rules"),
       first: data.has("house_rules") ? "random" : data.get("first"),
       rules,
@@ -1096,6 +1285,7 @@ root.addEventListener("submit", async (event) => {
       "POST",
       requested,
     );
+    if (epoch !== tableEpoch) return;
     if (
       solo &&
       (next.best_of !== requested.best_of || next.first !== requested.first)
@@ -1111,7 +1301,10 @@ root.addEventListener("submit", async (event) => {
   }
 });
 root.addEventListener("change", async (event) => {
-  if (event.target.hasAttribute("data-house-toggle")) {
+  if (
+    event.target.hasAttribute("data-house-toggle") ||
+    event.target.hasAttribute("data-game-type")
+  ) {
     updateHouseForm();
     return;
   }
@@ -1160,7 +1353,7 @@ root.addEventListener("change", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (
     event.key === "Enter" &&
-    !["history", "stats", "account"].includes(page) &&
+    !["history", "stats", "account", "patches"].includes(page) &&
     !["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName) &&
     state?.game?.legal.end_turn
   ) {
@@ -1169,6 +1362,10 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("popstate", () => {
+  if (currentPath() === "/patch-notes") {
+    patchesPage();
+    return;
+  }
   if (currentPath() === "/account") {
     accountPage();
     return;
@@ -1199,7 +1396,8 @@ window.addEventListener("popstate", () => {
     pollPresence();
     setInterval(pollPresence, 5000);
     const id = currentPath().match(/^\/lobby\/([^/]+)$/)?.[1];
-    if (currentPath() === "/account") accountPage();
+    if (currentPath() === "/patch-notes") await patchesPage();
+    else if (currentPath() === "/account") accountPage();
     else if (currentPath() === "/stats") await statsPage(true);
     else if (currentPath() === "/history") await historyPage();
     else if (id) await publicLobby(id);
@@ -1221,4 +1419,41 @@ document.getElementById("play-tab").addEventListener("click", () => {
     if (session.room_id) resume().catch((error) => toast(error.message));
     else home();
   }
+});
+
+document.getElementById("patches-tab").addEventListener("click", () => {
+  if (session) patchesPage();
+});
+async function patchesPage() {
+  page = "patches";
+  markTab("patches");
+  document.title = "Patch notes · Golf";
+  history.replaceState({}, "", appPath("/patch-notes"));
+  root.innerHTML = "<div class='loading'>Loading patch notes…</div>";
+  try {
+    const notes = await api("/api/patch-notes");
+    if (page !== "patches") return;
+    root.innerHTML = `<section class='patch-page'><div class='page-heading'><h1>Patch notes</h1>${back()}</div>${notes.patches.map((patch) => `<article class='panel patch-note'><div class='eyebrow'>${patch.version === notes.current ? "Latest update" : "Previous update"}</div><h2>Patch ${e(patch.version)}</h2><h3>Rules</h3>${["revisions", "additions"].map((section) => `<h4>${section === "revisions" ? "Revisions" : "Additions"}</h4><ul>${patch.rules[section].map((note) => `<li>${e(note)}</li>`).join("")}</ul>`).join("")}<h3>Play and interface</h3><ul>${patch.changes.map((note) => `<li>${e(note)}</li>`).join("")}</ul></article>`).join("")}</section>`;
+  } catch (error) {
+    if (page === "patches")
+      root.innerHTML = `<p class='empty'>${e(error.message)}</p>`;
+  }
+}
+let swipeStart = null;
+root.addEventListener("pointerdown", (event) => {
+  if (event.target.closest(".opponent-view") && event.pointerType !== "mouse")
+    swipeStart = { x: event.clientX, y: event.clientY };
+});
+root.addEventListener("pointerup", (event) => {
+  if (!swipeStart) return;
+  const dx = event.clientX - swipeStart.x,
+    dy = event.clientY - swipeStart.y;
+  swipeStart = null;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    lastCardTap = null;
+    cycleOpponent(dx < 0 ? 1 : -1);
+  }
+});
+root.addEventListener("pointercancel", () => {
+  swipeStart = null;
 });

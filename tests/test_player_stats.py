@@ -57,7 +57,7 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(reverse['total_points'], 19)
         self.assertLess(head['average_advantage'], 0)
         self.assertEqual(head['average_advantage'], -reverse['average_advantage'])
-        self.assertEqual(data['comparison']['profile']['label'], 'Golf (solo AI)')
+        self.assertEqual(data['comparison']['profile']['label'], 'Golfbot (solo AI)')
 
     def test_rule_activation_rates_and_conditional_win_rates_ignore_unknown_details(self):
         overall = build_stats(self.matches, 'player:tester')['player']['overall']
