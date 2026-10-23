@@ -24,3 +24,4 @@ jobs:
         with:
           python-version: '3.14'
       - run: python -m unittest discover -s tests -p test_cloudflare.py -v
+      - run: python -m unittest discover -s tests -p test_bootstrap.py -v
