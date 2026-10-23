@@ -160,7 +160,7 @@ class LobbyFeatureTests(unittest.TestCase):
         stats = self.host.get('/Golfgame/api/stats', params={'player': 'player:Host'}).json()
         self.assertTrue(stats['filters']['house_rules'])
         self.assertEqual(stats['player']['overall']['average_turns'], 18)
-        self.assertEqual(stats['player']['overall']['average_rules_in_play'], 11)
+        self.assertEqual(stats['player']['overall']['average_rules_in_play'], 12)
         self.assertEqual(self.host.get('/Golfgame/api/stats?enabled=beggars').status_code, 422)
         custom = self.host.get('/Golfgame/api/stats?house_rules=false&disabled=beggars')
         self.assertEqual(custom.status_code, 200)

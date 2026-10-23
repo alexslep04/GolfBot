@@ -20,11 +20,12 @@ def hand(ranks, suits='SHDCHS', visible=True):
 
 
 class Scoring111Tests(unittest.TestCase):
-    def test_house_excludes_four_kind_and_both_new_rules(self):
+    def test_house_includes_all_in_color_but_excludes_four_kind_beggars_and_suited_rows(self):
         preset = house_rules()
-        for key in ('four_kind', 'beggars', 'suited_rows', 'all_in_color'):
+        for key in ('four_kind', 'beggars', 'suited_rows'):
             self.assertFalse(preset[key])
-        self.assertEqual(sum(preset.values()), 11)
+        self.assertTrue(preset['all_in_color'])
+        self.assertEqual(sum(preset.values()), 12)
 
     def test_red_and_black_suited_rows_use_middle_base_points(self):
         game = GolfGame(rules=Rules(suited_rows=True))

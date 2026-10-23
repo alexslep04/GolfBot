@@ -11,7 +11,7 @@ PATCH_NOTES = [{
         "additions": [
             "Suited rows: a single-suit row uses the middle card’s base Golf points. Red adds them to every opponent; black subtracts them from your score.",
             "All in red/black: six red cards double every opponent’s score; six black cards halve your score.",
-            "The two new rules are optional and are not part of House rules.",
+            "All in red/black is included in House rules. Suited rows remains available only in custom matches.",
         ],
     },
     "changes": [
