@@ -14,7 +14,9 @@ class BootstrapTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Windows TEMP may use an 8.3 alias (RUNNER~1). Match the launcher's
+        # canonical paths before testing equality or cache containment.
+        self.root = Path(self.temporary.name).resolve()
         self.project = self.root / 'OneDrive' / 'Golf with spaces'
         self.project.mkdir(parents=True)
         (self.project / 'requirements.txt').write_text('fastapi==0.143.0\n')
