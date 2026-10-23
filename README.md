@@ -4,15 +4,17 @@ A browser-playable variant of six-card Golf, with solo play, a 1v1 queue, and tw
 
 ## Play on your computer
 
-Install Python 3.11 or newer. On Windows, double-click **play.bat**. It creates a virtual environment, installs dependencies, starts the server, and opens the menu at **http://localhost:8000/Golfgame/**. Leave that window running; Ctrl+C stops the server. Existing localhost URLs at `/` also work.
+Install Python 3.11 or newer. On Windows, double-click **play.bat**. It prepares a machine-local Python environment, starts the server, and opens **http://localhost:8000/Golfgame/**. Leave that window running; Ctrl+C stops the server. Existing localhost URLs at `/` also work.
+
+Python environments live under **%LOCALAPPDATA%\Golf\python-envs**, outside OneDrive and the Git checkout. Each checkout, Python version/ABI, and dependency list gets its own cache. The launcher verifies imports, including Pydantic's compiled extension, before starting; incompatible or incomplete environments are replaced with a fresh cache without deleting the old one. The shared `.venv` is no longer used. Saved games, accounts, and hosting credentials stay in their existing locations. The first launch needs internet access to install dependencies; healthy cached environments are reused.
 
 Or start it yourself:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe launch.py
+py -3 bootstrap.py
 ```
+
+Use `play.bat --check-only` to prepare and validate dependencies without starting a server. Options such as `--port 8001` and `--no-browser` pass through to the game launcher. If the Python launcher is unavailable, play.bat falls back to a compatible `python` on PATH. Do not copy or synchronize Python virtual environments between machines; share the source and let each machine create its own environment.
 
 After updating the source, stop and restart the server so the Python backend and browser UI use the same version.
 
@@ -113,10 +115,12 @@ AI searches run in a separate process pool with at most two CPU workers (one on 
 
 Run `python -m benchmarks.bot_concurrency --games 8` for a repeatable eight-table HTTP responsiveness probe using fixed deals and an in-memory database. Add `--threads` to compare the previous threaded search. It does not touch live games or saved history.
 
+For development, activate a separate virtual environment outside synced folders, then run:
+
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+python -m pip install -r requirements-dev.txt
+python -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1
+python -m unittest discover -s tests -v
 ```
 
 For Docker: `docker build -t golfbot .` then `docker run --rm -p 8000:8000 -v golfbot-data:/app/data golfbot`. The named volume retains history after the container stops. A hosted deployment should route both HTTP and WebSockets to this single process and terminate HTTPS at its proxy. Uvicorn trusts forwarded scheme headers from localhost by default; configure trusted proxy addresses explicitly for other hosts.
