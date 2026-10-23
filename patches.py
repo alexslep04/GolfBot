@@ -6,7 +6,7 @@ PATCH_NOTES = [{
     "rules": {
         "revisions": [
             "4 of a Kind is no longer in House rules. It remains available in custom matches.",
-            "Roman 5s divides by 2. Poisoned Card adds 3 points.",
+            "Roman 5s divides by 3. Poisoned Card adds 2 points.",
         ],
         "additions": [
             "Suited rows: a single-suit row uses the middle card’s base Golf points. Red adds them to every opponent; black subtracts them from your score.",

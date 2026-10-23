@@ -33,10 +33,10 @@ class FeatureTests(unittest.TestCase):
             game.players[0] = hand
             before = [(slot.card.rank, slot.card.base_points) for slot in hand]
             self.assertEqual(column_score(hand, game.rules), subtotal)
-            self.assertEqual(score_adjustments(hand, game.rules)[1], 2)
-            self.assertIn("Roman 5s /2", active_rule_effects(hand, game.rules))
-            self.assertEqual(visible_effect_total(hand, game.rules), 10)
-            self.assertEqual(game.score(0), 10)
+            self.assertEqual(score_adjustments(hand, game.rules)[1], 3)
+            self.assertIn("Roman 5s /3", active_rule_effects(hand, game.rules))
+            self.assertEqual(visible_effect_total(hand, game.rules), 7)
+            self.assertEqual(game.score(0), 7)
             self.assertEqual(before, [(slot.card.rank, slot.card.base_points) for slot in hand])
 
     def test_roman_fives_independent_of_other_scoring_rule_combinations(self):
@@ -50,22 +50,22 @@ class FeatureTests(unittest.TestCase):
                     game.players[0] = hand
                     game.players[1] = [Slot(card, True) for card in cards([3, 5, 8, 10, 12, 13])]
                     game.gambler_earned[0] = rules.gamblers_row
-                    expected = 2 if rules.gamblers_row else 10
-                    self.assertEqual(score_adjustments(hand, rules)[1], 2)
-                    self.assertIn("Roman 5s /2", active_rule_effects(hand, rules, rules.gamblers_row))
+                    expected = 1 if rules.gamblers_row else 7
+                    self.assertEqual(score_adjustments(hand, rules)[1], 3)
+                    self.assertIn("Roman 5s /3", active_rule_effects(hand, rules, rules.gamblers_row))
                     self.assertEqual(game.score(0), expected)
                     self.assertEqual(visible_effect_total(hand, rules, rules.gamblers_row), expected)
 
     def test_roman_fives_eligibility_survives_score_changing_effects(self):
         fixtures = [
             # Ripped 5 cancels the 5D in the qualifying 5-4-A V.
-            ([5, 8, 1, 13, 4, 5], "DSHCHS", Rules(roman_fives=True, ripped_five=True), 13, 7),
+            ([5, 8, 1, 13, 4, 5], "DSHCHS", Rules(roman_fives=True, ripped_five=True), 13, 5),
             # King-Queen reduces a column but the qualifying Q-K-K V stays 10-0-0.
-            ([12, 8, 13, 13, 13, 4], "HSHDCH", Rules(roman_fives=True, king_queen=True), 17, 9),
+            ([12, 8, 13, 13, 13, 4], "HSHDCH", Rules(roman_fives=True, king_queen=True), 17, 6),
             # A same-suit hand earns Hold 'em -5; its 6-A-3 V still totals 10.
-            ([6, 8, 3, 5, 1, 13], "HHHHHH", Rules(roman_fives=True, holdem=True), 18, 9),
+            ([6, 8, 3, 5, 1, 13], "HHHHHH", Rules(roman_fives=True, holdem=True), 18, 6),
             # The A-6-3 V totals 10; the ascending row now adds 3 to the opponent.
-            ([1, 2, 3, 6, 6, 6], "SHDCSH", Rules(roman_fives=True, tricky_straights=True), 20, 10),
+            ([1, 2, 3, 6, 6, 6], "SHDCSH", Rules(roman_fives=True, tricky_straights=True), 20, 7),
         ]
         for ranks, suits, rules, subtotal, final in fixtures:
             with self.subTest(ranks=ranks, rules=rules):
@@ -74,8 +74,8 @@ class FeatureTests(unittest.TestCase):
                 game.players[0] = hand
                 game.players[1] = [Slot(card, True) for card in cards([3, 5, 8, 10, 12, 13])]
                 self.assertEqual(column_score(hand, rules) + score_adjustments(hand, rules, True)[0], subtotal)
-                self.assertEqual(score_adjustments(hand, rules)[1], 2)
-                self.assertIn("Roman 5s /2", active_rule_effects(hand, rules))
+                self.assertEqual(score_adjustments(hand, rules)[1], 3)
+                self.assertIn("Roman 5s /3", active_rule_effects(hand, rules))
                 self.assertEqual(visible_effect_total(hand, rules), final)
                 self.assertEqual(game.score(0), final)
 
@@ -83,10 +83,10 @@ class FeatureTests(unittest.TestCase):
         game = GolfGame(rules=Rules(roman_fives=True, v10=True, gamblers_row=True))
         hand = [Slot(card, True) for card in cards([12, 4, 10, 5, 11, 1])]
         game.players[0] = hand
-        self.assertEqual(score_adjustments(hand, game.rules)[1], 10)
-        self.assertEqual(active_rule_effects(hand, game.rules), ["Roman 5s /2", "V10 engine /5"])
-        self.assertEqual(game.score(0), 4)  # 40 / (2 * 5).
-        self.assertEqual(visible_effect_total(hand, game.rules), 4)
+        self.assertEqual(score_adjustments(hand, game.rules)[1], 15)
+        self.assertEqual(active_rule_effects(hand, game.rules), ["Roman 5s /3", "V10 engine /5"])
+        self.assertEqual(game.score(0), 3)  # 40 / (3 * 5), rounded up.
+        self.assertEqual(visible_effect_total(hand, game.rules), 3)
         game.gambler_earned[0] = True
         self.assertEqual(game.score(0), 1)
         self.assertEqual(visible_effect_total(hand, game.rules, True), 1)
@@ -95,23 +95,23 @@ class FeatureTests(unittest.TestCase):
         game = GolfGame(rules=Rules(roman_fives=True))
         hand = [Slot(card, True) for card in cards([6, 4, 1, 5, 3, 1])]
         game.players[0] = hand
-        self.assertEqual(score_adjustments(hand, game.rules)[1], 2)
-        self.assertEqual(active_rule_effects(hand, game.rules).count("Roman 5s /2"), 1)
-        self.assertEqual(game.score(0), 9)
-        self.assertEqual(visible_effect_total(hand, game.rules), 9)
+        self.assertEqual(score_adjustments(hand, game.rules)[1], 3)
+        self.assertEqual(active_rule_effects(hand, game.rules).count("Roman 5s /3"), 1)
+        self.assertEqual(game.score(0), 6)
+        self.assertEqual(visible_effect_total(hand, game.rules), 6)
 
     def test_roman_fives_uses_negative_two_and_does_not_infer_hidden_points(self):
         hand = [Slot(card, True) for card in cards([8, 4, 2, 3, 4, 10])]
         rules = Rules(roman_fives=True)
         for index in (0, 4, 2):
             hand[index].visible = False
-            self.assertNotIn("Roman 5s /2", active_rule_effects(hand, rules))
+            self.assertNotIn("Roman 5s /3", active_rule_effects(hand, rules))
             self.assertEqual(visible_effect_total(hand, rules), column_score(hand, rules, True))
             hand[index].visible = True
         # A-7-2 has face ranks summing to 10 but Golf points summing to 6.
         not_a_match = [Slot(card, True) for card in cards([1, 9, 2, 13, 7, 13])]
         self.assertEqual(score_adjustments(not_a_match, rules)[1], 1)
-        self.assertNotIn("Roman 5s /2", active_rule_effects(not_a_match, rules))
+        self.assertNotIn("Roman 5s /3", active_rule_effects(not_a_match, rules))
 
     def test_roman_fives_sum_ten_both_orientations(self):
         from scoring import active_rule_effects
@@ -121,11 +121,11 @@ class FeatureTests(unittest.TestCase):
             for index, rank in zip(pattern, (6, 1, 3)):
                 hand[index] = Slot(Card(rank, "H"), True)
             game.players[0] = hand
-            self.assertEqual(score_adjustments(hand, game.rules)[1], 2)
-            self.assertEqual(game.score(0), (game.score(0, True) + 1) // 2)
-            self.assertIn("Roman 5s /2", active_rule_effects(hand, game.rules))
+            self.assertEqual(score_adjustments(hand, game.rules)[1], 3)
+            self.assertEqual(game.score(0), (game.score(0, True) + 2) // 3)
+            self.assertIn("Roman 5s /3", active_rule_effects(hand, game.rules))
             hand[pattern[1]].visible = False
-            self.assertNotIn("Roman 5s /2", active_rule_effects(hand, game.rules))
+            self.assertNotIn("Roman 5s /3", active_rule_effects(hand, game.rules))
             self.assertEqual(score_adjustments(hand, game.rules, True)[1], 1)
             game.rules.roman_fives = False
             self.assertEqual(score_adjustments(hand, game.rules)[1], 1)

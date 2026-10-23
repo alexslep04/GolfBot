@@ -196,17 +196,17 @@ class WebTests(unittest.TestCase):
             with self.subTest(ranks=ranks):
                 self.room.game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip(ranks, 'SHDCSH')]
                 public = self.state()['game']
-                self.assertIn('Roman 5s /2', public['effects'][0])
+                self.assertIn('Roman 5s /3', public['effects'][0])
                 self.assertTrue(any(effect.startswith(f'Column {cancelled_column} pair: 0') for effect in public['effects'][0]))
-                self.assertEqual(public['effect_totals'][0], 10)
+                self.assertEqual(public['effect_totals'][0], 7)
                 for rank, slot in zip(ranks, public['players'][0]):
                     self.assertEqual(slot['card']['rank'], rank)
                     self.assertEqual(slot['card']['points'], -2 if rank == 2 else min(rank, 10))
                 self.room.game.phase = 'over'
                 self.room.record_result()
                 final = self.state()['game']
-                self.assertEqual(final['scores'][0], 10)
-                self.assertEqual(final['effect_totals'][0], 10)
+                self.assertEqual(final['scores'][0], 7)
+                self.assertEqual(final['effect_totals'][0], 7)
                 self.room.game.phase = 'choose'
                 self.room.status = 'playing'
                 self.room.round_recorded = False

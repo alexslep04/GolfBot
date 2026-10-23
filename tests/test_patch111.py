@@ -52,9 +52,9 @@ class Scoring111Tests(unittest.TestCase):
         game = GolfGame(rules=Rules(suited_rows=True,roman_fives=True))
         game.players[0] = hand([8,2,4,3,2,6],'SSSHDH')
         # The 2s cancel in their column; the suited black row still subtracts
-        # the middle card's -2 (adding 2). Its V independently earns /2.
+        # the middle card's -2 (adding 2). Its V independently earns /3.
         self.assertEqual(column_score(game.players[0],game.rules),21)
-        self.assertEqual(game.score(0),12)
+        self.assertEqual(game.score(0),8)
 
     def test_colors_and_suited_effects_apply_additions_then_multiply_then_divide(self):
         game = GolfGame(rules=Rules(suited_rows=True, all_in_color=True))
