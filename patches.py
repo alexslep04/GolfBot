@@ -1,8 +1,19 @@
 """Release labels stored with results; older unlabelled games stay unlabelled."""
-PATCH_VERSION = "1.1.1"
+PATCH_VERSION = "1.1.2"
 
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
+    "rules": {
+        "revisions": [
+            "V10 engine requires one 10, one Jack, and one Queen in either V, in any order. Repeated ranks no longer qualify.",
+        ],
+        "additions": [],
+    },
+    "changes": [
+        "The Windows sharing helper now uses checksum-verified cloudflared 2026.10.3, including Cloudflare's certificate security fix.",
+    ],
+}, {
+    "version": "1.1.1",
     "rules": {
         "revisions": [
             "4 of a Kind is no longer in House rules. It remains available in custom matches.",

@@ -15,7 +15,7 @@ def v_pattern_effects(layout, rules, visible_only=False):
     effects = []
     if rules.roman_fives and any(sum(card.base_points for card in pattern) == 10 for pattern in cards):
         effects.append(("Roman 5s", 3))
-    if rules.v10 and any(all(card.rank in (10, 11, 12) for card in pattern) for pattern in cards):
+    if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in cards):
         effects.append(("V10 engine", 5))
     return effects
 

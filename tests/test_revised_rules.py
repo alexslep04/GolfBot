@@ -2,7 +2,7 @@ import unittest
 from itertools import product
 
 from game import Card, GolfGame, Rules, Slot
-from scoring import active_rule_effects, score_adjustments, straight_adjustments, visible_effect_total, V_PATTERNS
+from scoring import active_rule_effects, score_adjustments, scoring_rule_keys, straight_adjustments, visible_effect_total, V_PATTERNS
 
 
 def hand(ranks):
@@ -10,7 +10,7 @@ def hand(ranks):
 
 
 class RevisedRulesTests(unittest.TestCase):
-    def test_v10_accepts_all_repeated_rank_combinations_in_both_vs(self):
+    def test_v10_requires_one_of_each_rank_in_both_vs(self):
         for pattern in V_PATTERNS:
             for ranks in product((10, 11, 12), repeat=3):
                 with self.subTest(pattern=pattern, ranks=ranks):
@@ -18,10 +18,19 @@ class RevisedRulesTests(unittest.TestCase):
                     for index, rank, suit in zip(pattern, ranks, "SHD"):
                         layout[index] = Slot(Card(rank, suit), True)
                     rules = Rules(v10=True)
-                    self.assertEqual(score_adjustments(layout, rules)[1], 5)
-                    self.assertIn("V10 engine /5", active_rule_effects(layout, rules))
+                    qualifies = set(ranks) == {10, 11, 12}
+                    self.assertEqual(score_adjustments(layout, rules)[1], 5 if qualifies else 1)
+                    self.assertEqual("V10 engine /5" in active_rule_effects(layout, rules), qualifies)
+                    self.assertEqual('v10' in scoring_rule_keys(layout, rules), qualifies)
+                    game = GolfGame(rules=rules)
+                    game.players[0] = layout
+                    subtotal = game.score(0, True)
+                    self.assertEqual(game.score(0), (subtotal + 4) // 5 if qualifies else subtotal)
+                    self.assertEqual(visible_effect_total(layout, rules), game.score(0))
+                    self.assertEqual(score_adjustments(layout, Rules())[1], 1)
                     layout[pattern[1]].visible = False
                     self.assertNotIn("V10 engine /5", active_rule_effects(layout, rules))
+                    self.assertNotIn('v10', scoring_rule_keys(layout, rules))
 
     def test_v10_excludes_other_ranks_and_applies_once(self):
         for ranks in ((10, 11, 13), (10, 9, 12), (8, 11, 12)):
