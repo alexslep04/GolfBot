@@ -4,7 +4,7 @@ from itertools import combinations
 from math import prod
 
 V_PATTERNS = ((0, 4, 2), (3, 1, 5))
-POISON_POINTS = 3
+POISON_POINTS = 2
 
 
 def v_pattern_effects(layout, rules, visible_only=False):
@@ -14,8 +14,8 @@ def v_pattern_effects(layout, rules, visible_only=False):
              if not visible_only or all(slot.visible for slot in pattern)]
     effects = []
     if rules.roman_fives and any(sum(card.base_points for card in pattern) == 10 for pattern in cards):
-        effects.append(("Roman 5s", 2))
-    if rules.v10 and any(all(card.rank in (10, 11, 12) for card in pattern) for pattern in cards):
+        effects.append(("Roman 5s", 3))
+    if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in cards):
         effects.append(("V10 engine", 5))
     return effects
 

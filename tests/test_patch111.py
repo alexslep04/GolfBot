@@ -52,9 +52,9 @@ class Scoring111Tests(unittest.TestCase):
         game = GolfGame(rules=Rules(suited_rows=True,roman_fives=True))
         game.players[0] = hand([8,2,4,3,2,6],'SSSHDH')
         # The 2s cancel in their column; the suited black row still subtracts
-        # the middle card's -2 (adding 2). Its V independently earns /2.
+        # the middle card's -2 (adding 2). Its V independently earns /3.
         self.assertEqual(column_score(game.players[0],game.rules),21)
-        self.assertEqual(game.score(0),12)
+        self.assertEqual(game.score(0),8)
 
     def test_colors_and_suited_effects_apply_additions_then_multiply_then_divide(self):
         game = GolfGame(rules=Rules(suited_rows=True, all_in_color=True))
@@ -336,7 +336,9 @@ class Web111Tests(unittest.TestCase):
 
     def test_patch_pages_and_stats_preserve_legacy_and_filter_both_columns(self):
         self.assertEqual(self.host.get('/Golfgame/patch-notes').status_code,200)
-        self.assertEqual(self.host.get('/Golfgame/api/patch-notes').json()['current'],PATCH_VERSION)
+        notes = self.host.get('/Golfgame/api/patch-notes').json()
+        self.assertEqual(notes['current'], '1.1.2')
+        self.assertEqual([note['version'] for note in notes['patches']], ['1.1.2', '1.1.1'])
         room = Room('r','Stats',Rules(),1,'host',True,['a',None],['A','Golfbot'],history_store=self.store.history)
         room.start_round(); room.game.phase='over'; room.record_result()
         current = self.store.history.results()[0]

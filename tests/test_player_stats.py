@@ -163,7 +163,7 @@ class StatsApiTests(unittest.TestCase):
             try:
                 records = restored.results()
                 rounds = records[0]['rounds']
-                self.assertEqual(rounds[0]['divisors'][0], 70)
+                self.assertEqual(rounds[0]['divisors'][0], 105)
                 self.assertEqual(rounds[1]['divisors'][0], 1)
                 self.assertTrue(rounds[0]['rules']['v10'])
                 self.assertFalse(rounds[1]['rules']['v10'])

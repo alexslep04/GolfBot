@@ -89,7 +89,7 @@ A five-card flush, straight, full house, or four of a kind subtracts 5 points. A
 ### V10 engine
 <!-- rule: v10 -->
 
-Any three cards chosen from 10, Jack, and Queen forming either V divide the final score by 5, rounded up. Repeated ranks count (e.g. Q-Q-10 or J-J-J). Apply once.
+One 10, one Jack, and one Queen forming either V, in any order, divide the final score by 5, rounded up. Repeated ranks do not count (e.g. Q-Q-10 or J-J-J). Apply once.
 
 ### Tricky straights
 <!-- rule: tricky_straights -->
@@ -104,7 +104,7 @@ A 5 of diamonds and one other 5 in the opposite row cancel to zero, even in diff
 ### Roman 5s
 <!-- rule: roman_fives -->
 
-A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2, J/Q=10, K=0. Ignore column cancellations and other effects when checking the V. Either orientation counts; apply once.
+A V totaling 10 **base Golf points** earns final score /3, rounded up. A=1, 2=-2, J/Q=10, K=0. Ignore column cancellations and other effects when checking the V. Either orientation counts; apply once.
 
 ### Beggars Will be Choosers
 <!-- rule: beggars -->
@@ -119,7 +119,7 @@ Four visible cards of one rank may immediately be moved into any two columns, or
 ### Poisoned Card
 <!-- rule: poisoned_card -->
 
-The first player to reveal all six cards adds 3 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
+The first player to reveal all six cards adds 2 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
 
 ### Suited rows
 <!-- rule: suited_rows -->
@@ -144,7 +144,7 @@ Six red cards multiply every opponent's final score by 2. Six black cards divide
 - A bonus swap carries visibility into a hand; the go-fish pile stays face down and the discard pile face up. Unused pairs created by a bonus may earn another bonus. Empty piles have no card to select.
 - Roman 5s keeps the approved **V total of 10** interpretation from the merged game, rather than three cards each worth 10.
 
-Roman 5s examples: `A-4-A / 5-J-A` qualifies via the bottom-left, top-middle, and bottom-right cards: 5+4+1=10, despite the right-column Aces canceling. `8-4-2 / 3-4-10` qualifies via top-left, bottom-middle, and top-right: 8+4+(-2)=10, despite the middle-column 4s canceling. With only Roman 5s enabled, both final scores are 10 (20/2 and 19/2, rounded up).
+Roman 5s examples: `A-4-A / 5-J-A` qualifies via the bottom-left, top-middle, and bottom-right cards: 5+4+1=10, despite the right-column Aces canceling. `8-4-2 / 3-4-10` qualifies via top-left, bottom-middle, and top-right: 8+4+(-2)=10, despite the middle-column 4s canceling. With only Roman 5s enabled, both final scores are 7 (20/3 and 19/3, rounded up).
 
 ## Revised draft rules — not selectable yet
 

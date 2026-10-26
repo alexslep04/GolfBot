@@ -187,7 +187,8 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(client.get('/history').status_code, 200)
             catalog = {r['key']: r['description'] for r in client.get('/api/rules').json()}
             self.assertIn('poisoned_card', catalog)
-            self.assertIn('Repeated ranks', catalog['v10'])
+            self.assertIn('One 10, one Jack, and one Queen', catalog['v10'])
+            self.assertIn('Repeated ranks do not count', catalog['v10'])
             self.assertIn("opponent's score", catalog['tricky_straights'])
 
 

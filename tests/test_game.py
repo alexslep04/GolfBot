@@ -359,15 +359,15 @@ class GolfTests(unittest.TestCase):
         game.players[0][2].visible = False
         game._update_combos()
         self.assertFalse(game.angel_earned[0])
-        self.assertEqual(game.score(1), 4)  # 40 / 10.
+        self.assertEqual(game.score(1), 3)  # 40 / 15, rounded up.
         game.players[0][2].visible = True
         game._update_combos()
         self.assertTrue(game.angel_earned[0])
-        self.assertEqual(game.score(1), 36)  # 40 * 9 / 10.
+        self.assertEqual(game.score(1), 24)  # 40 * 9 / 15.
         self.assertIn('angels_row', game.activated_rules[0])
         game.players[0][2] = Slot(Card(13, 'C'), True)
         game._update_combos()
-        self.assertEqual(game.score(1), 36)
+        self.assertEqual(game.score(1), 24)
         game.players[1] = [Slot(Card(2, suit), True) for suit in 'SHDC'] + [Slot(Card(13, suit), True) for suit in 'SH']
         self.assertEqual(game.score(1), -36)  # Unpaired twos still use their negative Golf value.
 
