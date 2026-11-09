@@ -51,10 +51,11 @@ class Scoring111Tests(unittest.TestCase):
     def test_middle_value_is_independent_of_column_cancellation_and_divisions(self):
         game = GolfGame(rules=Rules(suited_rows=True,roman_fives=True))
         game.players[0] = hand([8,2,4,3,2,6],'SSSHDH')
+        game.players[1] = hand([1,4,8,6,9,13])
         # The 2s cancel in their column; the suited black row still subtracts
-        # the middle card's -2 (adding 2). Its V independently earns /3.
+        # the middle card's -2 (adding 2). Its V independently earns /2.
         self.assertEqual(column_score(game.players[0],game.rules),21)
-        self.assertEqual(game.score(0),8)
+        self.assertEqual(game.score(0),12)
 
     def test_colors_and_suited_effects_apply_additions_then_multiply_then_divide(self):
         game = GolfGame(rules=Rules(suited_rows=True, all_in_color=True))

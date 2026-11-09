@@ -6,6 +6,7 @@ PATCH_NOTES = [{
     "rules": {
         "revisions": [
             "V10 engine requires one 10, one Jack, and one Queen in either V, in any order. Repeated ranks no longer qualify.",
+            "Roman 5s divides the final score by 2 instead of 3, rounded up. The qualifying V still totals 10 base Golf points.",
         ],
         "additions": [],
     },
