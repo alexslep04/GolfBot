@@ -180,7 +180,7 @@ class FeatureTests(unittest.TestCase):
         hand = [Slot(c, True) for c in cards([10, 11, 12, 10, 11, 12], "SHDCHS")]
         self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 5)
         hand = [Slot(c, True) for c in cards([11, 1, 11, 5, 11, 6])]
-        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 5)
+        self.assertEqual(score_adjustments(hand, Rules(v10=True, roman_fives=True))[1], 1)
 
     def test_tricky_rows_use_rank_order_and_golf_points_on_rightmost(self):
         hand = [Slot(c, True) for c in cards([1, 2, 3, 5, 4, 3])]

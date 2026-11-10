@@ -36,7 +36,7 @@ class BotTests(unittest.TestCase):
         game = self.start(rules=Rules(v10=True))
         game.phase, game.is_final_turn = "drawn", True
         game.held_card = Card(13, "D")
-        game.players[1] = hand([10, 5, 11, 12, 10, 2])
+        game.players[1] = hand([10, 5, 11, 12, 12, 2])
         baseline = deepcopy(game)
         baseline._opponent_step()
         self.assertEqual(baseline.players[1][0].card.rank, 13)

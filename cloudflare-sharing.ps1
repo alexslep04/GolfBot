@@ -10,12 +10,21 @@ function Get-TunnelHash([string]$Path) {
 function Get-CloudflaredExecutable([string]$Root) {
     $directory = Join-Path $Root '.artifacts\tools'
     $executable = Join-Path $directory 'cloudflared.exe'
-    $expectedHash = '86aee4017b26625cee8484c113558f48effa4cd47f7aa05fcf425604e5d2b23c'
+    $expectedHash = '76b2805253d0d6ffacb092a7acfbee99e7af6917835c0c5410e23f3ef5052da2'
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
     if (-not (Test-Path -LiteralPath $executable) -or
         (Get-TunnelHash $executable) -ne $expectedHash) {
-        Write-Host 'Downloading the official Cloudflare helper...'
-        Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe' -OutFile $executable
+        Write-Host 'Downloading the official Cloudflare helper (2026.10.3)...'
+        $download = Join-Path $directory ('cloudflared-' + [Guid]::NewGuid().ToString('N') + '.download')
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-windows-amd64.exe' -OutFile $download -ErrorAction Stop
+            if ((Get-TunnelHash $download) -ne $expectedHash) {
+                throw 'The tunnel helper checksum did not match. It has not been run.'
+            }
+            Move-Item -LiteralPath $download -Destination $executable -Force -ErrorAction Stop
+        } finally {
+            if (Test-Path -LiteralPath $download) { Remove-Item -LiteralPath $download }
+        }
     }
     if ((Get-TunnelHash $executable) -ne $expectedHash) {
         throw 'The tunnel helper checksum did not match. It has not been run.'

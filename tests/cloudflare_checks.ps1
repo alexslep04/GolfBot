@@ -13,10 +13,40 @@ switch ($Case) {
         [IO.File]::WriteAllText($knownFile, 'abc', (New-Object Text.UTF8Encoding($false)))
         Assert ((Get-TunnelHash $knownFile) -eq 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') 'SHA256 verification failed.'
         function Invoke-WebRequest {
-            param([switch]$UseBasicParsing, $Uri, $OutFile)
+            param([switch]$UseBasicParsing, $Uri, $OutFile, $ErrorAction)
+            Assert ($Uri -eq 'https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-windows-amd64.exe') 'Wrong security release.'
             Set-Content -LiteralPath $OutFile -Value 'incorrect download'
         }
+        $toolsDirectory = Join-Path $Directory '.artifacts\tools'
+        New-Item -ItemType Directory -Path $toolsDirectory -Force | Out-Null
+        $installed = Join-Path $toolsDirectory 'cloudflared.exe'
+        Set-Content -LiteralPath $installed -Value 'previous installed copy'
         Assert-Throws { Get-CloudflaredExecutable $Directory }
+        Assert ((Get-Content -LiteralPath $installed -Raw).Trim() -eq 'previous installed copy') 'Invalid download replaced the installed helper.'
+        Assert (@(Get-ChildItem -LiteralPath $toolsDirectory -Filter '*.download').Count -eq 0) 'Failed download was not cleaned up.'
+    }
+    'download-replacement' {
+        $script:downloads = 0
+        function Invoke-WebRequest {
+            param([switch]$UseBasicParsing, $Uri, $OutFile, $ErrorAction)
+            $script:downloads++
+            Set-Content -LiteralPath $OutFile -Value 'verified release'
+        }
+        function Get-TunnelHash([string]$Path) {
+            if ((Get-Content -LiteralPath $Path -Raw).Trim() -eq 'verified release') {
+                return '76b2805253d0d6ffacb092a7acfbee99e7af6917835c0c5410e23f3ef5052da2'
+            }
+            return 'old hash'
+        }
+        $toolsDirectory = Join-Path $Directory '.artifacts\tools'
+        New-Item -ItemType Directory -Path $toolsDirectory -Force | Out-Null
+        $installed = Join-Path $toolsDirectory 'cloudflared.exe'
+        Set-Content -LiteralPath $installed -Value 'old release'
+        Assert ((Get-CloudflaredExecutable $Directory) -eq $installed) 'Wrong installed path.'
+        Assert ((Get-Content -LiteralPath $installed -Raw).Trim() -eq 'verified release') 'Verified download was not installed.'
+        Assert ((Get-CloudflaredExecutable $Directory) -eq $installed) 'Cached helper was not reused.'
+        Assert ($script:downloads -eq 1) 'Verified helper was downloaded again.'
+        Assert (@(Get-ChildItem -LiteralPath $toolsDirectory -Filter '*.download').Count -eq 0) 'Temporary download remained.'
     }
     'configuration' {
         $artifacts = Join-Path $Directory '.artifacts\cloudflare'
