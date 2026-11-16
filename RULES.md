@@ -26,7 +26,7 @@ Custom 1v1 matches can start with host, guest, alternate, random, previous winne
 
 ### 2. Go fish first
 
-- **2.1:** Swap the draw with a card already face up in your hand; discard the replaced card and end the turn.
+- **2.1:** Swap the draw with any card in your hand, face up or face down; discard the replaced card and end the turn.
 - **2.2:** Reveal one hidden card, then either replace that card with the draw or discard the draw and keep the revealed card. End the turn.
 - **2.3:** Discard the draw immediately and end the turn, leaving your hand unchanged.
 

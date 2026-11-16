@@ -28,6 +28,7 @@ from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
+from avatars import BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -51,6 +52,7 @@ class Settings(BaseModel):
     house_rules: bool = False
     series_mode: Literal["wins", "points"] = "wins"
     game_type: Literal["1v1", "many"] = "1v1"
+    avatar: str | None = Field(default=None, max_length=32)
 
     @field_validator("best_of")
     @classmethod
@@ -67,6 +69,7 @@ class SoloSettings(Settings):
 
 class Join(BaseModel):
     username: str = Field(min_length=1, max_length=32)
+    avatar: str | None = Field(default=None, max_length=32)
 
 
 class InvitePlayer(BaseModel):
@@ -76,6 +79,7 @@ class InvitePlayer(BaseModel):
 class InviteReply(BaseModel):
     accept: bool
     username: str = Field(default="Player", min_length=1, max_length=32)
+    avatar: str | None = Field(default=None, max_length=32)
 
 
 class Move(BaseModel):
@@ -119,6 +123,7 @@ class Session:
     public_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
     online_until: float = 0
     invite_times: list = field(default_factory=list)
+    avatar: str = DEFAULT_AVATAR
 
 
 @dataclass
@@ -157,6 +162,7 @@ class Room:
     game_type: str = "1v1"
     patch: str = PATCH_VERSION
     series_complete: bool = False
+    avatars: list = field(default_factory=lambda: [DEFAULT_AVATAR, DEFAULT_AVATAR])
 
     @property
     def capacity(self):
@@ -184,7 +190,8 @@ class Room:
 
     def resize_seats(self):
         count = len(self.seats)
-        for key, default in (('ready', False), ('wins', 0), ('participants', None), ('departed', False)):
+        for key, default in (('ready', False), ('wins', 0), ('participants', None), ('departed', False),
+                             ('avatars', DEFAULT_AVATAR)):
             values = getattr(self, key)
             setattr(self, key, (values + [default] * count)[:count])
 
@@ -313,6 +320,15 @@ def parse_rules(values):
     return Rules(**values)
 
 
+def choose_avatar(session, value):
+    """Remember a requested avatar on the session; None keeps the current one."""
+    if value is not None:
+        try:
+            session.avatar = clean_avatar(value)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+
 def card_view(card):
     return {"rank": card.rank, "label": card.label, "suit": card.suit, "points": card.base_points}
 
@@ -323,7 +339,7 @@ def public_room(room):
             "players": sum(seat is not None for seat in room.seats), "solo": room.solo,
             "house_rules": room.house_rules, "house_version": room.house_version,
             "series_mode": room.series_mode, "game_type": room.game_type, "capacity": room.capacity,
-            "patch": room.patch}
+            "patch": room.patch, "avatars": room.avatars}
 
 
 def message(room, viewer):
@@ -342,7 +358,7 @@ def message(room, viewer):
     return {
         "choose": "Your turn: Flip, Draw, or Swap with the discard.",
         "revealed": "Swap the card you flipped, Draw, or End turn.",
-        "drawn": "Swap with a face-up card, Flip a hidden card, or Discard.",
+        "drawn": "Swap with any of your cards, Flip a hidden card, or Discard.",
         "drawn_revealed": "Swap with the card you flipped, or Discard your draw.",
         "bonus": f"Bonus swap ({game.bonus_remaining} left): select any two table cards.",
         "guess": "Guess the rank of the selected opponent card, or pass.",
@@ -557,7 +573,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     def session_view(session):
         return {"username": session.username, "room_id": session.room_id if session.room_id in store.rooms else None,
-                "account": session.account, "google_client_id": google_client_id,
+                "avatar": session.avatar, "account": session.account, "google_client_id": google_client_id,
                 "csrf_token": session.csrf_token, "google_nonce": session.google_nonce}
 
     def csrf(session, token):
@@ -713,6 +729,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         descriptions = load_rule_help()
         return [{"key": key, "name": name, "title": descriptions[key][0], "description": descriptions[key][1]} for key, name in RULE_OPTIONS]
 
+    @app.get('/api/avatars')
+    async def avatars():
+        return {'default': DEFAULT_AVATAR, 'avatars': avatar_catalog()}
+
     @app.get('/api/match-options')
     async def match_options():
         return {'house_rules': house_rules(), 'house_version': HOUSE_VERSION, 'first': 'random', 'patch': PATCH_VERSION}
@@ -813,6 +833,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 raise HTTPException(409, 'Leave your multiplayer table before joining the queue.')
             profile_for(session)
             session.username = clean_name(body.username)
+            choose_avatar(session, body.avatar)
             session.online_until = time.time() + 30
             if len(store.queue) >= 500 and session.token not in store.queue:
                 raise HTTPException(503, 'The queue is full. Try again shortly.')
@@ -839,6 +860,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if not body.accept:
                 cancel_queue(session.token, 'Your opponent declined the queue match. Join the queue again to find another.')
                 return {'status': 'off'}
+            choose_avatar(session, body.avatar)
             offer['accepted'].add(session.token)
             if len(offer['accepted']) == 2:
                 if len(store.rooms) >= 200:
@@ -856,7 +878,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     room = Room(secrets.token_urlsafe(9), 'Classic golf match', parse_rules(house_rules()),
                                 5, 'random', False, list(offer['seats']), [player.username for player in players],
                                 history_store=store.history, participants=profiles, house_rules=True,
-                                house_version=HOUSE_VERSION, series_mode='points')
+                                house_version=HOUSE_VERSION, series_mode='points',
+                                avatars=[player.avatar for player in players])
                     store.rooms[room.id] = room
                     room.start_round()
                     for player in players:
@@ -903,6 +926,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         session = session_for(request)
         if not at_table(session):
             session.username = clean_name(body.username)
+            choose_avatar(session, body.avatar)
         session.online_until = time.time() + 30
         prune_invites()
         prune_queue()
@@ -914,13 +938,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return {
             'available_lobbies': sum(not room.solo and room.has_open_seat
                                      and session.token not in room.seats for room in store.rooms.values()),
-            'players': [{'id': other.public_id, 'display_name': other.username,
+            'players': [{'id': other.public_id, 'display_name': other.username, 'avatar': other.avatar,
                          'unique_name': (other.account or {}).get('unique_name')}
                         for other in available_players(session)],
             'invitations': invitations,
             'invited': [store.sessions[item['target']].public_id for item in store.invitations.values()
                         if item['host'] == session.token and item['target'] in store.sessions],
             'queue': queue_view(session),
+            'queue_size': len(store.queue),
         }
 
     @app.post('/api/lobbies/{room_id}/invite')
@@ -955,7 +980,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if not body.accept:
             del store.invitations[invitation_id]
             return {'declined': True}
-        result = await take_seat(find_room(invitation['room']), session, body.username)
+        result = await take_seat(find_room(invitation['room']), session, body.username, body.avatar)
         prune_invites()
         return result
 
@@ -974,12 +999,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables. Try again later.")
         session.username = clean_name(settings.username)
+        choose_avatar(session, settings.avatar)
         cancel_queue(session.token)
         many = settings.game_type == 'many'
         room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(house_rules() if settings.house_rules else settings.rules), settings.best_of, 'random' if settings.house_rules or many else settings.first, False, [session.token] if many else [session.token, None], [session.username] if many else [session.username, "Waiting..."], history_store=store.history,
                     house_rules=settings.house_rules, house_version=HOUSE_VERSION if settings.house_rules else None,
                     series_mode=settings.series_mode, game_type=settings.game_type)
         room.resize_seats()
+        room.avatars[0] = session.avatar
         room.participants[0] = profile_for(session)
         store.rooms[room.id] = room
         session.room_id = room.id
@@ -993,12 +1020,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         session.username = clean_name(settings.username)
+        choose_avatar(session, settings.avatar)
         if settings.game_type != '1v1':
             raise HTTPException(422, 'Solo games use 1v1 mode.')
         room = Room(secrets.token_urlsafe(9), "Solo table", parse_rules(house_rules() if settings.house_rules else settings.rules), settings.best_of, 'random' if settings.house_rules else settings.first, True, [session.token, None], [session.username, "Golfbot"], history_store=store.history,
                     house_rules=settings.house_rules, house_version=HOUSE_VERSION if settings.house_rules else None,
                     series_mode=settings.series_mode)
         room.participants = [profile_for(session), {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'}]
+        room.avatars = [session.avatar, BOT_AVATAR]
         room.start_round()
         store.rooms[room.id] = room
         session.room_id = room.id
@@ -1012,9 +1041,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def join_lobby(room_id: str, body: Join, request: Request):
         session = session_for(request)
         room = find_room(room_id)
-        return await take_seat(room, session, body.username)
+        return await take_seat(room, session, body.username, body.avatar)
 
-    async def take_seat(room, session, username):
+    async def take_seat(room, session, username, avatar=None):
         async with room.lock:
             if session.token in room.seats:
                 return snapshot(room, session.token)
@@ -1022,6 +1051,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if room.solo or not room.has_open_seat:
                 raise HTTPException(409, "This lobby is full or already playing.")
             session.username = clean_name(username)
+            choose_avatar(session, avatar)
             profile = profile_for(session)
             if room.game_type == 'many':
                 room.seats.append(session.token)
@@ -1031,6 +1061,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             else:
                 seat = 1
             room.seats[seat], room.names[seat] = session.token, session.username
+            room.avatars[seat] = session.avatar
             room.participants[seat] = profile
             session.room_id = room.id
             cancel_queue(session.token)
@@ -1101,11 +1132,12 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 store.queue_results.pop(session.token, None)
             if room.status == "waiting" and seat != 0:
                 if room.game_type == 'many':
-                    for key in ('seats', 'names', 'ready', 'wins', 'participants', 'departed'):
+                    for key in ('seats', 'names', 'ready', 'wins', 'participants', 'departed', 'avatars'):
                         getattr(room, key).pop(seat)
                 else:
                     room.seats[1], room.names[1], room.ready[1] = None, "Waiting...", False
                     room.participants[1] = None
+                    room.avatars[1] = DEFAULT_AVATAR
             else:
                 room.status = "closed"
                 room.departed[seat] = True
@@ -1154,7 +1186,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     def page_response(filename, request):
         base = request.scope.get("root_path", "").rstrip("/") + "/"
         html = (ROOT / "web" / filename).read_text(encoding="utf-8").replace("__GOLF_BASE__", base)
-        for asset in ("app.js", "style.css"):
+        # Version every script and stylesheet the page loads, so a release never mixes old and new files.
+        for asset in sorted(set(re.findall(r'"static/([\w./-]+\.(?:js|css))"', html))):
             version = sha256((ROOT / "web" / asset).read_bytes()).hexdigest()[:16]
             html = html.replace(f'"static/{asset}"', f'"static/{asset}?v={version}"')
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
