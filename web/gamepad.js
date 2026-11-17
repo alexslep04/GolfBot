@@ -465,7 +465,10 @@ function padPress(name) {
       else {
         const chosen = root.querySelector(".avatar[aria-checked='true']");
         const next = step < 0 ? chosen?.previousElementSibling : chosen?.nextElementSibling;
-        if (next?.matches(".avatar")) pickAvatar(next.dataset.avatar);
+        if (!next?.matches(".avatar")) break;
+        pickAvatar(next.dataset.avatar);
+        // a cursor resting on the wheel goes with the choice; anywhere else it stays put
+        if (el?.matches(".avatar")) padSetFocus(next);
       }
       break;
     case "select":

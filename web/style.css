@@ -603,6 +603,16 @@ p {
 .btn > span {
   white-space: nowrap;
 }
+/* a note standing where a button would be (a guest's "Play again"): the same
+   frame, muted like a button that can't be pressed, its text centred in it */
+.btn.btn-note {
+  font-size: 1.6rem;
+  line-height: 1.3;
+  text-wrap: balance;
+  filter: saturate(0.35) opacity(0.65);
+  cursor: default;
+  pointer-events: none;
+}
 .btn.tile {
   flex-direction: column;
   gap: 1.2rem;
@@ -1276,7 +1286,8 @@ body > header.topbar {
   width: 100%;
   background: var(--c);
   color: var(--ct);
-  padding: 0 0.8rem 1.6rem;
+  /* the chin: the thick edge of the frame, where the turn labels sit */
+  padding: 0 0.8rem 2rem;
   border-radius: 0 0 2.4rem 2.4rem;
   --fill: var(--c);
   --stroke: var(--paper);
@@ -1284,19 +1295,19 @@ body > header.topbar {
   text-align: left;
 }
 /* "YOUR TURN" sits in the top band of your score tag, and your tags' frame
-   breathes a little lighter while the table waits on you */
+   breathes a little darker while the table waits on you */
 .tag-score {
   position: relative;
 }
 .turn-label {
   position: absolute;
   inset: 0 0 auto;
-  height: 1.6rem;
+  height: 2.6rem;
   display: grid;
   place-items: center;
   color: #000;
-  mix-blend-mode: soft-light;
-  font: 800 1rem/1 var(--round);
+  mix-blend-mode: multiply;
+  font: 800 1.2rem/1 var(--round);
   letter-spacing: 0.03em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1307,23 +1318,43 @@ body > header.topbar {
     transform 0.4s var(--spring);
   pointer-events: none;
 }
-/* At tables of three or more the same band says who plays after this turn:
-   "YOU'RE NEXT" on your tag, "NEXT UP" along the foot of the opponent's */
+/* the chin of a player's score tag is deeper than the frame's other edges,
+   to give its label room; the rules tag has no label, and no chin: its frame
+   is the same width all round */
+.b-top .tag-score {
+  padding-bottom: 2.6rem;
+}
+.b-top .tag-rules {
+  padding-bottom: 0.8rem;
+}
+/* The opponent's tag carries the same label along its foot ("THEIR TURN"), and
+   at tables of three or more either tag can read "UP NEXT" instead */
 .b-top .turn-label {
   inset: auto 0 0;
   transform: translateY(-0.5rem) scale(0.7);
 }
 .my-turn > .turn-label,
+.their-turn > .turn-label,
 .up-next > .turn-label {
   opacity: 1;
   transform: none;
+}
+/* whose turn it is reads in white; who is up next is a darker shade of the
+   frame: black multiplied onto it at 45% */
+.my-turn > .turn-label,
+.their-turn > .turn-label {
+  color: #fff;
+  mix-blend-mode: normal;
+}
+.up-next > .turn-label {
+  opacity: 0.45;
 }
 .tag.my-turn {
   animation: turn-pulse 0.9s ease-in-out infinite alternate;
 }
 @keyframes turn-pulse {
   to {
-    background-color: color-mix(in srgb, var(--c) 74%, white);
+    background-color: color-mix(in srgb, var(--c) 93%, black);
   }
 }
 .tag > .tag-in {
@@ -1341,9 +1372,15 @@ body > header.topbar {
   padding-top: env(safe-area-inset-top);
 }
 .b-bottom .tag {
-  padding: 1.6rem 0.8rem 0;
+  padding: 2rem 0.8rem 0;
   border-radius: 2.4rem 2.4rem 0 0;
   padding-bottom: env(safe-area-inset-bottom);
+}
+.b-bottom .tag-score {
+  padding-top: 2.6rem;
+}
+.b-bottom .tag-rules {
+  padding-top: 0.8rem;
 }
 .b-bottom .tag > .tag-in {
   border-radius: 1.6rem 1.6rem 0 0;
@@ -1453,6 +1490,13 @@ button.tag-rules:active > .tag-in {
   --shx: -0.3rem;
   --shy: -0.3rem;
 }
+/* The gap kept under the opponent's avatar for the turn tooltip, which points
+   up at them or down at the cycle button below (board.js) */
+.turn-slot {
+  flex: none;
+  width: 100%;
+  height: 3rem;
+}
 /* Solo: your win streak against Golfbot, under its score tag. A faded grey
    flame at zero; lit in full colour with a glow that brightens as it grows. */
 .streak {
@@ -1515,7 +1559,6 @@ button.tag-rules:active > .tag-in {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
   color: var(--ct);
   --fill: var(--c2);
   --stroke: var(--c);
@@ -1535,34 +1578,24 @@ button.tag-rules:active > .tag-in {
 .cycle .ico {
   transition: transform 0.45s var(--spring);
 }
+/* its colour is the opponent it turns to: it fades from one to the next */
+.cycle .ico path {
+  transition:
+    fill 0.4s,
+    stroke 0.4s;
+}
 .cycle:active .ico {
   transform: scale(0.86);
 }
-/* shown when the opponent this button turns to is the one up next */
-.cycle-next {
-  font: 800 1rem/1 var(--round);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateY(-0.5rem) scale(0.7);
-  transition:
-    opacity 0.2s,
-    transform 0.4s var(--spring);
-}
-.cycle.up-next > .cycle-next {
-  opacity: 1;
-  transform: none;
-}
 /* Moving on to another opponent: their whole side of the table slides across
    as one page while a copy of the side being left (.board-ghost) slides off.
-   Both are clipped to the table's width; the cycle button stays where it is. */
-.board.swiping,
-.board-ghost {
-  clip-path: inset(-100vh 0);
-}
+   Each fades and blurs a little with its distance from rest (board.js), so
+   nothing is cut off at the table's edge; the cycle button stays where it is. */
 .board-ghost {
   pointer-events: none;
+}
+.board-ghost > .b-top {
+  will-change: translate, opacity, filter;
 }
 .board-ghost .cycle-wrap {
   visibility: hidden;
@@ -1570,6 +1603,9 @@ button.tag-rules:active > .tag-in {
 .b-top.sliding > .b-main,
 .b-top.sliding > .b-side > :not(.cycle-wrap) {
   translate: var(--slide, 0) 0;
+  opacity: var(--slide-opacity, 1);
+  filter: var(--slide-blur, none);
+  will-change: translate, opacity, filter;
 }
 .b-top.sliding .tag,
 .b-top.sliding .tag > .tag-in {
@@ -1785,7 +1821,9 @@ button.tag-rules:active > .tag-in {
   border-radius: 2rem;
   border: 0.4rem dashed var(--p1);
   animation: march 0.9s linear infinite;
-  transform: rotate(var(--rot, 0deg));
+  /* the card's own transform, so the outline stays centred on it as it lifts */
+  transform: translate(var(--dx, 0px), var(--dy, 0px))
+    rotate(calc(var(--rot, 0deg) + var(--lean, 0deg))) scale(var(--scale, 1));
   pointer-events: none;
 }
 .slot.incoming .card {
@@ -1812,7 +1850,8 @@ button.tag-rules:active > .tag-in {
   border-radius: 2.2rem;
   border: 0.4rem dashed var(--p1);
   background: color-mix(in srgb, var(--p1) 14%, transparent);
-  transform: rotate(var(--rot, 0deg));
+  transform: translate(var(--dx, 0px), var(--dy, 0px))
+    rotate(calc(var(--rot, 0deg) + var(--lean, 0deg))) scale(var(--scale, 1));
   animation: target-pulse 0.9s ease-in-out infinite alternate;
   pointer-events: none;
   z-index: 3;
@@ -1822,7 +1861,8 @@ button.tag-rules:active > .tag-in {
   border-color: var(--p3);
   background: rgb(255 203 32 / 0.3);
   animation: none;
-  transform: rotate(var(--rot, 0deg)) scale(1.06);
+  transform: translate(var(--dx, 0px), var(--dy, 0px))
+    rotate(calc(var(--rot, 0deg) + var(--lean, 0deg))) scale(calc(var(--scale, 1) * 1.06));
 }
 .slot .move-label {
   position: absolute;
@@ -1907,7 +1947,7 @@ button.tag-rules:active > .tag-in {
 .callout::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: var(--tip-x, 50%);
   margin-left: -0.8rem;
   border: 0.8rem solid transparent;
 }
@@ -2208,8 +2248,8 @@ button.tag-rules:active > .tag-in {
   top: 9rem;
 }
 /* A player whose side of the table is not showing reacts from the cycle
-   button that leads to them: a tooltip in their own colour, with their avatar
-   and name, its arrow pointing back at the button. */
+   button that leads to them: a white tooltip with their avatar and name in
+   their own colour, its arrow pointing back at the button. */
 .cycle-emotes {
   position: absolute;
   right: calc(100% + 1.2rem);
@@ -2217,7 +2257,7 @@ button.tag-rules:active > .tag-in {
   translate: 0 -50%;
   display: grid;
   justify-items: end;
-  gap: 1.2rem;
+  gap: 3.2rem; /* the emotes stand taller than their tooltips */
   pointer-events: none;
 }
 .player-emote.other {
@@ -2227,8 +2267,8 @@ button.tag-rules:active > .tag-in {
   gap: 0.8rem;
   padding: 0.5rem 0.8rem 0.5rem 1rem;
   border-radius: 1.6rem;
-  background: var(--c);
-  color: var(--on, #fff);
+  background: var(--paper);
+  color: var(--c);
   font-size: 1.4rem;
   line-height: 1.3;
   white-space: nowrap;
@@ -2242,20 +2282,20 @@ button.tag-rules:active > .tag-in {
   top: 50%;
   margin-top: -0.8rem;
   border: 0.8rem solid transparent;
-  border-left-color: var(--c);
+  border-left-color: var(--paper);
   border-right: 0;
 }
 .player-emote.other img {
-  width: 5.2rem;
-  height: 5.2rem;
-  margin: -0.9rem 0;
+  width: 6.4rem;
+  height: 6.4rem;
+  margin: -1.5rem 0;
 }
 .emote-who {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  --fill: var(--c2);
-  --stroke: var(--c);
+  --fill: var(--c);
+  --stroke: var(--paper);
 }
 .emote-who b {
   max-width: 11rem;
@@ -2647,6 +2687,7 @@ button.tag-rules:active > .tag-in {
   margin: 0.4rem 0 1.2rem;
 }
 .ready-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2660,6 +2701,23 @@ button.tag-rules:active > .tag-in {
   text-align: center;
   --fill: var(--c);
   --stroke: var(--paper);
+}
+/* on the results, each player's reaction pops up above their own tile */
+.tile-emote {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 0.6rem); /* resting on the tile's top edge, clear of the name */
+  z-index: 2;
+  translate: -50% 0;
+  pointer-events: none;
+}
+.player-emote.tile {
+  position: static;
+  transform-origin: 50% 100%;
+}
+.player-emote.tile img {
+  width: 5.2rem;
+  height: 5.2rem;
 }
 .ready-tile .who {
   display: flex;
@@ -2801,6 +2859,19 @@ button.tag-rules:active > .tag-in {
   font-size: 1.6rem;
   margin: 1.8rem 0 0.8rem;
   opacity: 0.7;
+}
+/* the credit at the foot of Settings; "Figma" opens the design file */
+.sheet-note {
+  margin-top: 2rem;
+  text-align: center;
+  text-wrap: balance;
+}
+.sheet-note a {
+  color: inherit;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.2em;
 }
 .close-btn {
   display: flex;
@@ -3134,6 +3205,15 @@ button:disabled > .haptic-switch {
     --fill: var(--p1);
     --stroke: var(--paper);
   }
+  /* its frame breathes in step with your tags while the table waits on you */
+  .actionbar.my-turn {
+    animation: bar-pulse 0.9s ease-in-out infinite alternate;
+  }
+  @keyframes bar-pulse {
+    to {
+      border-color: color-mix(in srgb, var(--p1) 93%, black);
+    }
+  }
   .act {
     flex: none;
     display: flex;
@@ -3219,7 +3299,8 @@ button:disabled > .haptic-switch {
   .avatar-pick .pointer,
   .slot.selected::after,
   .slot.target::before,
-  .tag.my-turn {
+  .tag.my-turn,
+  .actionbar.my-turn {
     animation: none;
   }
   .page,

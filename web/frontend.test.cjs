@@ -146,37 +146,88 @@ test('rated labels use Elo, modifier totals come from each player, Practice alon
   assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="digits streak-count" data-count="7"/);
 });
 
-test('tables of three mark who is up next: you, the opponent shown, or the one the cycle button turns to',()=>{
+test('tables of three mark who is up next on their score tag: yours, or that of the opponent showing',()=>{
   const h=harness();
   const game=(current,next)=>`{phase:"choose",current:${current},decision_player:${current},next_up:${next},legal:{flip:[]},effect_totals:[8,10,3],scores:[8,10,3],effects:[[],[],[]],turn_order:[0,1,2],modifier_counts:[0,0,0],draw_count:20}`;
   const label=`board.el.querySelector("[data-score-for='me']").querySelector("[data-turn-label]").textContent`;
   const aria=key=>h.run(`board.el.querySelector("${key}").attributes["aria-label"]`);
   h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob","Cy"],connected:[true,true,true],rules:{},game:${game(2,0)}};renderTags();`);
-  assert.equal(h.run(label),"You're next");assert.match(aria("[data-score-for='me']"),/you're up next/);
-  assert.doesNotMatch(aria("[data-score-for='opp']"),/up next/);assert.doesNotMatch(aria('[data-cycle-next]'),/up next/);
+  assert.equal(h.run(label),"Up next");assert.match(aria("[data-score-for='me']"),/Alice: 8 points, up next/);
+  assert.doesNotMatch(aria("[data-score-for='opp']"),/up next/);assert.equal(aria('[data-cycle-next]'),"Show Cy's cards. Swipe to browse opponents.");
   // the button that turns to the next opponent carries no name of its own
   assert.doesNotMatch(h.run(`board.el.querySelector("[data-cycle-next]").querySelector(".cycle-ico").innerHTML`),/Cy/);
   h.run(`state.game=${game(0,1)};renderTags();`);
   assert.equal(h.run(label),"Your turn");assert.match(aria("[data-score-for='opp']"),/Bob: 10 points, up next/);
   h.run(`state.game=${game(1,2)};renderTags();`);
-  assert.doesNotMatch(aria("[data-score-for='opp']"),/up next/);assert.match(aria('[data-cycle-next]'),/Show Cy's cards \(up next\)/);
+  // the opponent showing is the one playing: their tag says so, not "up next"
+  assert.match(aria("[data-score-for='opp']"),/Bob: 10 points, their turn\./);
+  assert.equal(h.run(`board.el.querySelector("[data-score-for='opp']").querySelector("[data-turn-label]").textContent`),"Their turn");
+  // the next player is off screen until the table is turned to them
+  h.run(`board.view={opp:2};renderTags();`);assert.match(aria("[data-score-for='opp']"),/Cy: 3 points, up next/);h.run(`board.view={opp:1};`);
+  // a server that does not report who is next: the next seat in turn order, until someone goes out
+  h.run(`state.game=${game(2,0)};delete state.game.next_up;renderTags();`);
+  assert.equal(h.run(label),"Up next");assert.match(aria("[data-score-for='me']"),/up next/);
+  h.run(`state.game.ending=true;renderTags();`);assert.doesNotMatch(aria("[data-score-for='me']"),/up next/);
   // the round ends with this turn, or it is a two-player table: nobody is next
-  h.run(`state.game=${game(1,null)};renderTags();`);assert.doesNotMatch(aria('[data-cycle-next]'),/up next/);
+  h.run(`state.game=${game(1,null)};board.view={opp:2};renderTags();`);assert.doesNotMatch(aria("[data-score-for='opp']"),/up next/);h.run(`board.view={opp:1};`);
   h.run(`state.names=["Alice","Bob"];state.game=${game(1,0)};state.game.turn_order=[0,1];renderTags();`);
   assert.doesNotMatch(aria("[data-score-for='me']"),/up next/);
 });
 
-test('a reaction from a player who is off screen is a tooltip by the cycle button in their colour, with avatar and name',()=>{
+test('the turn tooltip points up at the opponent on show when the turn is theirs, and down at the cycle button when it is not',()=>{
+  const h=harness();
+  h.run(`board.el=document.createElement("div");board.view={opp:1};prefs.hideTips=false;presenceState.queue=null;
+    state={viewer:0,status:"playing",names:["Alice","Bob","Cy"],game:{phase:"choose",current:1,decision_player:1,final_turn:false,turn_order:[0,1,2],legal:{flip:[],guess:false,arrange:[]}}};
+    renderSummary=()=>{};renderModal=()=>{};renderEmotes=()=>{};placeCallout=()=>{};renderChrome();`);
+  const callout=()=>h.run(`JSON.stringify([board.el.querySelector(".callout").textContent,board.el.querySelector(".callout").className,board.el.querySelector(".callout").dataset.anchor])`);
+  assert.equal(callout(),JSON.stringify(["Bob's turn","callout c-s1 up","turn"]));
+  h.run('board.view={opp:2};renderChrome()');assert.equal(callout(),JSON.stringify(["Bob's turn","callout c-s1 down","turn"]));
+  h.run('state.game.final_turn=true;renderChrome()');assert.match(callout(),/Final turn · Bob's turn/);
+  // your own turn is still announced beside your hand
+  h.run('state.game.final_turn=false;state.game.current=state.game.decision_player=0;renderChrome()');assert.equal(callout(),JSON.stringify(["Your turn","callout c-p1 down",""]));
+});
+
+test('a reaction from a player who is off screen is a tooltip by the cycle button with their avatar and name in their colour',()=>{
   const h=harness();
   h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob","Cy <b>"],avatars:["dog","dog","dog"],game:{}};
     opponentEmotesMuted=false;activeEmotes={1:{id:"shocked",sequence:1,ends:Date.now()+4000},2:{id:"laughing",sequence:1,ends:Date.now()+4000}};renderEmotes();`);
   const others=h.run(`board.el.querySelector("[data-emote-others]").innerHTML`),beside=h.run(`board.el.querySelector("[data-emote-layer]").innerHTML`);
-  assert.match(others,/class="player-emote other c-s2" data-emote-player="2"/);assert.match(others,/--on:var\(--s2on\)/);
+  assert.match(others,/class="player-emote other c-s2" data-emote-player="2"/);
   assert.match(others,/class="emote-who"><svg[^>]*class="ico"[\s\S]*<b>Cy &lt;b&gt;<\/b>/);assert.match(others,/emotes\/laughing\.png/);assert.doesNotMatch(others,/shocked/);
   // the opponent showing still reacts beside their own cards, with no label
   assert.match(beside,/class="player-emote them" data-emote-player="1"/);assert.doesNotMatch(beside,/emote-who|laughing/);
   h.run('opponentEmotesMuted=true;board.signatures={};renderEmotes();');
   assert.equal(h.run(`board.el.querySelector("[data-emote-others]").innerHTML`),'');
+  // on the results, everyone's reaction sits above their own tile and nowhere else
+  h.run(`opponentEmotesMuted=false;activeEmotes[0]={id:"nervous",sequence:1,ends:Date.now()+4000};
+    globalThis.tiles=[0,1,2].map(p=>({dataset:{tileEmote:String(p)},innerHTML:""}));board.el.querySelectorAll=()=>tiles;renderEmotes();`);
+  assert.match(h.run('tiles[0].innerHTML'),/class="player-emote tile" data-emote-player="0".*nervous\.png/);
+  assert.match(h.run('tiles[1].innerHTML'),/shocked\.png/);assert.match(h.run('tiles[2].innerHTML'),/laughing\.png/);assert.doesNotMatch(h.run('tiles[2].innerHTML'),/emote-who/);
+  assert.equal(h.run(`board.el.querySelector("[data-emote-others]").innerHTML`),'');assert.equal(h.run(`board.el.querySelector("[data-emote-layer]").innerHTML`),'');
+});
+
+test('controller bumpers take the cursor along with the avatar they choose when it rests on the wheel',()=>{
+  const h=harness();
+  h.run(`const item=(id,checked)=>({tagName:"BUTTON",id:"",dataset:{avatar:id},isConnected:true,attrs:{"aria-checked":String(checked)},
+      matches:s=>s===".avatar",closest:()=>null,getAttribute(k){return this.attrs[k]??null;},setAttribute(k,v){this.attrs[k]=v;}});
+    globalThis.wheelItems=[item("dog",true),item("frog",false),item("cat",false)];
+    wheelItems.forEach((el,i)=>{el.previousElementSibling=wheelItems[i-1]||null;el.nextElementSibling=wheelItems[i+1]||null;});
+    root.querySelector=sel=>sel.includes("aria-checked")?wheelItems.find(el=>el.attrs["aria-checked"]==="true"):null;
+    root.querySelectorAll=()=>wheelItems;saveAvatar=()=>{};centerAvatar=()=>{};
+    page="solo";PAD.scope={querySelectorAll:()=>[]};PAD.focus=wheelItems[0];padPress("rb");`);
+  assert.equal(h.run('PAD.focus.dataset.avatar'),'frog');assert.equal(h.run('wheelItems[1].attrs["aria-checked"]'),'true');
+  h.run('padPress("lb")');assert.equal(h.run('PAD.focus.dataset.avatar'),'dog');
+  // at the end of the wheel nothing moves
+  h.run('padPress("lb")');assert.equal(h.run('PAD.focus.dataset.avatar'),'dog');
+  // from anywhere else the choice changes and the cursor stays where it is
+  h.run(`globalThis.elsewhere={tagName:"BUTTON",dataset:{},matches:()=>false,closest:()=>null,getAttribute:()=>null};PAD.focus=elsewhere;padPress("rb");`);
+  assert.equal(h.run('wheelItems[1].attrs["aria-checked"]'),'true');assert.equal(h.run('PAD.focus===elsewhere'),true);
+});
+
+test('Settings ends with the credit note and a link to the Figma designs',()=>{
+  const h=harness();h.run('settingsSheet()');
+  const html=h.nodes.get('sheet').innerHTML;
+  assert.match(html,/This website has been programmed by Claude Fable 5\.2\. Front-end design was handmade in <a href="https:\/\/www\.figma\.com\/design\/OtrBljPuG5YggsJYThYGpq\/Golf\?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma<svg[^>]*>.*?<\/svg><\/a> by Spencer\.<\/p>\s*<\/section>$/s);
 });
 
 test('an open rules sheet is redrawn in place by a table update, not closed or slid in again',()=>{

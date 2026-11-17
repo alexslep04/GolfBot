@@ -471,6 +471,7 @@ function settingsSheet() {
     </div>
     ${prefsHtml()}
     ${padHelpHtml()}
+    <p class="hint dark sheet-note">This website has been programmed by Claude Fable 5.2. Front-end design was handmade in <a href="https://www.figma.com/design/OtrBljPuG5YggsJYThYGpq/Golf?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma${textSymbol("arrow.up.right", "out-arrow")}</a> by Spencer.</p>
   </section>`);
 }
 function voidOfferButton() {

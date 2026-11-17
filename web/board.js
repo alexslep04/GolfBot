@@ -168,6 +168,7 @@ function spinCycle(direction) {
 // page. A copy of the side being left slides out while the real one, already
 // showing the next opponent, slides in beside it; under a finger the pair
 // follows the swipe and only changes over if it is carried far enough.
+const SLIDE_BLUR = 4; // px of blur on a side that has gone all the way
 function beginSlide(direction) {
   if (!canCycle() || reducedMotion.matches) return null;
   if (board.slide) endSlide(board.slide);
@@ -192,7 +193,6 @@ function beginSlide(direction) {
   const slide = { direction, from, to, top, shell, copy, el: board.el, width: board.el.offsetWidth, x: 0, frame: 0, commit: false };
   board.slide = slide;
   board.el.before(shell); // under the table, so the cycle button stays on top of both sides
-  board.el.classList.add("swiping");
   top.classList.add("sliding");
   setSlide(slide, 0);
   showOpponent(to);
@@ -204,6 +204,13 @@ function setSlide(slide, x) {
   slide.x = direction > 0 ? clamp(x, -width, 0) : clamp(x, 0, width);
   slide.copy.style.translate = `${slide.x}px 0`;
   slide.top.style.setProperty("--slide", `${slide.x + direction * width}px`);
+  // each side fades and softens with its distance from rest, so neither is cut off at the table's edge
+  const gone = Math.abs(slide.x) / width;
+  const fade = (away) => [(1 - away ** 2).toFixed(3), `blur(${(away * SLIDE_BLUR).toFixed(2)}px)`];
+  [slide.copy.style.opacity, slide.copy.style.filter] = fade(gone);
+  const [opacity, blur] = fade(1 - gone);
+  slide.top.style.setProperty("--slide-opacity", opacity);
+  slide.top.style.setProperty("--slide-blur", blur);
 }
 /** Carry the slide the rest of the way over, or back to where it started. */
 function settleSlide(slide, commit) {
@@ -221,6 +228,20 @@ function settleSlide(slide, commit) {
   };
   slide.frame = requestAnimationFrame(step);
 }
+/**
+ * The cycle button sits under the opponent's score tag, which is taller for a
+ * long name: when a redraw moves the button, it glides to its new place.
+ */
+function glideCycle(wrap, wasAt) {
+  if (wasAt === undefined || !wrap.animate || reducedMotion.matches) return;
+  wrap.getAnimations().forEach((animation) => animation.cancel());
+  const moved = wasAt - wrap.getBoundingClientRect().top;
+  if (Math.abs(moved) < 0.5) return;
+  wrap.animate([{ translate: `0 ${moved}px` }, { translate: "0 0" }], {
+    duration: 450,
+    easing: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+  });
+}
 function endSlide(slide) {
   cancelAnimationFrame(slide.frame);
   if (board.slide === slide) board.slide = null;
@@ -229,8 +250,7 @@ function endSlide(slide) {
     showOpponent(slide.from);
   void slide.top.offsetWidth; // the tags take their colour before they may fade again
   slide.top.classList.remove("sliding");
-  slide.top.style.removeProperty("--slide");
-  slide.el.classList.remove("swiping");
+  for (const name of ["--slide", "--slide-opacity", "--slide-blur"]) slide.top.style.removeProperty(name);
   slide.shell.remove();
 }
 function colorFor(player) {
@@ -282,10 +302,11 @@ function mountBoard() {
         <div class="hand" data-hand="opp">${hand("opp", HAND_TILT[1])}</div>
       </div>
       <div class="b-side">
-        <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span><span class="turn-label" aria-hidden="true">Next up</span></button>
+        <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span><span class="turn-label" data-turn-label aria-hidden="true">Up next</span></button>
         <span class="tag-avatar" data-avatar-for="opp" aria-hidden="true"></span>
+        <div class="turn-slot" data-turn-slot></div>
         <div class="streak" data-streak data-practice-streak role="img" hidden></div>
-        <div class="cycle-wrap"><button type="button" class="cycle" data-cycle-next hidden><span class="cycle-ico"></span><span class="cycle-next" aria-hidden="true">Next up</span></button><div class="cycle-emotes" data-emote-others></div></div>
+        <div class="cycle-wrap"><button type="button" class="cycle" data-cycle-next hidden><span class="cycle-ico"></span></button><div class="cycle-emotes" data-emote-others></div></div>
       </div>
     </section>
     <section class="b-mid">
@@ -354,6 +375,7 @@ function mountBoard() {
   board.el.addEventListener("pointerup", onBoardPointerUp);
   board.el.addEventListener("pointercancel", onBoardPointerCancel);
   board.el.addEventListener("pointerleave", () => setHover(null));
+  board.el.addEventListener("wheel", onBoardWheel, { passive: false });
   const summary = board.el.querySelector("[data-summary]");
   summary.addEventListener("pointermove", evalHover);
   summary.addEventListener("pointerdown", evalHover);
@@ -710,6 +732,11 @@ function myTurn() {
     ? g.legal.flip.length > 0
     : g.decision_player === state.viewer;
 }
+/** True while the table is waiting on this opponent (opening flips are everyone's at once). */
+function theirTurn(player) {
+  const g = state.game;
+  return state.status === "playing" && !["setup", "over"].includes(g.phase) && g.decision_player === player;
+}
 /**
  * At tables of three or more, the player whose turn comes after the one in
  * progress (null at smaller tables, and when the round ends with this turn).
@@ -717,7 +744,12 @@ function myTurn() {
 function nextUp() {
   const g = state.game;
   if (state.names.length < 3 || state.status !== "playing") return null;
-  return g.next_up ?? null;
+  if (g.next_up !== undefined) return g.next_up;
+  // A server started before it reported this: the next seat in turn order.
+  // Once someone has gone out, only the server knows who still has a final turn.
+  if (g.ending || ["setup", "over"].includes(g.phase)) return null;
+  const order = g.turn_order;
+  return order[(order.indexOf(g.current) + 1) % order.length];
 }
 /**
  * Solo only: your win streak against Golfbot, a flame over a sticker number
@@ -753,6 +785,9 @@ function renderTags() {
   if (turn && board.signatures.turn === false) haptic("turn");
   board.signatures.turn = turn;
   const upNext = nextUp();
+  // where the cycle button is now, if it is showing (it may be about to move)
+  const cycleWrap = board.el.querySelector(".cycle-wrap");
+  const cycleAt = board.signatures.cycleShown ? cycleWrap.getBoundingClientRect?.().top : undefined;
   for (const [side, player] of [
     ["me", state.viewer],
     ["opp", board.view.opp],
@@ -768,12 +803,15 @@ function renderTags() {
       // your own tags carry the "your turn" label and a gentle pulse
       tag.classList.toggle("my-turn", side === "me" && turn);
     }
-    // whoever plays after this turn is told so in the same band of their score tag
-    const next = player === upNext && !(side === "me" && turn);
+    // the band of a score tag says whose turn it is (in white), and who plays
+    // after it (darker, like the frame); the wording only changes as the label
+    // comes in, never while it fades out
+    const theirs = side === "opp" && theirTurn(player);
+    const next = player === upNext && !theirs && !(side === "me" && turn);
+    scoreTag.classList.toggle("their-turn", theirs);
     scoreTag.classList.toggle("up-next", next);
-    // (the wording only changes as the label comes in, never while it fades out)
-    if (side === "me" && (next || turn))
-      scoreTag.querySelector("[data-turn-label]").textContent = next ? "You're next" : "Your turn";
+    if (next || theirs || (side === "me" && turn))
+      scoreTag.querySelector("[data-turn-label]").textContent = next ? "Up next" : theirs ? "Their turn" : "Your turn";
     // the player's avatar, a big sticker tucked behind their score tag
     const avatarTag = board.el.querySelector(`[data-avatar-for='${side}']`);
     const avatarId = state.avatars?.[player];
@@ -799,7 +837,7 @@ function renderTags() {
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${next ? (side === "me" ? ", you're up next" : ", up next") : ""}${side === "opp" ? ". Open their stats." : ""}`,
+      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ""}`,
     );
     const delta = ruleDelta(player);
     const stickers = ruleStickers(player);
@@ -824,26 +862,26 @@ function renderTags() {
       `${state.names[player]}: ${enabled} modifiers in play, ${delta} points from rules. Open details.`,
     );
   }
-  // the cycle button wears the colour of the opponent it turns to, and says
-  // so when they are the one up next, since their own tag is not on screen
+  // the cycle button wears the colour of the opponent it turns to
   const cycle = board.el.querySelector("[data-cycle-next]");
   const others = otherPlayers();
   cycle.hidden = others.length < 2;
+  board.signatures.cycleShown = others.length > 1;
   if (others.length > 1) {
     const next = others[(others.indexOf(board.view.opp) + 1) % others.length];
     cycle.classList.remove(...OPPONENT_COLORS);
     cycle.classList.add(colorFor(next));
-    cycle.classList.toggle("up-next", next === upNext);
     patch("cycle", cycle.querySelector(".cycle-ico"), "static", () =>
       icon("arrow.trianglehead.2.clockwise.rotate.90", 44),
     );
     cycle.setAttribute(
       "aria-label",
-      `Show ${state.names[next]}'s cards${next === upNext ? " (up next)" : ""}. Swipe to browse opponents.`,
+      `Show ${state.names[next]}'s cards. Swipe to browse opponents.`,
     );
   }
   board.el.querySelector("[data-draw-label]").textContent =
     `go-fish pile (${g.draw_count})`;
+  glideCycle(cycleWrap, cycleAt);
 }
 
 function promptText() {
@@ -895,10 +933,26 @@ function placeCallout() {
     const half = callout.offsetWidth / 2 + 6;
     const x = clamp(card.left + card.width / 2 - box.left, half, box.width - half);
     callout.style.setProperty("--callout-x", `${x}px`);
+    callout.style.removeProperty("--tip-x");
     callout.style.top = `${card.top - box.top - callout.offsetHeight / 2 - 10}px`;
     return;
   }
+  if (callout.dataset.anchor === "turn") {
+    // in the gap kept for it between the opponent's avatar and the cycle
+    // button, its arrow under the middle of that column even where the box is
+    // held in from the table's edge. Measured from the layout, not the screen,
+    // so it lands where things rest while the opponent's side is sliding in.
+    const slot = board.el.querySelector("[data-turn-slot]");
+    const width = callout.offsetWidth,
+      centre = slot.offsetLeft + slot.offsetWidth / 2;
+    const x = clamp(centre, width / 2 + 6, box.width - width / 2 - 6);
+    callout.style.setProperty("--callout-x", `${x}px`);
+    callout.style.setProperty("--tip-x", `${clamp(centre - x + width / 2, 20, width - 20)}px`);
+    callout.style.top = `${slot.offsetTop + slot.offsetHeight / 2}px`;
+    return;
+  }
   callout.style.removeProperty("--callout-x");
+  callout.style.removeProperty("--tip-x");
   const y =
     callout.dataset.side === "opp"
       ? (top.bottom + mid.top) / 2
@@ -932,10 +986,19 @@ function renderChrome() {
   if (text) {
     const player = side === "me" ? state.viewer : g.decision_player;
     const color = side === "me" ? "c-p1" : colorFor(player === state.viewer ? board.view.opp : player);
-    callout.className = `callout ${color} ${side === "me" ? "down" : "up"}`;
+    // An opponent's turn is announced between their avatar and the cycle
+    // button: pointing up at the player on show when the turn is theirs, and
+    // down at the button that leads to whoever's it is when it is not.
+    const anchor =
+      g.phase === "setup" && g.legal.flip.length && !prefs.hideTips
+        ? "card"
+        : side === "opp" && theirTurn(player)
+          ? "turn"
+          : "";
+    const arrow = side === "me" || (anchor === "turn" && player !== board.view.opp) ? "down" : "up";
+    callout.className = `callout ${color} ${arrow}`;
     callout.dataset.side = side;
-    callout.dataset.anchor =
-      g.phase === "setup" && g.legal.flip.length && !prefs.hideTips ? "card" : "";
+    callout.dataset.anchor = anchor;
     if (board.signatures.callout !== text + side) {
       board.signatures.callout = text + side;
       callout.textContent = text;
@@ -955,7 +1018,7 @@ function renderChrome() {
         : "",
   );
   const bar = board.el.querySelector("[data-actionbar]");
-  patch(
+  const drawn = patch(
     "actionbar",
     bar,
     "static",
@@ -966,11 +1029,13 @@ function renderChrome() {
       )
       .join(""),
   );
+  if (drawn && text) placeCallout(); // on desktop the bar's arrival moves the table up under the tooltip
   bar.querySelectorAll("[data-action]").forEach((button) => {
     button.disabled = !actionAllowed(button.dataset.action);
   });
-  renderEmotes();
+  bar.classList.toggle("my-turn", myTurn()); // it pulses along with your tags
   renderSummary();
+  renderEmotes(); // after the results, whose tiles the reactions sit on
   renderModal();
 }
 
@@ -983,12 +1048,23 @@ function renderEmotes() {
   // speaks up from the cycle button that leads to them
   const players = state.names.map((_, p) => p);
   const showing = (p) => p === state.viewer || p === board.view.opp;
-  patch("emotes", layer, signature + board.view.opp, () =>
-    players.filter(showing).map(playerEmote).join(""),
+  // on the results everyone has a tile, and reacts from above it instead
+  const tiles = [...(board.el.querySelectorAll?.("[data-tile-emote]") ?? [])];
+  const results = tiles.length > 0;
+  patch("emotes", layer, signature + board.view.opp + results, () =>
+    results ? "" : players.filter(showing).map((p) => playerEmote(p)).join(""),
   );
-  patch("emotes-others", board.el.querySelector("[data-emote-others]"), signature + board.view.opp, () =>
-    players.filter((p) => !showing(p)).map(playerEmote).join(""),
+  patch("emotes-others", board.el.querySelector("[data-emote-others]"), signature + board.view.opp + results, () =>
+    results ? "" : players.filter((p) => !showing(p)).map((p) => playerEmote(p)).join(""),
   );
+  for (const tile of tiles) {
+    // (the tiles are redrawn with the results, so each remembers what it holds)
+    const player = Number(tile.dataset.tileEmote);
+    const shown = `${activeEmotes[player]?.sequence || 0}|${opponentEmotesMuted}`;
+    if (tile.dataset.shown === shown) continue;
+    tile.dataset.shown = shown;
+    tile.innerHTML = playerEmote(player, true);
+  }
   const pop = board.el.querySelector("[data-emote-pop]");
   patch(
     "emote-pop",
@@ -1009,7 +1085,7 @@ function emoteButtons() {
       "",
     )}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button>`;
 }
-function playerEmote(player) {
+function playerEmote(player, onTile = false) {
   if (opponentEmotesMuted && player !== state.viewer) return "";
   const item = activeEmotes[player];
   if (!item || item.ends <= Date.now()) return "";
@@ -1017,9 +1093,11 @@ function playerEmote(player) {
   const where =
     player === state.viewer ? "me" : player === board.view.opp ? "them" : "other";
   const image = `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(state.names[player])}: ${emoteNames[item.id]} emote">`;
-  // a tooltip in the player's own colour, with their avatar and name, pointing back at the cycle button
+  if (onTile)
+    return `<div class="player-emote tile" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms">${image}</div>`;
+  // a white tooltip with the player's avatar and name in their own colour, pointing back at the cycle button
   if (where === "other")
-    return `<div class="player-emote other ${colorFor(player)}" data-emote-player="${player}" role="status" style="--on:var(--s${player % SEAT_COLORS.length}on);animation-delay:-${age}ms"><span class="emote-who">${icon(avatarIcon(state.avatars?.[player]), 26, { idle: false })}<b>${e(state.names[player])}</b></span>${image}</div>`;
+    return `<div class="player-emote other ${colorFor(player)}" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms"><span class="emote-who">${icon(avatarIcon(state.avatars?.[player]), 26, { idle: false })}<b>${e(state.names[player])}</b></span>${image}</div>`;
   return `<div class="player-emote ${where}" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms">${image}</div>`;
 }
 
@@ -1237,7 +1315,7 @@ function renderSummary() {
         const status = between
           ? `<span class="ready-state${ready ? " on" : ""}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}${ready ? "Ready" : "Not ready"}</span>`
           : "";
-        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
+        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
       })
       .join("");
     // Quit is a plain sticker icon with its label underneath, left of the main button
@@ -1246,7 +1324,7 @@ function renderSummary() {
       ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${tilted("checkmark.circle.fill", 26)} <span>${padTag("y")}${state.ready[viewer] ? "Waiting…" : "Ready"}</span></button></div>`
       : viewer === 0
         ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 26)} <span>${padTag("y")}Play again</span></button></div>`
-        : `<div class="row">${quit}<p class="hint dark grow">The host can start a rematch.</p></div>`;
+        : `<div class="row">${quit}<p class="btn c-p1 grow btn-note">The host can start a rematch.</p></div>`;
     const heading = resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     // the verdict and the graph float over the table; the green panel holds the rest
@@ -1915,7 +1993,10 @@ function swipeFromCard(drag, dx, dy) {
   return true;
 }
 document.addEventListener("pointerdown", (event) => {
-  if (tableSwipe?.slide) return; // one finger is already swiping
+  if (tableSwipe?.slide || tableSwipe?.plain) {
+    if (!event.isPrimary) return; // a second finger, while the first is still swiping
+    endSwipe({ type: "pointercancel", pointerId: tableSwipe.pointer }); // its lift was never reported
+  }
   const zone = event.target.closest?.(".board:not(.board-ghost) .b-top");
   tableSwipe = null;
   if (zone && !event.target.closest(".slot") && !(event.button > 0) && canCycle()) trackSwipe(event);
@@ -1989,6 +2070,76 @@ document.addEventListener(
   },
   true,
 );
+/* ---------- trackpad: a sideways scroll turns the table too ---------- */
+// The opponent's side follows the scroll like a finger dragging it, and goes
+// over once it is carried far enough. A trackpad then keeps sending the
+// scroll's momentum for a second or more: that is ignored, but a fresh swipe
+// made while it is still dying away is not.
+const wheelSwipe = { slide: null, x: 0, y: 0, spent: 0, peak: 0, falling: false, trough: 0, timer: 0 };
+function onBoardWheel(event) {
+  // pinch-zooming, and the panels over the table that scroll, are left alone
+  if (event.ctrlKey || !canCycle() || event.target.closest?.(".summary, .modal-shade, .emote-pop")) return;
+  // Every event of a scroll is claimed, from the very first (often a nudge of
+  // nothing, or slightly up or down): one that is let go hands the whole swipe
+  // to the browser, which keeps it for its own back and forward gesture.
+  event.preventDefault();
+  clearTimeout(wheelSwipe.timer);
+  wheelSwipe.timer = setTimeout(endWheel, 140); // the scroll has stopped
+  if (tableSwipe?.slide) return;
+  const unit = event.deltaMode === 1 ? 16 : 1;
+  const dx = -event.deltaX * unit; // scrolling right moves what is under the pointer to the left
+  const size = Math.abs(dx);
+  if (wheelSwipe.spent) {
+    // What follows a swipe that has gone over is its own tail: the finger
+    // slowing, then momentum, which only ever fades and never turns round.
+    // Once that has clearly passed its peak, a scroll that picks up again (or
+    // goes the other way) is a new swipe.
+    let fresh = Math.sign(dx) === -wheelSwipe.spent && size > 6;
+    if (!wheelSwipe.falling) {
+      wheelSwipe.peak = Math.max(wheelSwipe.peak, size);
+      if (size <= wheelSwipe.peak / 2) Object.assign(wheelSwipe, { falling: true, trough: size });
+    } else {
+      wheelSwipe.trough = Math.min(wheelSwipe.trough, size);
+      fresh ||= size > wheelSwipe.trough * 1.5 + 6;
+    }
+    if (!fresh) return;
+    Object.assign(wheelSwipe, { slide: null, x: 0, y: 0, spent: 0 });
+  }
+  wheelSwipe.x += dx;
+  wheelSwipe.y += Math.abs(event.deltaY) * unit;
+  if (wheelSwipe.slide && board.slide !== wheelSwipe.slide) wheelSwipe.slide = null; // something else moved the table on
+  let slide = wheelSwipe.slide;
+  // a scroll that has barely begun, or is mostly up and down, moves nothing yet
+  if (!slide && (Math.abs(wheelSwipe.x) < 6 || Math.abs(wheelSwipe.x) <= wheelSwipe.y)) return;
+  const direction = wheelSwipe.x < 0 ? 1 : -1;
+  const spend = () => Object.assign(wheelSwipe, { slide: null, spent: Math.sign(dx) || -direction, peak: size, falling: false });
+  if (!slide || slide.direction !== direction) {
+    if (slide) endSlide(slide);
+    slide = wheelSwipe.slide = beginSlide(direction);
+    if (!slide) {
+      // reduced motion: nothing follows the scroll, a firm one just changes opponent
+      if (Math.abs(wheelSwipe.x) > 60) {
+        spend();
+        cycleOpponent(direction);
+      }
+      return;
+    }
+  }
+  setSlide(slide, wheelSwipe.x);
+  if (Math.abs(slide.x) < slide.width * 0.35) return;
+  spend();
+  settleSlide(slide, true);
+  spinCycle(direction);
+}
+function endWheel() {
+  const slide = wheelSwipe.slide;
+  Object.assign(wheelSwipe, { slide: null, x: 0, y: 0, spent: 0 });
+  if (!slide || board.slide !== slide) return;
+  // a short scroll that stopped: far enough to count, or back it goes
+  const commit = Math.abs(slide.x) > slide.width * 0.15;
+  settleSlide(slide, commit);
+  if (commit) spinCycle(slide.direction);
+}
 window.addEventListener("resize", placeCallout);
 
 /* ---------- rules sheet ---------- */
