@@ -560,6 +560,7 @@ def snapshot(room, token):
         "phase": game.phase, "current": game.current, "decision_player": game.decision_player,
         "first_player": game.first_player, "final_turn": game.is_final_turn, "ending": game.finisher is not None,
         "turn_order": game.turn_order, "turns": game.turns, "deck_count": game.deck_count,
+        "next_up": game.next_up,
         "players": [[{"visible": slot.visible, "locked": slot.visible and slot.card in game.locked_cards,
                       "card": card_view(slot.card) if slot.visible else None} for slot in layout] for layout in game.players],
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),

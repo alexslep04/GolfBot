@@ -101,18 +101,38 @@ class ManyPlayerEngineTests(unittest.TestCase):
             for i in (0,1):
                 game.opening_reveal(p,i)
         self.assertEqual(game.current, 2)
+        self.assertEqual(game.next_up, 0)
         for slot in game.players[2][:5]:
             slot.visible = True
         game.reveal(5)
+        self.assertEqual(game.next_up, 0)
         game.end_turn()
-        for expected in (0,3,1):
+        # each final turn is followed by the next one, and the last by nobody
+        for expected, following in ((0,3),(3,1),(1,None)):
             self.assertEqual(game.current, expected)
             self.assertTrue(game.is_final_turn)
+            self.assertEqual(game.next_up, following)
             game.draw()
             game.discard()
         self.assertEqual(game.phase, 'over')
+        self.assertIsNone(game.next_up)
         self.assertEqual(game.turns, 4)
         self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
+
+    def test_next_up_follows_turn_order_and_waits_for_opening_flips(self):
+        game = GolfGame(multiplayer=True, player_count=3, turn_order=[1,2,0], first_player=1)
+        self.assertIsNone(game.next_up)
+        for p in range(3):
+            for i in (0,1):
+                game.opening_reveal(p,i)
+        for current, following in ((1,2),(2,0),(0,1)):
+            self.assertEqual(game.current, current)
+            self.assertEqual(game.next_up, following)
+            game.draw()
+            game.discard()
+        room = Room('r','Table',game.rules,1,'random',False,['a','b','c'],['A','B','C'],game=game,game_type='many',status='playing')
+        room.resize_seats()
+        self.assertEqual(snapshot(room,'a')['game']['next_up'], 2)
 
     def test_bonus_finishing_nonacting_player_gives_actor_a_fresh_final_turn(self):
         game = GolfGame(multiplayer=True, player_count=3, turn_order=[0,2,1])

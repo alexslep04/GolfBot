@@ -247,6 +247,17 @@ class GolfGame:
             self.message = "Both players reveal two cards before play starts."
 
     @property
+    def next_up(self):
+        """Who plays after the turn in progress, or None when the round ends with it."""
+        if self.phase in ("setup", "over"):
+            return None
+        if self.finisher is not None and self.final_turn_queue is not None:
+            return self.final_turn_queue[0] if self.final_turn_queue else None
+        if self.is_final_turn:
+            return None
+        return self.final_player if self.final_player is not None else self.next_player(self.current)
+
+    @property
     def decision_player(self):
         if self.phase in ("guess", "guess_trade"):
             return self.guess_pending["player"]

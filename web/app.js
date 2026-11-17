@@ -1027,10 +1027,16 @@ function renderRoom() {
   renderBoard();
 }
 function closeSheetIfStale() {
-  // keep an open rules sheet in step with the table
+  // keep an open rules sheet in step with the table: redrawn where it is, at
+  // the scroll it was left at, rather than sliding in from the bottom again
   const player = sheetRoot.dataset.player;
-  if (!sheetRoot.hidden && player !== undefined && player !== "")
-    sheetRoot.innerHTML = rulesSheet(Number(player));
+  if (sheetRoot.hidden || player === undefined || player === "") return;
+  const scroll = sheetRoot.querySelector(".sheet")?.scrollTop || 0;
+  sheetRoot.innerHTML = rulesSheet(Number(player));
+  const sheet = sheetRoot.querySelector(".sheet");
+  if (!sheet) return;
+  sheet.classList.add("settled");
+  sheet.scrollTop = scroll;
 }
 function openRulesSheet(player) {
   openSheet(rulesSheet(player), player);

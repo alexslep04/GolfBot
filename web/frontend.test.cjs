@@ -146,6 +146,52 @@ test('rated labels use Elo, modifier totals come from each player, Practice alon
   assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="digits streak-count" data-count="7"/);
 });
 
+test('tables of three mark who is up next: you, the opponent shown, or the one the cycle button turns to',()=>{
+  const h=harness();
+  const game=(current,next)=>`{phase:"choose",current:${current},decision_player:${current},next_up:${next},legal:{flip:[]},effect_totals:[8,10,3],scores:[8,10,3],effects:[[],[],[]],turn_order:[0,1,2],modifier_counts:[0,0,0],draw_count:20}`;
+  const label=`board.el.querySelector("[data-score-for='me']").querySelector("[data-turn-label]").textContent`;
+  const aria=key=>h.run(`board.el.querySelector("${key}").attributes["aria-label"]`);
+  h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob","Cy"],connected:[true,true,true],rules:{},game:${game(2,0)}};renderTags();`);
+  assert.equal(h.run(label),"You're next");assert.match(aria("[data-score-for='me']"),/you're up next/);
+  assert.doesNotMatch(aria("[data-score-for='opp']"),/up next/);assert.doesNotMatch(aria('[data-cycle-next]'),/up next/);
+  // the button that turns to the next opponent carries no name of its own
+  assert.doesNotMatch(h.run(`board.el.querySelector("[data-cycle-next]").querySelector(".cycle-ico").innerHTML`),/Cy/);
+  h.run(`state.game=${game(0,1)};renderTags();`);
+  assert.equal(h.run(label),"Your turn");assert.match(aria("[data-score-for='opp']"),/Bob: 10 points, up next/);
+  h.run(`state.game=${game(1,2)};renderTags();`);
+  assert.doesNotMatch(aria("[data-score-for='opp']"),/up next/);assert.match(aria('[data-cycle-next]'),/Show Cy's cards \(up next\)/);
+  // the round ends with this turn, or it is a two-player table: nobody is next
+  h.run(`state.game=${game(1,null)};renderTags();`);assert.doesNotMatch(aria('[data-cycle-next]'),/up next/);
+  h.run(`state.names=["Alice","Bob"];state.game=${game(1,0)};state.game.turn_order=[0,1];renderTags();`);
+  assert.doesNotMatch(aria("[data-score-for='me']"),/up next/);
+});
+
+test('a reaction from a player who is off screen is a tooltip by the cycle button in their colour, with avatar and name',()=>{
+  const h=harness();
+  h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob","Cy <b>"],avatars:["dog","dog","dog"],game:{}};
+    opponentEmotesMuted=false;activeEmotes={1:{id:"shocked",sequence:1,ends:Date.now()+4000},2:{id:"laughing",sequence:1,ends:Date.now()+4000}};renderEmotes();`);
+  const others=h.run(`board.el.querySelector("[data-emote-others]").innerHTML`),beside=h.run(`board.el.querySelector("[data-emote-layer]").innerHTML`);
+  assert.match(others,/class="player-emote other c-s2" data-emote-player="2"/);assert.match(others,/--on:var\(--s2on\)/);
+  assert.match(others,/class="emote-who"><svg[^>]*class="ico"[\s\S]*<b>Cy &lt;b&gt;<\/b>/);assert.match(others,/emotes\/laughing\.png/);assert.doesNotMatch(others,/shocked/);
+  // the opponent showing still reacts beside their own cards, with no label
+  assert.match(beside,/class="player-emote them" data-emote-player="1"/);assert.doesNotMatch(beside,/emote-who|laughing/);
+  h.run('opponentEmotesMuted=true;board.signatures={};renderEmotes();');
+  assert.equal(h.run(`board.el.querySelector("[data-emote-others]").innerHTML`),'');
+});
+
+test('an open rules sheet is redrawn in place by a table update, not closed or slid in again',()=>{
+  const h=harness();matchRulesFixture(h);
+  // each redraw makes a new panel, as the browser does
+  h.run(`globalThis.panels=[];sheetRoot.querySelector=()=>{const made={scrollTop:0,added:[],classList:{add(name){made.added.push(name);}}};panels.push(made);return made;};
+    Object.defineProperty(sheetRoot,"innerHTML",{set(html){this.html=html;const made={scrollTop:0,added:[],classList:{add(name){made.added.push(name);}}};panels.push(made);sheetRoot.querySelector=()=>made;},get(){return this.html;}});
+    openRulesSheet(0);panels.at(-1).scrollTop=140;state.game.effect_totals=[7,3];closeSheetIfStale();`);
+  assert.equal(h.run('sheetRoot.hidden'),false);assert.match(h.run('sheetRoot.innerHTML'),/7 pts/);
+  assert.equal(h.run('panels.length'),2);assert.equal(h.run('panels.at(-1).scrollTop'),140);assert.deepEqual([...h.run('panels.at(-1).added')],['settled']);
+  // other sheets (stats, menus) are left alone
+  h.run('openSheet("<section class=\\"sheet\\">menu</section>");closeSheetIfStale();');
+  assert.equal(h.run('sheetRoot.innerHTML'),'<section class="sheet">menu</section>');
+});
+
 test('void action posts corrected lobby endpoint and reply payload',async()=>{
   const h=harness();h.run('state={id:"room"};session.room_id="room";accept=next=>{};');
   const click=h.listeners.click.at(-1);
