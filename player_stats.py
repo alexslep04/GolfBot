@@ -176,7 +176,19 @@ def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=
         return {'profile': by_id[selected], 'overall': summarize(matches, selected, enabled, disabled, house_only=house_only, patch=patch),
                 'head_to_head': summarize(matches, selected, enabled, disabled, opponent, house_only, patch) if opponent else None}
 
-    return {'players': players, 'player': entry(player_id, opponent_id) if player_id else None,
+    def standing(player):
+        stats = summarize(matches, player['id'], enabled, disabled, house_only=house_only, patch=patch)
+        return {'profile': player, **{key: stats[key] for key in (
+            'rounds', 'round_wins', 'round_losses', 'round_draws', 'round_win_rate',
+            'completed_matches', 'match_wins', 'match_losses', 'match_draws', 'match_win_rate', 'average_points')}}
+
+    # Best game win rate first; players with no matching games last. Ties go to whoever has played more.
+    leaderboard = sorted((standing(player) for player in players),
+                         key=lambda row: (row['round_win_rate'] is None, -(row['round_win_rate'] or 0), -row['rounds'],
+                                          row['profile']['username'].casefold(), row['profile']['id']))
+
+    return {'players': players, 'leaderboard': leaderboard,
+            'player': entry(player_id, opponent_id) if player_id else None,
             'comparison': entry(opponent_id, player_id) if opponent_id else None,
             'patches': patches,
             'filters': {'enabled': list(enabled), 'disabled': list(disabled), 'house_rules': house_only, 'patch': patch}}

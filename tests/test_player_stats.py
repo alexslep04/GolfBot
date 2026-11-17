@@ -37,6 +37,18 @@ class StatsTests(unittest.TestCase):
             match(['tester', 'GolfBot'], [result([10, 1], activations=[[], []])], status='interrupted', solo=True),
         ]
 
+    def test_leaderboard_ranks_by_game_win_rate_with_unplayed_filters_last(self):
+        data = build_stats(self.matches)
+        board = data['leaderboard']
+        # Rival won their only game; tester won 2 of 5; Golfbot 1 of 4.
+        self.assertEqual([row['profile']['id'] for row in board], ['player:Rival', 'player:tester', BOT_ID])
+        self.assertEqual([row['round_win_rate'] for row in board], [1, 2 / 5, 1 / 4])
+        self.assertEqual((board[1]['round_wins'], board[1]['round_losses'], board[1]['round_draws']), (2, 2, 1))
+        # A filter nobody has played under leaves every rate empty, and nobody is dropped.
+        empty = build_stats(self.matches, enabled=['devils_row'])['leaderboard']
+        self.assertEqual(len(empty), 3)
+        self.assertTrue(all(row['rounds'] == 0 and row['round_win_rate'] is None for row in empty))
+
     def test_overall_and_head_to_head_count_rounds_series_draws_and_scores(self):
         data = build_stats(self.matches, 'player:tester', BOT_ID)
         overall = data['player']['overall']

@@ -95,7 +95,7 @@ class PageAssetTests(unittest.TestCase):
             page = client.get('/Golfgame/').text
             assets = re.findall(r'"(static/[\w./-]+\.(?:js|css))(\?v=[a-f0-9]{16})?"', page)
             self.assertGreaterEqual({name for name, _ in assets},
-                                    {'static/app.js', 'static/board.js', 'static/motion.js', 'static/ui.js',
+                                    {'static/app.js', 'static/board.js', 'static/motion.js', 'static/ui.js', 'static/gamepad.js',
                                      'static/icons.js', 'static/style.css'})
             for name, version in assets:
                 self.assertTrue(version, name + ' is not versioned')

@@ -10,7 +10,10 @@ const SUIT_ICON = {
   C: "suit.club.fill",
 };
 const SUIT_NAME = { S: "spades", H: "hearts", D: "diamonds", C: "clubs" };
-const OPPONENT_COLORS = ["c-p2", "c-p3", "c-p4"];
+// Colours go by seat, so every screen shows the same player in the same colour:
+// player 1 blue, 2 red, 3 yellow, 4 purple (then round again at bigger tables).
+const SEAT_COLORS = ["c-s0", "c-s1", "c-s2", "c-s3"];
+const OPPONENT_COLORS = ["c-p1", ...SEAT_COLORS]; // every class a tag may be wearing
 const RULE_ICON = {
   royal_pairs: "crown.fill",
   devils_row: "flame.fill",
@@ -90,6 +93,8 @@ const board = {
   hover: null,
   lastTap: null,
   pendingDrop: null,
+  staged: null, // a move waiting for the Confirm button
+  carry: null, // a card being carried with the controller trigger
   emotesOpen: false,
   summaryHidden: false,
   signatures: {},
@@ -135,9 +140,7 @@ function cycleOpponent(direction) {
   renderBoard();
 }
 function colorFor(player) {
-  if (player === state.viewer) return "c-p1";
-  const seats = state.names.map((_, p) => p).filter((p) => p !== state.viewer);
-  return OPPONENT_COLORS[seats.indexOf(player) % OPPONENT_COLORS.length];
+  return SEAT_COLORS[player % SEAT_COLORS.length];
 }
 
 /* ---------- card markup ---------- */
@@ -156,6 +159,21 @@ function cardName(card) {
 }
 
 /* ---------- mounting ---------- */
+// controller button shown on each action while a controller is in use
+const PAD_ACTION_KEY = { flip: "lb", swap: "rt", draw: "lt", discard: "x", end_turn: "rb" };
+// The five table actions: a bar under your panels on desktop, and on phones
+// the same buttons split to the left and right of the piles.
+const ACTIONS = [
+  ["flip", "Flip", "rectangle.portrait.rotate"],
+  ["swap", "Swap", "rectangle.2.swap"],
+  ["draw", "Draw", "figure.fishing"],
+  ["discard", "Discard", "trash.fill"],
+  ["end_turn", "End Turn", "flag.pattern.checkered"],
+];
+function sideAction(action) {
+  const [, label, symbol] = ACTIONS.find(([key]) => key === action);
+  return `<button type="button" class="act side-act bar-act" data-action="${action}"><span class="act-ico">${icon(symbol, 24, { sw: 3.4 })}</span><span class="side-label"><kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd>${label}</span></button>`;
+}
 function mountBoard() {
   const me = state.viewer;
   const hand = (player, tilts) =>
@@ -178,11 +196,20 @@ function mountBoard() {
           ${slotHtml(["under", null], 97, "under")}
           ${slotHtml(["draw", null], 84)}
           ${slotHtml(["held", null], 88, "is-face held")}
+          <div class="pile-side left" data-side-actions>
+            <button type="button" class="act side-act" data-undo hidden><span class="act-ico">${icon("delete.left.fill", 30, { sw: 4 })}</span><span class="side-label"><kbd class="pad-key" data-key="b"></kbd>Undo</span></button>
+            ${sideAction("flip")}${sideAction("draw")}
+          </div>
         </div>
       </div>
       <div class="pile">
         <div class="pile-label">discards</div>
-        <div class="pile-area">${slotHtml(["discard", null], 90.6, "is-face")}</div>
+        <div class="pile-area">${slotHtml(["discard", null], 90.6, "is-face")}
+          <div class="pile-side" data-side-actions>
+            <button type="button" class="act side-act" data-confirm hidden><span class="act-ico">${icon("checkmark.circle.fill", 30, { sw: 4 })}</span><span class="side-label"><kbd class="pad-key" data-key="a"></kbd>Confirm</span></button>
+            ${sideAction("swap")}${sideAction("discard")}${sideAction("end_turn")}
+          </div>
+        </div>
       </div>
     </section>
     <div class="bottom-wrap">
@@ -193,7 +220,8 @@ function mountBoard() {
             <button type="button" class="icon-btn" data-game-menu aria-label="Table menu">${icon("gear", 44)}</button>
             <button type="button" class="icon-btn" data-emotes aria-label="Quick emotes">${icon("text.bubble.fill", 44)}</button>
           </div>
-          <div class="tag tag-score c-p1" data-score-for="me"><span class="tag-in"></span></div>
+          <span class="tag-avatar" data-avatar-for="me" aria-hidden="true"></span>
+          <div class="tag tag-score c-p1" data-score-for="me"><span class="tag-in"></span><span class="turn-label" aria-hidden="true">Your turn</span></div>
         </div>
         <div class="b-main">
           <div class="hand" data-hand="me">${hand(me, HAND_TILT[0])}</div>
@@ -209,11 +237,15 @@ function mountBoard() {
     <div class="layer" data-modal></div>
   </div>`;
   board.el = root.querySelector("[data-board]");
+  // inside the table, "player 1 blue" (--p1) becomes your own seat's colour
+  board.el.dataset.seat = String(me % SEAT_COLORS.length);
   board.signatures = {};
   board.view = null;
   board.selected = [];
   board.drag = null;
   board.pendingDrop = null;
+  board.staged = null;
+  board.carry = null;
   board.emotesOpen = false;
   board.summaryHidden = false;
   board.el.addEventListener("pointerdown", onBoardPointerDown);
@@ -221,6 +253,14 @@ function mountBoard() {
   board.el.addEventListener("pointerup", onBoardPointerUp);
   board.el.addEventListener("pointercancel", onBoardPointerCancel);
   board.el.addEventListener("pointerleave", () => setHover(null));
+  const summary = board.el.querySelector("[data-summary]");
+  summary.addEventListener("pointermove", evalHover);
+  summary.addEventListener("pointerdown", evalHover);
+  summary.addEventListener("pointerout", (event) => {
+    const figure = event.target.closest?.("[data-eval-chart]");
+    if (figure && !figure.contains(event.relatedTarget))
+      evalHover({ type: "pointerleave", target: figure });
+  });
   board.el.addEventListener("contextmenu", (event) => {
     if (event.target.closest(".slot")) event.preventDefault();
   });
@@ -308,6 +348,11 @@ function renderBoard() {
     mountBoard();
   }
   document.documentElement.classList.add("in-game");
+  // anything half-done belongs to the table as it was; a new state drops it
+  const stale = (pending) =>
+    pending && (pending.version !== state.version || state.status !== "playing");
+  if (stale(board.staged)) cancelStaged(false);
+  if (stale(board.carry)) cancelCarry(false);
   const view = boardView();
   syncCards(board.view, view);
   board.view = view;
@@ -439,27 +484,87 @@ function dealIn(view) {
         delay: order++ * 45,
       });
     }
+  // a tick as each card lands
+  hapticFlurry(order, 45, 380);
 }
 
-function scoreDigits(value) {
+function scoreDigits(value, side) {
   const text = String(value);
-  return `<span class="digits${text.length > 2 ? " long" : ""}">${stickerText(text, { split: true })}</span>${stickerText("pts", { cls: "pts" })}`;
+  return `<span class="digits${text.length > 2 ? " long" : ""}">${stickerText(text, { split: true, key: `score:${side}` })}</span>${stickerText("pts", { cls: "pts", key: `pts:${side}` })}`;
 }
 /**
  * The stickers a hand has earned: one per rule (or rule variant) that is
  * affecting that player right now. Rules that are merely enabled show nothing.
  */
+/**
+ * An effect line split into the rule and what it does to the score, so the
+ * maths can sit in the right-hand column: "Poisoned Card: +2" and "Roman 5s /2"
+ * become "Poisoned Card" | "+2" and "Roman 5s" | "/2".
+ */
+function effectParts(effect) {
+  const colon = effect.indexOf(": ");
+  const divide = effect.match(/^(.*\S) (\/\d+)$/);
+  const [name, op] =
+    colon > 0 ? [effect.slice(0, colon), effect.slice(colon + 2)] : divide ? [divide[1], divide[2]] : [effect, ""];
+  return `<span class="effect-name">${e(name)}</span>${op ? `<b class="effect-op">${e(op)}</b>` : ""}`;
+}
+/** The rules (and their variants) one effect line, as the server words it, stands for. */
+function effectStickers(effect) {
+  const found = [];
+  const add = (rule, variant) => found.push({ rule, variant });
+  const rule = EFFECT_RULE.find(([pattern]) => pattern.test(effect))?.[1];
+  if (!rule) return found;
+  if (rule === "king_queen") add(rule, /: 5 \(/.test(effect) ? 0 : 1);
+  else if (rule === "holdem")
+    ["flush", "straight", "full house", "four kind"].forEach(
+      (hand, variant) => effect.includes(hand) && add(rule, variant),
+    );
+  else if (rule === "tricky_straights")
+    add(rule, /Incoming|opponent/.test(effect) ? 0 : 1);
+  else if (rule === "suited_rows") add(rule, /Incoming|opponents/.test(effect) ? 0 : 1);
+  else if (rule === "all_in_color") add(rule, /red/.test(effect) ? 0 : 1);
+  else add(rule);
+  return found;
+}
+/** Gather rule/variant pairs into one sticker per rule, variants riding along. */
+function groupStickers(pairs) {
+  const groups = new Map();
+  for (const { rule, variant } of pairs) {
+    if (!groups.has(rule))
+      groups.set(rule, { rule, icon: RULE_ICON[rule] || "star.fill", subs: [] });
+    const sub = variant === undefined ? null : RULE_VARIANTS[rule][variant][0];
+    if (sub && !groups.get(rule).subs.includes(sub)) groups.get(rule).subs.push(sub);
+  }
+  return [...groups.values()];
+}
+/**
+ * A rule's sticker. When a variant of the rule is what triggered, the variant's
+ * sticker sits small on the bottom-right corner of the main one.
+ */
+function ruleStickerHtml(sticker, size, opts = {}) {
+  // On the table the pair drifts as one piece: the idle motion lives on the
+  // wrapper, so the variant moves exactly as if stuck to the main sticker.
+  const drifting = opts.tilt !== undefined;
+  const main = drifting
+    ? tilted(sticker.icon, size, { tilt: opts.tilt, idle: false })
+    : icon(sticker.icon, size, { idle: false });
+  const subs = sticker.subs
+    .map(
+      (name, i) =>
+        `<span class="rule-sub" style="--n:${i}">${icon(name, Math.round(size * 0.5), { idle: false, sw: 2.4 })}</span>`,
+    )
+    .join("");
+  return drifting
+    ? `<span class="rule-stk idle" style="${idleStyle(`rule:${sticker.rule}`)}">${main}${subs}</span>`
+    : `<span class="rule-stk">${main}${subs}</span>`;
+}
+/**
+ * The stickers a hand has earned: one per rule that is affecting that player
+ * right now. Rules that are merely enabled show nothing.
+ */
 function ruleStickers(player) {
   const g = state.game,
-    stickers = [];
-  const add = (rule, variant) => {
-    const glyph =
-      variant === undefined
-        ? RULE_ICON[rule] || "star.fill"
-        : RULE_VARIANTS[rule][variant][0];
-    if (!stickers.some((sticker) => sticker.icon === glyph))
-      stickers.push({ icon: glyph, rule });
-  };
+    pairs = [];
   // A Jack or Queen pair earns a bonus swap; it has no score line of its own.
   if (state.rules.royal_pairs)
     for (let column = 0; column < 3; column++) {
@@ -471,34 +576,56 @@ function ruleStickers(player) {
         top.card.rank === bottom.card.rank &&
         [11, 12].includes(top.card.rank)
       )
-        add("royal_pairs", top.card.rank === 11 ? 0 : 1);
+        pairs.push({ rule: "royal_pairs", variant: top.card.rank === 11 ? 0 : 1 });
     }
-  for (const effect of g.effects[player] || []) {
-    const rule = EFFECT_RULE.find(([pattern]) => pattern.test(effect))?.[1];
-    if (!rule) continue;
-    if (rule === "king_queen") add(rule, /: 5 \(/.test(effect) ? 0 : 1);
-    else if (rule === "holdem")
-      ["flush", "straight", "full house", "four kind"].forEach(
-        (hand, variant) => effect.includes(hand) && add(rule, variant),
-      );
-    else if (rule === "tricky_straights")
-      add(rule, /Incoming|opponent/.test(effect) ? 0 : 1);
-    else if (rule === "suited_rows")
-      add(rule, /Incoming|opponents/.test(effect) ? 0 : 1);
-    else if (rule === "all_in_color") add(rule, /red/.test(effect) ? 0 : 1);
-    else add(rule);
-  }
-  return stickers;
+  for (const effect of g.effects[player] || []) pairs.push(...effectStickers(effect));
+  return groupStickers(pairs);
 }
 function activeRules(player) {
   if (state.game.rule_previews) return Object.keys(state.game.rule_previews[player] || {});
   return [...new Set(ruleStickers(player).map((sticker) => sticker.rule))];
 }
+/**
+ * What the rules in play have done to a hand: its score as it stands, against
+ * the plain points of its cards (with only matching columns cancelled).
+ */
 function ruleDelta(player) {
   const g = state.game;
-  return g.effect_totals[player] - g.scores[player];
+  return g.effect_totals[player] - (g.base_scores ?? g.scores)[player];
+}
+/** True while the table is waiting on this player (including opening flips). */
+function myTurn() {
+  const g = state.game;
+  if (!g || state.status !== "playing" || g.phase === "over") return false;
+  return g.phase === "setup"
+    ? g.legal.flip.length > 0
+    : g.decision_player === state.viewer;
+}
+/**
+ * Solo only: your win streak against Golfbot, a flame over a sticker number
+ * like the points counter. Faded at zero; lit and glowing brighter as it grows.
+ */
+function renderStreak() {
+  const holder = board.el.querySelector("[data-streak]");
+  const count = state.solo && typeof state.streak === "number" ? state.streak : null;
+  holder.hidden = count === null;
+  if (count === null) return;
+  holder.classList.toggle("hot", count > 0);
+  holder.style.setProperty("--heat", Math.min(count, 10));
+  holder.setAttribute("aria-label", `Win streak against Golfbot: ${count}`);
+  const before = board.signatures.streak;
+  const changed = patch(
+    "streak",
+    holder,
+    `${count}`,
+    () =>
+      `<span class="flame">${icon("flame.fill", 40, { key: "streak-flame" })}</span><span class="score"><span class="digits${String(count).length > 2 ? " long" : ""}">${stickerText(String(count), { split: true, key: "streak" })}</span></span>`,
+  );
+  // a new win pops the number, like the points counter
+  if (changed && before !== undefined && count > Number(before)) holder.querySelector(".score").classList.add("bump");
 }
 function renderTags() {
+  renderStreak();
   const g = state.game;
   for (const [side, player] of [
     ["me", state.viewer],
@@ -510,9 +637,19 @@ function renderTags() {
     const scoreTag = board.el.querySelector(`[data-score-for='${side}']`);
     const rulesTag = board.el.querySelector(`[data-rules-for='${side}']`);
     for (const tag of [scoreTag, rulesTag]) {
-      tag.classList.remove("c-p1", ...OPPONENT_COLORS);
+      tag.classList.remove(...OPPONENT_COLORS);
       tag.classList.add(color);
+      // your own tags carry the "your turn" label and a gentle pulse
+      tag.classList.toggle("my-turn", side === "me" && myTurn());
     }
+    // the player's avatar, a big sticker tucked behind their score tag
+    const avatarTag = board.el.querySelector(`[data-avatar-for='${side}']`);
+    const avatarId = state.avatars?.[player];
+    avatarTag.classList.remove(...OPPONENT_COLORS);
+    avatarTag.classList.add(color);
+    patch(`avatar-${side}`, avatarTag, `${avatarId}`, () =>
+      icon(avatarIcon(avatarId), 54, { key: `avatar:${side}` }),
+    );
     const score = g.phase === "over" ? g.scores[player] : g.effect_totals[player];
     const offline = !state.connected[player] && !state.solo;
     scoreTag.classList.toggle("offline", offline);
@@ -530,9 +667,9 @@ function renderTags() {
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}`,
+      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && myTurn() ? ", your turn" : ""}${side === "opp" ? ". Open their stats." : ""}`,
     );
-    const delta = g.phase === "over" ? 0 : ruleDelta(player);
+    const delta = ruleDelta(player);
     const stickers = ruleStickers(player);
     patch(
       `rules-txt-${side}`,
@@ -543,13 +680,11 @@ function renderTags() {
     patch(
       `rules-ico-${side}`,
       rulesTag.querySelector(".icons"),
-      `${color}|${stickers.map((sticker) => sticker.icon).join()}`,
+      `${color}|${stickers.map((sticker) => `${sticker.icon}:${sticker.subs.join("+")}`).join()}`,
       () =>
         stickers
           .slice(0, 3)
-          .map((sticker, i) =>
-            tilted(sticker.icon, 36, { tilt: [-13, -4, 16][i] }),
-          )
+          .map((sticker, i) => ruleStickerHtml(sticker, 36, { tilt: [-13, -4, 16][i] }))
           .join(""),
     );
     rulesTag.setAttribute(
@@ -591,6 +726,13 @@ function renderTags() {
 }
 
 function promptText() {
+  const [text, side] = promptFor();
+  // with tooltips hidden, your own prompts go; whose turn it is stays
+  if (prefs.hideTips && side === "me" && state.status === "playing")
+    return [state.game.final_turn && myTurn() ? "Final turn" : null, "me"];
+  return [text, side];
+}
+function promptFor() {
   const g = state.game,
     me = state.viewer;
   if (state.status === "closed") return ["Table closed", "me"];
@@ -672,7 +814,7 @@ function renderChrome() {
     callout.className = `callout ${color} ${side === "me" ? "down" : "up"}`;
     callout.dataset.side = side;
     callout.dataset.anchor =
-      g.phase === "setup" && g.legal.flip.length ? "card" : "";
+      g.phase === "setup" && g.legal.flip.length && !prefs.hideTips ? "card" : "";
     if (board.signatures.callout !== text + side) {
       board.signatures.callout = text + side;
       callout.textContent = text;
@@ -680,32 +822,26 @@ function renderChrome() {
     }
     placeCallout();
   }
-  // Mobile: only "End turn" needs a button — every other move is a gesture.
   const extra = board.el.querySelector(".board-extra");
   const queue = presenceState.queue;
   patch(
     "extra",
     extra,
-    `${g.legal.end_turn}|${queue?.status}`,
+    `${queue?.status}`,
     () =>
-      `${queue && ["waiting", "offer"].includes(queue.status) ? `<button type="button" class="icon-btn queue" data-queue-view aria-label="Quickplay queue">${icon("sparkles", 32)}</button>` : ""}${g.legal.end_turn ? `<button type="button" class="btn small c-p1 end-turn" data-action="end_turn">End turn</button>` : ""}`,
+      queue && ["waiting", "offer"].includes(queue.status)
+        ? `<button type="button" class="icon-btn queue" data-queue-view aria-label="Quickplay queue">${icon("sparkles", 32)}</button>`
+        : "",
   );
   const bar = board.el.querySelector("[data-actionbar]");
-  const buttons = [
-    ["flip", "Flip"],
-    ["swap", "Swap"],
-    ["draw", "Draw"],
-    ["discard", "Discard"],
-    ["end_turn", "End turn"],
-  ];
   patch(
     "actionbar",
     bar,
     "static",
-    buttons
+    ACTIONS
       .map(
-        ([action, label]) =>
-          `<button type="button" class="btn" data-action="${action}">${label}${action === "end_turn" ? " <kbd>↵</kbd>" : ""}</button>`,
+        ([action, label, symbol]) =>
+          `<button type="button" class="act" data-action="${action}"${action === "end_turn" ? ' title="Enter"' : ""}><span class="act-ico">${icon(symbol, 30, { sw: 4 })}</span><span>${label}</span><kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd></button>`,
       )
       .join(""),
   );
@@ -755,6 +891,150 @@ function playerEmote(player) {
   return `<div class="player-emote ${where}" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms"><img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(state.names[player])}: ${emoteNames[item.id]} emote">${where === "other" ? `<span>${e(state.names[player])}</span>` : ""}</div>`;
 }
 
+/**
+ * The post-game graph: every player's showing score after each turn, ending
+ * on the final reveal. Lines wear the seat colours (outlined in the seat's
+ * dark tone so the yellow still reads) and are named at their right-hand end.
+ */
+const CHART = { w: 300, h: 160, left: 24, right: 84, top: 12, bottom: 22 };
+function evalScale() {
+  const points = state.timeline || [];
+  const all = points.flatMap((point) => point.scores);
+  let lo = Math.min(0, ...all),
+    hi = Math.max(...all);
+  if (hi - lo < 6) hi = lo + 6;
+  const { w, h, left, right, top, bottom } = CHART;
+  return {
+    points,
+    lo,
+    hi,
+    x: (i) => left + (points.length > 1 ? i / (points.length - 1) : 0.5) * (w - left - right),
+    y: (v) => top + (1 - (v - lo) / (hi - lo)) * (h - top - bottom),
+  };
+}
+/** Which lines get colour and a name: everyone at a small table, else you and the winner. */
+function evalFeatured() {
+  const count = state.names.length;
+  if (count <= 4) return state.names.map((_, p) => p);
+  const winner = state.history.at(-1)?.winner;
+  return [...new Set([state.viewer, winner].filter((p) => p !== null && p !== undefined))];
+}
+function evalChart() {
+  const { points, lo, hi, x, y } = evalScale();
+  if (points.length < 2) return "";
+  const { w, h, left, right, top, bottom } = CHART;
+  const featured = evalFeatured();
+  const short = (p) => {
+    const name = p === state.viewer ? "You" : state.names[p];
+    return name.length > 7 ? `${name.slice(0, 6)}…` : name;
+  };
+  // top, bottom and zero first; the middle one only where it has room
+  const ticks = [];
+  for (const v of [hi, lo, ...(lo < 0 ? [0] : []), Math.round((hi + lo) / 2)])
+    if (ticks.every((kept) => Math.abs(y(kept) - y(v)) >= 14)) ticks.push(v);
+  const grid = ticks
+    .map(
+      (v) =>
+        `<line class="grid${v === 0 ? " zero" : ""}" x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${left - 6}" y="${y(v)}">${v}</text>`,
+    )
+    .join("");
+  const path = (p) => points.map((point, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(point.scores[p]).toFixed(1)}`).join("");
+  // muted lines first, then the coloured ones, with your own drawn last (on top)
+  const order = state.names
+    .map((_, p) => p)
+    .sort((a, b) => featured.includes(a) - featured.includes(b) || (a === state.viewer) - (b === state.viewer));
+  const lines = order
+    .map((p) => {
+      if (!featured.includes(p)) return `<path class="line muted" d="${path(p)}"/>`;
+      const seat = p % 4;
+      const end = points.at(-1).scores[p];
+      return `<g class="series" style="--line:var(--s${seat});--case:var(--s${seat}t)"><path class="case" d="${path(p)}"/><path class="line" d="${path(p)}"/><circle class="end" cx="${x(points.length - 1)}" cy="${y(end)}" r="4"/></g>`;
+    })
+    .join("");
+  // a tooltip-style tag at each line's end, nudged apart so they never overlap;
+  // the arrow keeps pointing at its own line however far the tag moved
+  const gap = 19;
+  const labels = featured
+    .map((p) => ({ p, at: y(points.at(-1).scores[p]) }))
+    .sort((a, b) => a.at - b.at);
+  for (let i = 1; i < labels.length; i++) labels[i].at = Math.max(labels[i].at, labels[i - 1].at + gap);
+  const overflow = labels.length ? labels.at(-1).at - (h - bottom) : 0;
+  if (overflow > 0) for (const label of labels) label.at -= overflow;
+  for (let i = labels.length - 2; i >= 0; i--) labels[i].at = Math.min(labels[i].at, labels[i + 1].at - gap);
+  const endX = x(points.length - 1);
+  // the arrow is drawn in the graph; the tag itself is plain HTML laid over it,
+  // so its text centres the same in every browser (Safari places SVG text its own way)
+  const arrows = labels
+    .map(({ p, at }) => {
+      const point = y(points.at(-1).scores[p]);
+      const mid = Math.min(Math.max(point, at - 4), at + 4);
+      return `<polygon class="tag-arrow" style="--tip:var(--s${p % 4})" points="${(endX + 4.5).toFixed(1)},${point.toFixed(1)} ${(endX + 11).toFixed(1)},${(mid - 4).toFixed(1)} ${(endX + 11).toFixed(1)},${(mid + 4).toFixed(1)}"/>`;
+    })
+    .join("");
+  const tags = labels
+    .map(
+      ({ p, at }) =>
+        `<span class="end-tag" style="--tip:var(--s${p % 4});--on:var(--s${p % 4}on);left:${(((endX + 10) / w) * 100).toFixed(2)}%;top:${((at / h) * 100).toFixed(2)}%">${e(short(p))} <b>${points.at(-1).scores[p]}</b></span>`,
+    )
+    .join("");
+  const turns = points.filter((point) => !point.final).at(-1).turn;
+  const axis = `<text class="axis" x="${left}" y="${h - 6}" text-anchor="start">Start</text><text class="axis" x="${(left + w - right) / 2}" y="${h - 6}">${turns} turn${turns === 1 ? "" : "s"}</text><text class="axis" x="${w - right}" y="${h - 6}" text-anchor="end">Reveal</text>`;
+  const summary = featured
+    .map((p) => `${p === state.viewer ? "You" : state.names[p]}: ${points.map((point) => point.scores[p]).join(", ")}`)
+    .join("; ");
+  return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${arrows}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg>${tags}<div class="eval-tip" hidden></div></div></figure>`;
+}
+/** The big result word: sticker letters that celebrate, or droop. */
+function resultTitle(mood, sentence, sub) {
+  const word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood];
+  // letters keep their place in the animation when the card redraws (someone readies up)
+  const key = `${state.id}|${state.round}|${state.status}`;
+  if (board.resultShown?.key !== key) board.resultShown = { key, at: performance.now() };
+  const elapsed = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
+  const letters = [...word]
+    .map((char, i) => {
+      const sag = (i % 2 ? -1 : 1) * (3 + ((i * 7) % 5));
+      return char === " "
+        ? `<span class="gap"></span>`
+        : `<span class="stk" style="--i:${i};--sag:${sag}deg;${idleStyle(`result:${i}`)}">${e(char)}</span>`;
+    })
+    .join("");
+  return `<h2 class="result-title ${mood}" style="--t:-${elapsed}s" aria-label="${e(sentence)}"><span class="word" aria-hidden="true">${letters}</span>${sub ? `<small aria-hidden="true">${e(sub)}</small>` : ""}</h2>`;
+}
+/** Hovering (or dragging a finger along) the graph reads out that turn. */
+function evalHover(event) {
+  const figure = event.target.closest?.("[data-eval-chart]");
+  if (!figure) return;
+  const svg = figure.querySelector("svg"),
+    tip = figure.querySelector(".eval-tip"),
+    cross = figure.querySelector(".cross");
+  if (event.type === "pointerleave" || event.type === "pointercancel") {
+    tip.hidden = true;
+    cross.classList.remove("on");
+    return;
+  }
+  const { points, x } = evalScale();
+  const box = svg.getBoundingClientRect();
+  const unit = (event.clientX - box.left) * (CHART.w / box.width);
+  let i = 0;
+  for (let k = 1; k < points.length; k++) if (Math.abs(x(k) - unit) < Math.abs(x(i) - unit)) i = k;
+  cross.setAttribute("x1", x(i));
+  cross.setAttribute("x2", x(i));
+  cross.classList.add("on");
+  const label = points[i].final ? "Reveal" : i === 0 ? "Start" : `Turn ${points[i].turn}`;
+  const rows = evalFeatured()
+    .map((p) => ({ p, v: points[i].scores[p] }))
+    .sort((a, b) => a.v - b.v)
+    .map(({ p, v }) => `<div><i style="background:var(--s${p % 4})"></i><span>${p === state.viewer ? "You" : e(state.names[p])}</span><b>${v}</b></div>`)
+    .join("");
+  tip.innerHTML = `<strong>${label}</strong>${rows}`;
+  tip.hidden = false;
+  // beside the crosshair, on whichever side has room, so it never covers the title
+  const px = (x(i) / CHART.w) * box.width;
+  const left = px < box.width / 2;
+  tip.style.left = `${left ? px + 8 : px - 8 - tip.offsetWidth}px`;
+}
+
 function renderSummary() {
   const holder = board.el.querySelector("[data-summary]");
   const over = ["round_over", "finished", "closed"].includes(state.status);
@@ -786,27 +1066,41 @@ function renderSummary() {
     state.ready.join(),
     board.summaryHidden,
     state.history.length,
+    (state.timeline || []).length,
   ].join("|");
   patch("summary", holder, signature, () => {
     if (board.summaryHidden)
       return `<div class="summary mini"><button type="button" class="btn small c-p1" data-summary-toggle>${glyph("chevron.up", 16)} Results</button></div>`;
-    const rows =
-      result && !closed
-        ? state.names
-            .map(
-              (name, p) =>
-                `<div class="${result.winner === p ? "win" : ""}"><span>${e(name)}${p === viewer ? " (you)" : ""}</span><b>${result.scores[p]} pts${state.names.length > 2 || state.best_of !== 1 ? ` · ${state.series_mode === "points" ? state.points[p] + " total" : state.wins[p] + (state.wins[p] === 1 ? " win" : " wins")}` : ""}</b></div>`,
-            )
-            .join("")
-        : "";
-    const action = closed
-      ? `<button type="button" class="btn c-p1" data-leave>${tilted("house.fill", 28)} Back to menu</button>`
-      : state.status === "round_over"
-        ? `<button type="button" class="btn c-p1" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for others…" : `${tilted("play.fill", 28)} Next game`}</button>`
-        : viewer === 0
-          ? `<div class="row"><button type="button" class="btn round c-fw" data-leave aria-label="Back to menu">${icon("house.fill", 24, { idle: false })}</button><button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 28)} Play again</button></div>`
-          : `<p class="hint dark">The host can start a rematch.</p><button type="button" class="btn c-fw" data-leave>Back to menu</button>`;
-    return `<section class="summary panel ${closed ? "c-p2" : "c-fw"}" role="dialog" aria-label="Results"><h2>${e(title)}</h2>${closed ? `<p style="margin:1rem 0;text-align:center">${e(state.message)}</p>` : `<div class="scores">${rows}</div>`}<div class="stack">${action}${closed ? "" : `<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button>`}</div></section>`;
+    if (closed)
+      return `<section class="summary panel c-p2" role="dialog" aria-label="Results"><h2>${e(title)}</h2><p style="margin:1rem 0;text-align:center">${e(state.message)}</p><div class="stack"><button type="button" class="btn c-p1" data-leave>${tilted("house.fill", 28)} Back to menu</button></div></section>`;
+    const between = state.status === "round_over";
+    const series = state.names.length > 2 || state.best_of !== 1;
+    const verdict = finished ? state.champion : result.winner;
+    const mood = verdict === null || verdict === undefined ? "draw" : verdict === viewer ? "win" : "lose";
+    const sub =
+      mood === "lose" ? title : mood === "win" ? (finished ? "The series is yours" : "Lowest score this game") : finished ? "The series is tied" : "Nobody takes this game";
+    // one tile per player: this game's points, the series so far, and whether they're ready
+    const tiles = state.names
+      .map((name, p) => {
+        const ready = !!state.ready[p];
+        const crown = finished ? state.champion === p : result?.winner === p;
+        const status = between
+          ? `<span class="ready-state${ready ? " on" : ""}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}${ready ? "Ready" : "Not ready"}</span>`
+          : "";
+        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
+      })
+      .join("");
+    // Quit is a plain sticker icon with its label underneath, left of the main button
+    const quit = `<button type="button" class="close-btn c-fw" data-leave>${icon("rectangle.portrait.and.arrow.right", 30)}<span>Quit</span></button>`;
+    const action = between
+      ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${tilted("checkmark.circle.fill", 26)} ${state.ready[viewer] ? "Waiting…" : "Ready"}</button></div>`
+      : viewer === 0
+        ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 26)} Play again</button></div>`
+        : `<div class="row">${quit}<p class="hint dark grow">The host can start a rematch.</p></div>`;
+    const heading = resultTitle(mood, title, sub);
+    const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
+    // the verdict and the graph float over the table; the green panel holds the rest
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button></div></div></section>`;
   });
 }
 
@@ -888,7 +1182,9 @@ function canFlip(ref) {
     (ref[0] === state.viewer && legal.flip.includes(ref[1]))
   );
 }
+/** Flips play at once: there is no confirm step for turning a card over. */
 function flipMove(ref) {
+  haptic("flip");
   return ref[0] === "draw" ? move("draw") : move("flip", { index: ref[1] });
 }
 
@@ -906,9 +1202,21 @@ function showTargets(moves) {
     slot.querySelector(".move-label").textContent = item.label;
   }
 }
+/**
+ * After a flip, the card just turned over is the only one in play: it has to
+ * be swapped, or left where it is. It stays selected until that is settled.
+ */
+function pinnedCard() {
+  const g = state?.game;
+  if (!g || !myTurn() || !["revealed", "drawn_revealed"].includes(g.phase)) return null;
+  return g.legal.swap.length === 1 ? [state.viewer, g.legal.swap[0]] : null;
+}
 function paintSelection() {
   if (!board.el) return;
-  board.selected = board.selected.filter((ref) => slotFor(ref));
+  // nothing can be picked up when it is not your turn, so nothing stays outlined
+  board.selected = myTurn() ? board.selected.filter((ref) => slotFor(ref)) : [];
+  const pinned = pinnedCard();
+  if (pinned && !board.staged && !board.carry && !board.drag?.active) board.selected = [pinned];
   board.slots.forEach((slot) => {
     const ref = JSON.parse(slot.dataset.ref);
     slot.classList.toggle("selected", hasRef(board.selected, ref));
@@ -918,11 +1226,246 @@ function paintSelection() {
         (canFlip(ref) || movesFrom(ref).length > 0),
     );
   });
-  if (!board.drag?.active)
+  const staged = board.staged,
+    carry = board.carry;
+  if (staged)
+    showTargets([]); // the preview itself shows the move
+  else if (carry) {
+    showTargets(carry.moves);
+    if (carry.hot) slotFor(carry.hot.ref)?.classList.add("hot");
+  } else if (!board.drag?.active)
     showTargets(board.selected.length === 1 ? movesFrom(board.selected[0]) : []);
-  board.el.querySelectorAll("[data-actionbar] [data-action]").forEach((button) => {
-    button.disabled = !actionAllowed(button.dataset.action);
+  board.el
+    .querySelectorAll("[data-actionbar] [data-action], [data-side-actions] [data-action]")
+    .forEach((button) => {
+      button.disabled = !actionAllowed(button.dataset.action);
+    });
+  // Beside the piles: Undo and Confirm while a move is staged; otherwise
+  // whichever table actions can be used right now (phones).
+  const confirm = board.el.querySelector("[data-confirm]");
+  confirm.hidden = !staged?.ready;
+  if (staged) confirm.setAttribute("aria-label", `Confirm: ${staged.label}`);
+  board.el.querySelector("[data-undo]").hidden = !staged?.ready;
+  board.el.querySelectorAll("[data-side-actions] [data-action]").forEach((button) => {
+    button.hidden = !!staged || button.disabled;
   });
+}
+
+/* ---------- confirm step, and trigger-drag for controllers ---------- */
+const wantsConfirm = () => prefs.confirm;
+/** Play a move now, or (with the confirm step on) stage it for the Confirm button. */
+function playMove(action, extra = {}, info = {}) {
+  if (!wantsConfirm()) return move(action, extra);
+  if (!busy) stageMove({ action, extra, ...info });
+  return Promise.resolve(false);
+}
+/**
+ * Where each card ends up if this move is played: [card's slot, slot it lands on].
+ * Flips and draws reveal a card nobody has seen yet, so they have no preview.
+ */
+function previewPlan(item) {
+  const { action, extra } = item;
+  const discard = slotFor(["discard", null]);
+  if (action === "discard") return [[slotFor(["held", null]), discard]];
+  if (action !== "swap") return [];
+  if (extra.refs) {
+    // two table cards trade places (bonus swap, Beggars trade)
+    const [a, b] = extra.refs.map(slotFor);
+    return [
+      [a, b],
+      [b, a],
+    ];
+  }
+  // the drawn card (or the top discard) goes into the hand; the card it
+  // replaces goes onto the discard pile
+  const hand = slotFor([state.viewer, extra.index]);
+  const incoming = state.game.held ? slotFor(["held", null]) : discard;
+  return [
+    [incoming, hand],
+    [hand, discard],
+  ];
+}
+function stageMove(staged) {
+  if (board.staged) cancelStaged(false);
+  const item = (board.staged = { ...staged, version: state.version, ready: false, movers: [] });
+  const plan = previewPlan(item).filter(([slot, to]) => slot && to && slot !== to);
+  board.selected = item.from && !plan.length ? [item.from] : [];
+  board.lastTap = null;
+  paintSelection();
+  // Confirm and Undo show up once the move has played out in front of you
+  const ready = () => {
+    if (board.staged !== item || item.ready) return;
+    item.ready = true;
+    paintSelection();
+  };
+  if (!plan.length) return item.from ? setTimeout(ready, 240) : ready();
+  // Preview: every card involved travels to where the move will leave it, and
+  // turns to lie the way its new place does. Undo sends them all back.
+  const offset = (slot, key) => motionFor(slot).values[key]?.value || 0;
+  const rest = new Map(); // where each slot sits when nothing is moving it
+  for (const slot of new Set(plan.flat())) {
+    const pose = poseOf(slot);
+    rest.set(slot, {
+      x: pose.x - offset(slot, "x"),
+      y: pose.y - offset(slot, "y"),
+      angle: pose.angle - offset(slot, "lean"),
+    });
+  }
+  for (const [slot, to] of plan) {
+    if (slot.classList.contains("empty")) continue;
+    const from = rest.get(slot),
+      goal = rest.get(to);
+    item.movers.push(slot);
+    slot.classList.remove("returning");
+    slot.classList.add("dragging");
+    motionFor(slot).to({
+      x: goal.x - from.x,
+      y: goal.y - from.y,
+      lean: goal.angle - from.angle,
+      scale: 1.04,
+      lift: 0.8,
+      rx: 0,
+      ry: 0,
+    });
+  }
+  haptic("snap");
+  setTimeout(ready, 420);
+}
+function cancelStaged(paint = true) {
+  const staged = board.staged;
+  if (!staged) return;
+  board.staged = null;
+  for (const slot of staged.movers) if (slot.isConnected) releaseDrag(slot);
+  board.selected = [];
+  if (paint) paintSelection();
+}
+async function confirmStaged() {
+  const staged = board.staged;
+  if (!staged || !staged.ready || busy) return false;
+  board.staged = null;
+  board.selected = [];
+  paintSelection();
+  haptic("drop");
+  // the cards stay where the preview left them; the new state settles from there
+  const ok = await move(staged.action, staged.extra);
+  for (const slot of staged.movers) {
+    if (!slot.isConnected) continue;
+    if (ok) slot.classList.remove("dragging");
+    else releaseDrag(slot);
+  }
+  if (ok)
+    for (const slot of staged.movers)
+      if (slot.isConnected && Object.keys(motionFor(slot).values).length) releaseDrag(slot);
+  return ok;
+}
+/** Play a move for a card that is being held away from its slot. */
+async function dropCard(slot, ref, item) {
+  // Hold the card where it was dropped; the state update animates from there.
+  motionFor(slot).to({ lean: 0, scale: 1.04 });
+  board.pendingDrop = { key: refKey(ref), pose: poseOf(slot) };
+  const ok = await move(item.action, item.extra);
+  if (board.pendingDrop?.key === refKey(ref)) board.pendingDrop = null;
+  if (!ok || slot.classList.contains("dragging")) releaseDrag(slot);
+  return ok;
+}
+/** Pick a card up with the controller: it then rides along with the cursor. */
+function grabCard(slot) {
+  if (busy || board.carry || board.staged || board.drag) return false;
+  const ref = JSON.parse(slot.dataset.ref);
+  const moves = movesFrom(ref).filter((item) => {
+    const target = slotFor(item.ref);
+    return target && !target.classList.contains("empty");
+  });
+  if (!moves.length) {
+    popSlot(slot, 0.3);
+    return false;
+  }
+  board.selected = [];
+  board.lastTap = null;
+  paintSelection();
+  board.carry = { slot, ref, moves, hot: null, home: poseOf(slot), x: 0, y: 0, version: state.version };
+  slot.classList.remove("returning");
+  slot.classList.add("dragging");
+  showTargets(moves);
+  motionFor(slot).to({ scale: 1.14, lift: 1 }).kick({ scale: 2.4 });
+  haptic("grab");
+  return true;
+}
+/**
+ * Move the carried card freely by a step (in px). Near a place it can go, it
+ * snaps onto it; pushing on past the edge of that pull lets it go again.
+ */
+function carryBy(dx, dy) {
+  const carry = board.carry;
+  if (!carry) return;
+  const bounds = board.el.getBoundingClientRect();
+  carry.x = clamp(carry.x + dx, bounds.left - carry.home.x, bounds.right - carry.home.x);
+  carry.y = clamp(carry.y + dy, bounds.top - carry.home.y, bounds.bottom - carry.home.y);
+  const at = { x: carry.home.x + carry.x, y: carry.home.y + carry.y };
+  const well = (item) => {
+    const rect = slotFor(item.ref).getBoundingClientRect();
+    const x = rect.left + rect.width / 2,
+      y = rect.top + rect.height / 2;
+    return { x, y, pull: Math.max(rect.width, rect.height) * 0.5, away: Math.hypot(at.x - x, at.y - y) };
+  };
+  let hot = carry.hot;
+  // already snapped: it takes a firm push (a wider radius) to pull free
+  if (hot && well(hot).away > well(hot).pull * 1.3) hot = null;
+  if (!hot) {
+    let nearest = Infinity;
+    for (const item of carry.moves) {
+      const spot = well(item);
+      if (spot.away < spot.pull && spot.away < nearest) [hot, nearest] = [item, spot.away];
+    }
+    if (hot) {
+      // the free position jumps to the centre too, so leaving takes real travel
+      const spot = well(hot);
+      carry.x = spot.x - carry.home.x;
+      carry.y = spot.y - carry.home.y;
+    }
+  }
+  const motion = motionFor(carry.slot);
+  if (hot !== carry.hot) {
+    if (carry.hot) slotFor(carry.hot.ref)?.classList.remove("hot");
+    carry.hot = hot;
+    if (hot) {
+      slotFor(hot.ref).classList.add("hot");
+      motion.kick({ scale: 1.2 });
+      haptic("snap");
+    }
+  }
+  const shown = hot ? well(hot) : at;
+  // lean into the direction of travel, as a dragged card does
+  motion.to({
+    x: shown.x - carry.home.x,
+    y: shown.y - carry.home.y,
+    lean: hot ? 0 : clamp(dx * 1.6, -18, 18),
+  });
+}
+/** Let go: play the move under the card, or put the card back. */
+function dropCarry() {
+  const carry = board.carry;
+  if (!carry) return;
+  board.carry = null;
+  clearTargets();
+  const item = carry.hot;
+  if (!item || busy) {
+    releaseDrag(carry.slot);
+    paintSelection();
+    return;
+  }
+  if (wantsConfirm())
+    return stageMove({ ...item, to: item.ref, from: carry.ref });
+  haptic("drop");
+  paintSelection();
+  return dropCard(carry.slot, carry.ref, item);
+}
+function cancelCarry(paint = true) {
+  const carry = board.carry;
+  if (!carry) return;
+  board.carry = null;
+  if (carry.slot.isConnected) releaseDrag(carry.slot);
+  if (paint) paintSelection();
 }
 
 /** Desktop action bar: the same moves, driven by the current selection. */
@@ -932,10 +1475,14 @@ function barAction(action) {
   if (action === "swap") {
     if (picked.length === 2) {
       const item = movesFrom(picked[0]).find((m) => same(m.ref, picked[1]));
-      return item ? move(item.action, item.extra) : null;
+      return item
+        ? playMove(item.action, item.extra, { from: picked[0], to: picked[1], label: item.label })
+        : null;
     }
-    return move("swap", { index: picked[0][1] });
+    return playMove("swap", { index: picked[0][1] }, { from: picked[0], label: "swap" });
   }
+  if (action === "discard")
+    return playMove("discard", {}, { from: ["held", null], to: ["discard", null], label: "discard" });
   return move(action);
 }
 
@@ -944,17 +1491,30 @@ function setHover(slot, event) {
   if (board.hover && board.hover !== slot && !board.hover.classList.contains("dragging"))
     motionFor(board.hover).to({ rx: 0, ry: 0, scale: 1 });
   board.hover = slot;
-  if (!slot || !event || slot.classList.contains("empty")) return;
+  // a card being dragged or previewing a staged move is away from its slot:
+  // measuring the pointer against the slot would spin it right over
+  if (!slot || !event || slot.classList.contains("empty") || slot.classList.contains("dragging"))
+    return;
   const rect = slot.getBoundingClientRect();
-  const px = (event.clientX - rect.left) / rect.width - 0.5;
-  const py = (event.clientY - rect.top) / rect.height - 0.5;
+  const px = clamp((event.clientX - rect.left) / rect.width - 0.5, -0.5, 0.5);
+  const py = clamp((event.clientY - rect.top) / rect.height - 0.5, -0.5, 0.5);
   const targets = { ry: px * 20, rx: -py * 20 };
   if (!slot.classList.contains("selected"))
     targets.scale = slot.classList.contains("can-act") ? 1.06 : 1.02;
   motionFor(slot).to(targets);
 }
 function onBoardPointerDown(event) {
-  const slot = event.target.closest(".slot");
+  let slot = event.target.closest(".slot");
+  // with a card drawn, the go-fish pile can't be drawn from again: a press on
+  // the pile's visible edge means the drawn card sitting on top of it
+  if (slot?.dataset.ref === '["draw",null]' && state.game?.held)
+    slot = slotFor(["held", null]) || slot;
+  // touching anything but Confirm calls a staged move off
+  if (board.staged && !event.target.closest("[data-confirm]")) {
+    const moved = board.staged.movers.includes(slot);
+    cancelStaged();
+    if (moved || event.target.closest("[data-undo]")) return; // the cards just go back
+  }
   if (!slot || board.drag || event.button > 0 || slot.classList.contains("empty"))
     return;
   board.drag = {
@@ -987,6 +1547,7 @@ function beginDrag(drag) {
   showTargets(drag.moves);
   // the pickup "pop": overshoot the lifted size, then settle into the hand
   motionFor(drag.slot).to({ scale: 1.14, lift: 1 }).kick({ scale: 2.4 });
+  haptic("grab");
 }
 function hotTarget(drag) {
   const centre = poseOf(drag.slot);
@@ -1062,6 +1623,7 @@ function onBoardPointerMove(event) {
     if (hot) {
       slotFor(hot.ref).classList.add("hot");
       motionFor(drag.slot).kick({ scale: 1.2 });
+      haptic("snap");
     }
   }
   const drawing =
@@ -1100,7 +1662,13 @@ async function onBoardPointerUp(event) {
     paintSelection();
     return;
   }
+  if (wantsConfirm() && drag.hot) {
+    // the cards play the move out, then wait for Confirm (a draw just happens)
+    stageMove({ ...drag.hot, to: drag.hot.ref, from: drag.ref });
+    return;
+  }
   // Hold the card where it was dropped; the state update animates from there.
+  haptic("drop");
   motionFor(drag.slot).to({ lean: 0, scale: 1.04 });
   board.pendingDrop = { key: refKey(drag.ref), pose: poseOf(drag.slot) };
   const ok = drag.hot
@@ -1134,12 +1702,29 @@ function tapSlot(ref, slot) {
     return;
   }
   board.lastTap = canFlip(ref) ? { ref, time: now, version: state.version } : null;
-  if (board.selected.length === 1 && !same(board.selected[0], ref)) {
-    const item = movesFrom(board.selected[0]).find((m) => same(m.ref, ref));
+  if (!myTurn()) return popSlot(slot, 0.3); // not your turn: a nudge, no selection
+  const pinned = pinnedCard();
+  if (pinned) {
+    // the flipped card keeps the selection: other cards can only receive it
+    const item = same(ref, pinned) ? null : movesFrom(pinned).find((m) => same(m.ref, ref));
     if (item && !busy) {
       board.selected = [];
       paintSelection();
-      move(item.action, item.extra);
+      playMove(item.action, item.extra, { from: pinned, to: ref, label: item.label });
+      return;
+    }
+    popSlot(slot, same(ref, pinned) ? 0.45 : 0.3);
+    board.selected = [pinned];
+    paintSelection();
+    return;
+  }
+  if (board.selected.length === 1 && !same(board.selected[0], ref)) {
+    const item = movesFrom(board.selected[0]).find((m) => same(m.ref, ref));
+    if (item && !busy) {
+      const from = board.selected[0];
+      board.selected = [];
+      paintSelection();
+      playMove(item.action, item.extra, { from, to: ref, label: item.label });
       return;
     }
   }
@@ -1177,7 +1762,7 @@ function rulesSheet(player) {
   const color = colorFor(player);
   const active = activeRules(player);
   const effects = g.effects[player] || [];
-  const visible = g.scores[player],
+  const visible = (g.base_scores ?? g.scores)[player],
     total = g.effect_totals[player];
   const enabled = catalog.filter((rule) => state.rules[rule.key]);
   const editable = g.legal.set_rules;
@@ -1186,10 +1771,10 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${e(state.names[player])}${player === state.viewer ? " (you)" : ""}</h2><button type="button" class="close-btn" data-sheet-close aria-label="Close">${icon("xmark.circle.fill", 36, { idle: false })}</button></div>
+    <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
-      ${effects.map((effect) => `<div><span>${e(effect)}</span></div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
+      ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
       <div class="total"><span>${g.phase === "over" ? "Final score" : "Active score"}</span><b>${total} pts</b></div>
     </div>
     <p class="hint dark" style="margin-top:.8rem">Face-down cards are not counted until the game ends.</p>

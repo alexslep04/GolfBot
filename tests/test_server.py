@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from game import Card, GolfGame, Rules, Slot
-from server import COOKIE, Move, Room, Store, apply_move, create_app, snapshot
+import server
+from server import COOKIE, Move, Room, Store, apply_move, bot_reaction, create_app, snapshot
 
 
 class WebTests(unittest.TestCase):

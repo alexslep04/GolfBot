@@ -404,17 +404,17 @@ function home() {
     [tilted(name, size), tilted(name, size, { mirror: true })];
   const friends = twin("figure.2"),
     quick = twin("sparkles"),
-    medal = twin("medal");
+    practice = twin("dumbbell.fill");
   show(
     "home",
-    `<div class="page">${topbar()}<div class="stack">
+    `<div class="page home">${topbar()}<div class="stack">
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} Resume your table</button>` : ""}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
     <button type="button" class="btn c-p2" data-nav="leaderboard">${medal[0]}<span>Leaderboard</span>${medal[1]}</button>
     <div class="row split">
-      <button type="button" class="btn tile c-fw grow" data-nav="solo">${tilted("dumbbell.fill", 33)}<span>Practice</span></button>
-      <button type="button" class="btn tile c-p4 grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
+      <button type="button" class="btn tile c-p4 grow" data-nav="stats">${tilted("medal", 33)}<span>Leaderboard</span></button>
+      <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
     <p class="credit">handcrafted by spencer &amp; alex</p>
   </div></div>`,
@@ -422,10 +422,38 @@ function home() {
   renderQueueBanner();
   pollPresence();
 }
+/** On/off and choice rows for the settings kept on this device. */
+function prefsHtml() {
+  const row = (key, symbol, label, value, on, lit = on) =>
+    `<button type="button" class="btn c-fw pref" role="switch" aria-checked="${on}" data-pref="${key}">${tilted(symbol, 26)}<span class="grow">${label}</span><b class="pref-value${lit ? " on" : ""}">${value}</b></button>`;
+  const onOff = (on) => (on ? "On" : "Off");
+  const rows = [
+    row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
+    row("hideTips", "text.bubble.fill", "Hide tooltips", onOff(prefs.hideTips), prefs.hideTips),
+  ];
+  if (hapticsAvailable)
+    rows.push(row("haptics", "hand.tap.fill", "Haptics", onOff(prefs.haptics), prefs.haptics));
+  // controller settings show on anything that is not a bare touchscreen
+  if (PAD.connected || !touchDevice)
+    rows.push(
+      row("padDrag", "gamecontroller.fill", "Controller: trigger drag", prefs.padDrag === "toggle" ? "Toggle" : "Hold", prefs.padDrag === "toggle", true),
+    );
+  return `<h3>Preferences</h3><div class="menu-list" data-prefs>${rows.join("")}</div>`;
+}
+function togglePref(key) {
+  if (key === "padDrag") setPref(key, prefs.padDrag === "toggle" ? "hold" : "toggle");
+  else setPref(key, !prefs[key]);
+  if (key === "confirm" && !prefs.confirm) cancelStaged();
+  const holder = sheetRoot.querySelector("[data-prefs]");
+  if (holder) holder.outerHTML = prefsHtml().replace(/^<h3>.*?<\/h3>/, "");
+  const help = sheetRoot.querySelector("[data-pad-help]");
+  if (help) help.outerHTML = padHelpHtml();
+  if (state?.game && page === "room") renderBoard();
+}
 function settingsSheet() {
   const account = session.account;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Settings">
-    <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close aria-label="Close">${icon("xmark.circle.fill", 36, { idle: false })}</button></div>
+    <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <div class="menu-list">
       ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
       <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} ${account ? e(account.unique_name ? "@" + account.unique_name : "Choose unique name") : "Sign in with Google"}</button>
@@ -435,6 +463,8 @@ function settingsSheet() {
       <button type="button" class="btn c-p4" data-nav="patches">${tilted("newspaper.fill", 26)} Patch notes</button>
       <a class="btn c-fw" href="privacy">${tilted("lock.fill", 26)} Privacy</a>
     </div>
+    ${prefsHtml()}
+    ${padHelpHtml()}
   </section>`);
 }
 function voidOfferButton() {
@@ -445,7 +475,7 @@ function voidOfferButton() {
 function gameMenuSheet() {
   const link = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Table menu">
-    <div class="sheet-head"><h2>${e(state.name)}</h2><button type="button" class="close-btn" data-sheet-close aria-label="Close">${icon("xmark.circle.fill", 36, { idle: false })}</button></div>
+    <div class="sheet-head"><h2>${e(state.name)}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <p class="hint dark" style="margin-bottom:1.2rem">Game ${state.round} · ${e(matchLength(state))}</p>
     <div class="menu-list">
       <button type="button" class="btn c-p1" data-rules-for="me">${tilted("checklist", 26)} Rules &amp; scores</button>
@@ -455,6 +485,8 @@ function gameMenuSheet() {
       ${voidOfferButton()}
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
     </div>
+    ${prefsHtml()}
+    ${padHelpHtml()}
   </section>`);
 }
 
@@ -507,7 +539,7 @@ function setupPage() {
     const fixed = ["wins", "points"].includes(draft.style);
     show(
       "setup",
-      `<div class="page">${topbar()}<div class="stack wide">
+      `<div class="page centered">${topbar()}<div class="stack wide">
       ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
       ${
         draft.mode === "host"
@@ -528,50 +560,106 @@ function setupPage() {
   );
   centerAvatar(false);
 }
-function avatarPicker() {
+/** `seat` is where you will sit (0 = player 1): the chosen avatar wears that player's colour. */
+function avatarPicker(seat = 0) {
   const options = avatars.filter((avatar) => avatar.selectable);
-  return `<div class="avatar-pick"><span class="pointer">${icon("chevron.down", 30, { idle: false, style: "--fill:var(--fw);--stroke:var(--fw)", sw: 1.5 })}</span><div class="avatar-strip" role="radiogroup" aria-label="Avatar">${options.map((avatar) => `<button type="button" class="avatar" role="radio" aria-checked="${avatar.id === session.avatar}" aria-label="${e(avatar.name)}" data-avatar="${e(avatar.id)}">${icon(avatar.icon, 44)}</button>`).join("")}</div><p class="avatar-name">Select Your Avatar</p></div>`;
+  // Each sticker's shadow is its own flat copy, so turning the wheel only ever
+  // moves layers around and never has to redraw a textured sticker.
+  const sticker = (avatar) => {
+    const art = icon(avatar.icon, 44);
+    return `<span class="avatar-shade">${art.replace('class="ico', 'class="ico flat')}</span>${art}`;
+  };
+  return `<div class="avatar-pick ${["c-p1", "c-p2", "c-p3", "c-p4"][seat % 4]}"><span class="pointer">${icon("chevron.down", 30, { idle: false, style: "--fill:var(--fw3);--stroke:var(--fw)", sw: 4 })}</span><div class="avatar-strip" role="radiogroup" aria-label="Avatar"><div class="avatar-track" role="presentation" style="--stops:${options.length - 1}"><div class="avatar-stage" role="presentation">${options.map((avatar) => `<button type="button" class="avatar" role="radio" aria-checked="${avatar.id === session.avatar}" aria-label="${e(avatar.name)}" data-avatar="${e(avatar.id)}">${sticker(avatar)}</button>`).join("")}</div><div class="avatar-stops" aria-hidden="true">${options.map(() => "<i></i>").join("")}</div></div></div><p class="avatar-name">Select Your Avatar</p></div>`;
 }
 /**
- * Lay the avatars out on the rim of a big wheel: the one under the pointer is
- * upright and largest; the rest fall away along the arc, turning, shrinking
- * and softening toward the edges.
+ * The avatar wheel. The strip is a plain horizontal scroller (so touch, wheel
+ * and snapping stay native), but the avatars themselves sit on a stage that
+ * does not scroll: each frame they are placed on the rim of a big wheel from
+ * the scroll position alone. The one under the pointer is upright and largest;
+ * the rest fall away along the arc, turning, shrinking and softening.
  */
-function layoutWheel(strip = root.querySelector(".avatar-strip")) {
-  const items = strip ? [...strip.querySelectorAll(".avatar")] : [];
-  if (!items.length) return;
-  const middle = strip.scrollLeft + strip.clientWidth / 2;
-  const pitch =
-    items.length > 1 ? items[1].offsetLeft - items[0].offsetLeft : items[0].offsetWidth;
-  const radius = pitch * 5.2;
-  for (const item of items) {
-    const offset = item.offsetLeft + item.offsetWidth / 2 - middle;
-    const steps = Math.abs(offset / pitch);
-    const angle = clamp(offset / radius, -1.2, 1.2);
-    const x = radius * Math.sin(angle) - offset;
-    const y = radius * (1 - Math.cos(angle));
+const wheel = { strip: null, shown: 0, frame: 0, clock: 0, pitch: 0 };
+const wheelPitch = (strip) =>
+  strip.querySelector(".avatar-stops i")?.offsetWidth || 1;
+function paintWheel(strip, position) {
+  const items = strip.querySelectorAll(".avatar");
+  const pitch = wheel.pitch || (wheel.pitch = wheelPitch(strip));
+  const turn = 5.2; // wheel radius, in avatar spacings
+  // the avatar nearest the pointer takes your colour as soon as it is the
+  // closest one, well before the wheel comes to rest on it
+  const near = Math.round(position / pitch);
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.wheelNear !== (i === near))
+      item.classList.toggle("near", (item.wheelNear = i === near));
+    const away = i - position / pitch;
+    const steps = Math.abs(away);
+    const angle = clamp(away / turn, -1.2, 1.2);
+    const x = pitch * turn * Math.sin(angle);
+    const y = pitch * turn * (1 - Math.cos(angle));
     const scale =
       (1 + Math.max(0, 1 - steps) * 0.35) * (1 - Math.min(0.35, steps * 0.08));
     const blur = Math.max(0, steps - 1.2) * 1.4;
-    item.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) rotate(${angle.toFixed(3)}rad) scale(${scale.toFixed(3)})`;
-    item.style.filter = blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : "";
-    item.style.opacity = clamp(1 - (steps - 1.7) * 0.45, 0.25, 1).toFixed(2);
-    item.style.zIndex = String(50 - Math.round(steps * 10));
-    // keep each sticker's shadow falling down-right as it turns on the wheel
+    const style = item.style;
+    style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px) rotate(${angle.toFixed(4)}rad) scale(${scale.toFixed(4)})`;
+    style.opacity =
+      steps > turn * 1.2 ? "0" : clamp(1 - (steps - 1.7) * 0.45, 0.25, 1).toFixed(3);
+    const soft = blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : "";
+    if (item.wheelSoft !== soft) style.filter = item.wheelSoft = soft;
+    const layer = String(50 - Math.round(steps * 10));
+    if (item.wheelLayer !== layer) style.zIndex = item.wheelLayer = layer;
+    // the shadow keeps falling down-right on screen as its sticker turns
     const reach = 0.3;
-    item.style.setProperty("--shx", `${(reach * (Math.cos(angle) + Math.sin(angle))).toFixed(3)}rem`);
-    item.style.setProperty("--shy", `${(reach * (Math.cos(angle) - Math.sin(angle))).toFixed(3)}rem`);
+    item.firstElementChild.style.transform = `translate(${(reach * (Math.cos(angle) + Math.sin(angle))).toFixed(3)}rem, ${(reach * (Math.cos(angle) - Math.sin(angle))).toFixed(3)}rem)`;
+  }
+}
+/** Ease the drawn wheel toward the scroll position, so uneven input stays fluid. */
+function stepWheel(now) {
+  wheel.frame = 0;
+  const strip = wheel.strip;
+  if (!strip?.isConnected) return;
+  const elapsed = clamp(now - wheel.clock, 4, 50);
+  wheel.clock = now;
+  const target = strip.scrollLeft;
+  const gap = target - wheel.shown;
+  wheel.shown =
+    Math.abs(gap) < 0.25 ? target : wheel.shown + gap * (1 - Math.exp(-elapsed / 28));
+  // a tick as each avatar passes under the pointer
+  const notch = Math.round(wheel.shown / (wheel.pitch || wheelPitch(strip)));
+  if (notch !== wheel.notch) {
+    if (wheel.notch !== undefined) haptic("snap");
+    wheel.notch = notch;
+  }
+  paintWheel(strip, wheel.shown);
+  if (wheel.shown !== target) wheel.frame = requestAnimationFrame(stepWheel);
+}
+function layoutWheel(strip = root.querySelector(".avatar-strip"), instant = false) {
+  if (!strip) return;
+  if (wheel.strip !== strip) {
+    wheel.strip = strip;
+    wheel.pitch = 0;
+    wheel.notch = undefined;
+    instant = true;
+  }
+  if (instant || reducedMotion.matches) {
+    wheel.shown = strip.scrollLeft;
+    paintWheel(strip, wheel.shown);
+  } else if (!wheel.frame) {
+    wheel.clock = performance.now() - 8;
+    wheel.frame = requestAnimationFrame(stepWheel);
   }
 }
 function centerAvatar(smooth = true) {
   const strip = root.querySelector(".avatar-strip");
   const chosen = strip?.querySelector("[aria-checked='true']");
   if (!chosen) return;
+  if (wheel.strip !== strip || !smooth) wheel.pitch = 0;
+  const index = [...strip.querySelectorAll(".avatar")].indexOf(chosen);
   strip.scrollTo({
-    left: chosen.offsetLeft - strip.clientWidth / 2 + chosen.offsetWidth / 2,
+    left: index * wheelPitch(strip),
     behavior: smooth ? "smooth" : "instant",
   });
-  layoutWheel(strip);
+  layoutWheel(strip, !smooth);
 }
 function pickAvatar(id, scroll = true) {
   saveAvatar(id);
@@ -590,19 +678,25 @@ root.addEventListener(
     clearTimeout(avatarScroll);
     // whichever avatar rests under the pointer arrow becomes the selection
     avatarScroll = setTimeout(() => {
-      const middle = strip.scrollLeft + strip.clientWidth / 2;
-      let best = null,
-        distance = Infinity;
-      strip.querySelectorAll(".avatar").forEach((button) => {
-        const d = Math.abs(button.offsetLeft + button.offsetWidth / 2 - middle);
-        if (d < distance) [best, distance] = [button, d];
-      });
+      if (!strip.isConnected) return;
+      const items = strip.querySelectorAll(".avatar");
+      const best =
+        items[clamp(Math.round(strip.scrollLeft / wheelPitch(strip)), 0, items.length - 1)];
       if (best && best.getAttribute("aria-checked") !== "true")
         pickAvatar(best.dataset.avatar, false);
     }, 90);
   },
   true,
 );
+// The stage never scrolls, so tabbing to an avatar has to turn the wheel to it.
+root.addEventListener("focusin", (event) => {
+  const button = event.target;
+  if (
+    button.matches?.(".avatar:focus-visible") &&
+    button.getAttribute("aria-checked") !== "true"
+  )
+    pickAvatar(button.dataset.avatar);
+});
 function rulesPicker() {
   const count = catalog.filter((rule) => draft.rules[rule.key]).length;
   const locked = draft.gameType === "many" || draft.preset === "house";
@@ -612,7 +706,7 @@ function rulesPicker() {
     ["vanilla", "Vanilla", "checkmark.seal.text.page.fill"],
   ];
   const row = (rule) =>
-    `<button type="button" class="rule-row" role="checkbox" aria-checked="${!!draft.rules[rule.key]}" data-draft-rule="${e(rule.key)}" title="${e(rule.description)}">${tilted(draft.rules[rule.key] ? "checkmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5 })}<span>${e(rule.name)}${NEW_RULES.includes(rule.key) ? ` <span class="new-tag">NEW</span>` : ""}</span></button>`;
+    `<button type="button" class="rule-row" role="checkbox" aria-checked="${!!draft.rules[rule.key]}" data-draft-rule="${e(rule.key)}" title="${e(rule.description)}">${tilted(draft.rules[rule.key] ? "checkmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5, cls: draft.rules[rule.key] ? "" : "bare" })}<span>${e(rule.name)}${NEW_RULES.includes(rule.key) ? ` <span class="new-tag">NEW</span>` : ""}</span></button>`;
   const group = (title, rules) =>
     rules.length
       ? `<div class="rule-group"><h4>${title}</h4>${rules.map(row).join("")}</div>`
@@ -809,7 +903,7 @@ async function publicLobby(id) {
     "public",
     `<div class="page">${topbar()}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${houseBadge(info)}</div><p class="hint">${e(rulesSummary(info.rules))}</p></div>
-    ${avatarPicker()}
+    ${avatarPicker(info.players)}
     ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
     </div><div class="row">${backButton("friends")}<button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>Join Table</span>${twin[1]}</button></div></div>`,
@@ -825,7 +919,7 @@ function waitingRoom() {
     `<div class="page">${topbar()}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(state.name)}</h1><div class="meta"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${houseBadge(state)}</div></div>
     <div class="share">${field("Invite Link", `<input readonly aria-label="Lobby invite link" value="${e(url)}">`, "link")}<button type="button" class="btn c-p1" style="flex:none;min-height:5.6rem;font-size:1.8rem;padding:0 1.6rem" data-copy="${e(url)}">Copy</button></div>
-    <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${e(seatName)}${seat === state.viewer ? " (you)" : ""}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
+    <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${seat === state.viewer ? youStar() : ""}${e(seatName)}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
     <p class="hint">${e(rulesSummary(state.rules))}</p>
     <p class="hint dark">${many ? "The host starts once at least three players have joined." : "The game starts automatically when a friend joins."}</p>
     </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>Invite a Player</span></button>` : ""}<div class="row"><button type="button" class="btn round c-p2" data-leave aria-label="Leave table">${glyph("xmark", 20)}</button>${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
@@ -910,6 +1004,34 @@ function closeSheetIfStale() {
 }
 function openRulesSheet(player) {
   openSheet(rulesSheet(player), player);
+}
+/** A player's record, shown over the table (tap an opponent's name tag). */
+async function playerStatsSheet(player) {
+  const id = state.player_ids?.[player];
+  const mine = state.player_ids?.[state.viewer];
+  const color = colorFor(player);
+  openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
+    <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
+    <div data-player-stats><div class="loading">Loading stats…</div></div>
+    <div class="row" style="margin-top:1.2rem">${id ? `<button type="button" class="btn small ${color} grow" data-stats-player="${e(id)}">Full stats</button>` : ""}<button type="button" class="btn small ${color} grow" data-nav="stats">${tilted("medal", 22)} Leaderboard</button></div>
+  </section>`);
+  const holder = sheetRoot.querySelector("[data-player-stats]");
+  let body;
+  try {
+    if (!id) throw new Error("No saved games for this player yet.");
+    const query = new URLSearchParams({ player: id });
+    if (mine && mine !== id) query.set("opponent", mine);
+    const result = await api("/api/stats?" + query);
+    if (result.player?.profile.id !== id) throw new Error("No saved games for this player yet.");
+    body =
+      statsTable([result.player], "overall", "Official stats · overall", color) +
+      (result.comparison
+        ? statsTable([result.player, result.comparison], "head_to_head", "Head to head with you", color)
+        : "");
+  } catch (error) {
+    body = `<p class="empty">${e(error.message)}</p>`;
+  }
+  if (holder.isConnected) holder.innerHTML = `<div class="stack">${body}</div>`;
 }
 /** Send one table action. Resolves true when the server accepted it. */
 async function move(action, extra = {}) {
@@ -1083,7 +1205,7 @@ async function historyPage(more = false) {
               match.last_game_ended_at ||
               Math.max(...match.rounds.map((game) => game.ended_at || 0)) ||
               match.updated_at;
-            return `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2><div class="meta"><span class="pill">${e(new Date(ended * 1000).toLocaleDateString())}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div><p style="margin-top:1rem">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })} Overall winner: ${e(winner)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col">${e(name)}${match.viewer === p ? " (you)" : ""}</th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total pts</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope="row">Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
+            return `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2><div class="meta"><span class="pill">${e(new Date(ended * 1000).toLocaleDateString())}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div><p style="margin-top:1rem">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })} Overall winner: ${e(winner)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col">${match.viewer === p ? youStar() : ""}${e(name)}</th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total pts</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope="row">Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
           })
           .join("") ||
         `<p class="hint">No completed games yet. Finish a game against a player or Golfbot to see it here.</p>`
@@ -1108,7 +1230,8 @@ let statsSelection = {
     house_rules: true,
     patch: "",
   },
-  statsRequest = 0;
+  statsRequest = 0,
+  statsFiltersOpen = false;
 const statNumber = (value) =>
   value === null
     ? "—"
@@ -1135,14 +1258,76 @@ function readStatsForm() {
     house_rules: data.has("house_rules"),
     patch: data.get("patch") || "",
   };
-  if (statsSelection.player === statsSelection.opponent)
-    statsSelection.opponent = "";
-  for (const rule of catalog) {
-    if (statsSelection.house_rules) break;
-    const value = data.get("filter-" + rule.key);
-    if (value === "on") statsSelection.enabled.push(rule.key);
-    if (value === "off") statsSelection.disabled.push(rule.key);
+  const patchField = selectField(
+    "Patch",
+    `data-stats-patch aria-label="Patch"`,
+    [["", "All time", !patch], ...patches.map((name) => [name, name === "legacy" ? "Earlier patches" : name, patch === name])],
+    null,
+    "compact",
+  );
+  return `<div class="rules-box ${open ? "open" : ""}"><span class="label">Filters</span>
+    <button type="button" class="rules-head" data-stats-filters-toggle aria-expanded="${open}"><span>${tilted("checklist", 24)} ${title}</span><span class="chev">${glyph("chevron.right", 20)}</span></button>
+    <div class="collapse ${open ? "open" : ""}" data-rules-open><div ${open ? "" : "inert"}><div class="rules-body">
+      <div class="chips" style="justify-content:space-around">${presets.map(([key, label, symbol]) => `<button type="button" class="rule-row" style="flex-direction:column;gap:1.4rem;color:var(--fw-text)" data-stats-preset="${key}" aria-pressed="${preset === key}">${tilted(symbol, 52, { tilt: key === "house" ? 6 : -6, style: preset === key ? "--fill:var(--p1b);--stroke:var(--p1)" : "" })}<span>${label}${key === "house" ? " Rules" : ""}</span></button>`).join("")}</div>
+      <div class="rule-group"><h4>Rules</h4>${catalog.map(row).join("")}</div>
+      <p class="hint dark">${house_rules ? "House rules count only games played with the saved preset. Choose Any rules to pick your own." : "Tap a rule to require it. Tap again to leave out games that used it."}</p>
+      ${patchField}
+    </div></div></div></div>
+    <div class="collapse ${open ? "" : "open"}" data-rules-closed><div ${open ? "inert" : ""}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-stats-preset="${key}" aria-pressed="${preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(statsFilterSummary())}</p></div></div></div>`;
+}
+/** Open or close the filter box in place so the height change can animate. */
+function toggleStatsFilters() {
+  statsFiltersOpen = !statsFiltersOpen;
+  const holder = root.querySelector("[data-stats-filters]");
+  const box = holder?.querySelector(".rules-box");
+  if (!box) return;
+  box.classList.toggle("open", statsFiltersOpen);
+  box.querySelector("[data-stats-filters-toggle]").setAttribute("aria-expanded", statsFiltersOpen);
+  for (const [name, open] of [
+    ["[data-rules-open]", statsFiltersOpen],
+    ["[data-rules-closed]", !statsFiltersOpen],
+  ]) {
+    const part = holder.querySelector(name);
+    part.classList.toggle("open", open);
+    part.firstElementChild.toggleAttribute("inert", !open);
   }
+  if (statsFiltersOpen) {
+    box.querySelectorAll(".rule-row").forEach((row, i) => row.style.setProperty("--i", i));
+    box.classList.add("opening");
+    setTimeout(() => box.classList.remove("opening"), 900);
+  }
+}
+/** The ranking: everyone with a matching game, best game win rate first. */
+function leaderboardHtml(result) {
+  const rows = result.leaderboard.filter((row) => row.rounds > 0);
+  if (!rows.length) return `<p class="empty">No games match these filters yet.</p>`;
+  return `<p class="hint dark">Ranked by game win rate. Tap a player for their full record.</p><div class="list">${rows
+    .map((row, i) => {
+      const games = `${row.rounds} game${row.rounds === 1 ? "" : "s"}`;
+      return `<button type="button" class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}" data-stats-player="${e(row.profile.id)}" aria-label="${i + 1}. ${e(row.profile.label)}, ${statPercent(row.round_win_rate)} win rate, ${games}">
+        <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "rank:first" }) : stickerText(String(i + 1), { key: `rank:${i}` })}</span>
+        <div class="grow"><strong>${e(row.profile.label)}</strong><small>${row.round_wins}–${row.round_losses}–${row.round_draws} · ${games}</small></div>
+        <b class="rate">${statPercent(row.round_win_rate)}</b>${glyph("chevron.right", 16)}
+      </button>`;
+    })
+    .join("")}</div>`;
+}
+/** One player's record: the headline numbers, then the full tables. */
+function playerStatsHtml(result) {
+  const entry = result.player,
+    stats = entry.overall;
+  const place = result.leaderboard.filter((row) => row.rounds > 0).findIndex((row) => row.profile.id === entry.profile.id);
+  const others = result.players.filter((player) => player.id !== entry.profile.id);
+  const tile = (value, label) => `<div><b>${value}</b><span>${label}</span></div>`;
+  return `<section class="panel c-p3 stat-hero">
+      <div class="stat-rate">${stickerText(stats.round_win_rate === null ? "—" : String(Math.round(stats.round_win_rate * 100)), { split: true, key: "stat-rate" })}${stats.round_win_rate === null ? "" : stickerText("%", { cls: "pts", key: "stat-pct" })}</div>
+      <p>game win rate${place >= 0 ? ` · ranked #${place + 1}` : ""}</p>
+      <div class="stat-tiles">${tile(`${stats.round_wins}–${stats.round_losses}–${stats.round_draws}`, "W–L–D")}${tile(statNumber(stats.rounds), "games")}${tile(statNumber(stats.average_points), "avg points")}</div>
+    </section>
+    ${selectField("Compare With", `data-stats-opponent aria-label="Compare with"`, [["", "Nobody: overall only", !statsSelection.opponent], ...others.map((player) => [player.id, player.label, player.id === statsSelection.opponent])], "person.2.fill")}
+    ${statsTable([entry, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}
+    ${result.comparison ? statsTable([entry, result.comparison], "head_to_head", "Head to head", "c-p1") : ""}
+    <details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details>`;
 }
 function ruleActivationsHtml(entry, scope) {
   const stats = entry[scope];
@@ -1203,10 +1388,10 @@ async function statsPage(fromUrl = false) {
     statsSelection.initialized = true;
   }
   const request = ++statsRequest;
-  const focused = document.activeElement?.id;
-  const rulesOpen = document.getElementById("stats-rules")?.open;
-  const wasStats = page === "stats";
-  const scroll = window.scrollY;
+  // the ranking, or (once a player is picked) that player's own page
+  const view = statsSelection.player ? "player:" + statsSelection.player : "board";
+  const same = page === "stats" && root.querySelector("[data-stats-view]")?.dataset.statsView === view;
+  const query = statsQuery();
   document.title = "Leaderboard · Golf";
   const query = new URLSearchParams();
   if (!statsSelection.house_rules) query.set("house_rules", "false");
@@ -1228,30 +1413,28 @@ async function statsPage(fromUrl = false) {
   if (!wasStats)
     show(
       "stats",
-      `<div class="page scroll">${head}<div class="loading">Loading player stats…</div></div>`,
+      `<div class="page scroll">${head(statsSelection.player ? "Player stats" : "Leaderboard")}<div class="loading">Loading player stats…</div></div>`,
     );
   try {
     const result = await api("/api/stats?" + query);
     if (page !== "stats" || request !== statsRequest) return;
-    statsSelection.player = result.player?.profile.id || "";
     statsSelection.opponent = result.comparison?.profile.id || "";
     if (!result.players.length) {
       show(
         "stats",
-        `<div class="page scroll">${head}<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p></div>`,
+        `<div class="page scroll">${head("Leaderboard")}<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p></div>`,
       );
       return;
     }
-    const options = (selected, exclude = "") =>
-      result.players
-        .filter((player) => player.id !== exclude)
-        .map(
-          (player) =>
-            `<option value="${e(player.id)}" ${player.id === selected ? "selected" : ""}>${e(player.label)}</option>`,
-        )
-        .join("");
-    const active =
-      statsSelection.enabled.length + statsSelection.disabled.length;
+    const filters = statsFiltersHtml(result.patches);
+    const content = statsSelection.player ? playerStatsHtml(result) : leaderboardHtml(result);
+    const holder = root.querySelector("[data-stats-view]");
+    if (same && holder) {
+      // a filter changed: redraw in place, keeping the scroll position
+      holder.querySelector("[data-stats-filters]").innerHTML = filters;
+      holder.querySelector("#stats-content").innerHTML = content;
+      return;
+    }
     show(
       "stats",
       `<div class="page scroll">${head}<p class="hint dark">Pick a player to see their record, or compare two head to head. ${session.room_id ? "Your table is still open." : ""}</p>
@@ -1265,13 +1448,11 @@ async function statsPage(fromUrl = false) {
       <div class="row" style="margin-top:1.4rem"><button class="btn small grow" type="submit">Apply filters</button><button class="btn small" type="button" data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form>
       <div id="stats-content" class="stack wide">${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head", "c-p1") : `<p class="hint">Choose a comparison player above for head-to-head results.</p>`}<details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Modifiers in play counts the scoring modifiers affecting that player's hand, including separate variants of a rule. The average excludes older games without modifier records. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></div>`,
     );
-    if (wasStats) window.scrollTo(0, scroll);
-    if (focused) document.getElementById(focused)?.focus();
   } catch (error) {
     if (page === "stats" && request === statsRequest)
       show(
         "stats",
-        `<div class="page scroll">${head}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button></div>`,
+        `<div class="page scroll">${head("Leaderboard")}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button></div>`,
       );
   }
 }
@@ -1454,8 +1635,10 @@ document.addEventListener("click", async (event) => {
   try {
     if (data.leaveChoice) return resolveLeavePrompt(data.leaveChoice);
     if (button.classList.contains("slot")) {
-      // pointer taps are handled by the board; this is keyboard activation
-      if (event.detail === 0) tapSlot(JSON.parse(data.ref), button);
+      // pointer taps are handled by the board; this is keyboard activation.
+      // (A tap on the haptic switch also clicks with no detail: not a key press.)
+      if (event.detail === 0 && event.target === button)
+        tapSlot(JSON.parse(data.ref), button);
       return;
     }
     if (data.leaderTab) return data.leaderTab === "advanced" ? statsPage() : leaderboardPage(data.leaderTab);
@@ -1482,9 +1665,13 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if ("sheetClose" in data) return closeSheet();
+    if ("confirm" in data) return await confirmStaged();
+    if ("undo" in data) return cancelStaged();
+    if (data.pref) return togglePref(data.pref);
     if ("settings" in data) return settingsSheet();
     if ("gameMenu" in data) return gameMenuSheet();
     if ("sheetPlayer" in data) return openRulesSheet(Number(data.sheetPlayer));
+    if (data.statsFor) return await playerStatsSheet(board.view.opp);
     if (data.rulesFor)
       return openRulesSheet(
         data.rulesFor === "me" ? state.viewer : board.view.opp,
@@ -1642,24 +1829,30 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (data.nav) return await navigate(data.nav);
-    if (
-      "statsAll" in data ||
-      "statsReset" in data ||
-      "statsResetAll" in data
-    ) {
-      readStatsForm();
+    if ("statsFiltersToggle" in data) return toggleStatsFilters();
+    if (data.statsPlayer) {
+      statsSelection.player = data.statsPlayer;
+      statsSelection.opponent = "";
+      return await statsPage();
+    }
+    if (data.statsPreset) {
+      statsSelection.house_rules = data.statsPreset === "house";
       statsSelection.enabled = [];
       statsSelection.disabled = [];
-      if (data.statsAll) {
-        const keys = catalog.map((rule) => rule.key);
-        if (data.statsAll === "on") statsSelection.enabled = keys;
-        else statsSelection.disabled = keys;
-      }
-      if ("statsResetAll" in data) {
-        statsSelection.player = "";
-        statsSelection.opponent = "";
-        statsSelection.patch = "";
-      }
+      return await statsPage();
+    }
+    if (data.statsRule) {
+      // each tap moves a rule on: either way → required → excluded → either way
+      const key = data.statsRule;
+      const value = statsRuleState(key);
+      statsSelection.enabled = statsSelection.enabled.filter((item) => item !== key);
+      statsSelection.disabled = statsSelection.disabled.filter((item) => item !== key);
+      if (value === "any") statsSelection.enabled.push(key);
+      else if (value === "on") statsSelection.disabled.push(key);
+      return await statsPage();
+    }
+    if ("statsResetAll" in data) {
+      statsSelection = { player: "", opponent: "", enabled: [], disabled: [], house_rules: true, patch: "" };
       return await statsPage();
     }
     if ("historyMore" in data) return await historyPage(true);
@@ -1705,7 +1898,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (data.action) {
-      if (button.closest("[data-actionbar]")) await barAction(data.action);
+      if (button.closest("[data-actionbar], [data-side-actions]")) await barAction(data.action);
       else await move(data.action);
     }
   } catch (error) {
@@ -1744,10 +1937,6 @@ root.addEventListener("submit", async (event) => {
     }
     return;
   }
-  if (event.target.id === "stats-form") {
-    readStatsForm();
-    await statsPage();
-  }
 });
 root.addEventListener("change", async (event) => {
   const target = event.target;
@@ -1764,11 +1953,9 @@ root.addEventListener("change", async (event) => {
     if (key === "gameType") refreshRulesPicker();
     return;
   }
-  if (
-    target.hasAttribute("data-stats-house") ||
-    target.hasAttribute("data-stats-select")
-  ) {
-    readStatsForm();
+  if (target.hasAttribute("data-stats-patch") || target.hasAttribute("data-stats-opponent")) {
+    if (target.hasAttribute("data-stats-patch")) statsSelection.patch = target.value;
+    else statsSelection.opponent = target.value;
     await statsPage();
     return;
   }
@@ -1779,6 +1966,17 @@ root.addEventListener("change", async (event) => {
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !sheetRoot.hidden) return closeSheet();
+  if (page === "room" && board.staged && sheetRoot.hidden) {
+    // a staged move: Enter plays it, Escape calls it off
+    if (event.key === "Escape") return cancelStaged();
+    if (
+      event.key === "Enter" &&
+      !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(event.target.tagName)
+    ) {
+      event.preventDefault();
+      return confirmStaged();
+    }
+  }
   if (
     event.key === "Enter" &&
     page === "room" &&
@@ -1789,7 +1987,7 @@ document.addEventListener("keydown", (event) => {
     move("end_turn");
   }
 });
-window.addEventListener("resize", () => layoutWheel());
+window.addEventListener("resize", () => centerAvatar(false));
 function route() {
   const path = currentPath();
   if (path === "/patch-notes") return patchesPage();
