@@ -1307,7 +1307,14 @@ body > header.topbar {
     transform 0.4s var(--spring);
   pointer-events: none;
 }
-.my-turn > .turn-label {
+/* At tables of three or more the same band says who plays after this turn:
+   "YOU'RE NEXT" on your tag, "NEXT UP" along the foot of the opponent's */
+.b-top .turn-label {
+  inset: auto 0 0;
+  transform: translateY(-0.5rem) scale(0.7);
+}
+.my-turn > .turn-label,
+.up-next > .turn-label {
   opacity: 1;
   transform: none;
 }
@@ -1363,15 +1370,19 @@ button.tag-rules:active > .tag-in {
   padding: 1.2rem 0.6rem;
   min-height: 10.71rem;
 }
+/* a name too long for one line takes a second, and the tag grows to fit it */
 .tag-score .who {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   max-width: 100%;
   font-size: 1.6rem;
   line-height: 1.4;
   margin: -0.52rem 0;
-  white-space: nowrap;
+  text-align: center;
+  overflow-wrap: anywhere;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .score {
   display: flex;
@@ -1487,20 +1498,39 @@ button.tag-rules:active > .tag-in {
 .streak .score .digits .stk {
   font-size: 3.8rem;
 }
-.offline .who::after {
-  content: " ⌁";
+/* offline: marked in the corner of the tag, where it can't push the name onto a second line */
+.tag-score.offline > .tag-in {
+  position: relative;
+}
+.tag-score.offline > .tag-in::after {
+  content: "⌁";
+  position: absolute;
+  top: 0.1rem;
+  right: 0.6rem;
+  font-size: 1.4rem;
+  line-height: 1;
 }
 .cycle {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0.5rem;
   color: var(--ct);
-  font-size: 1.6rem;
-  line-height: 1.2;
   --fill: var(--c2);
   --stroke: var(--c);
   touch-action: none;
   max-width: 100%;
+}
+.cycle-wrap {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  max-width: 100%;
+}
+/* the arrows turn once round each time the table moves on (board.js) */
+.cycle-ico {
+  display: grid;
 }
 .cycle .ico {
   transition: transform 0.45s var(--spring);
@@ -1508,12 +1538,42 @@ button.tag-rules:active > .tag-in {
 .cycle:active .ico {
   transform: scale(0.86);
 }
-.cycle span {
-  max-width: 9rem;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* shown when the opponent this button turns to is the one up next */
+.cycle-next {
+  font: 800 1rem/1 var(--round);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-0.5rem) scale(0.7);
+  transition:
+    opacity 0.2s,
+    transform 0.4s var(--spring);
+}
+.cycle.up-next > .cycle-next {
+  opacity: 1;
+  transform: none;
+}
+/* Moving on to another opponent: their whole side of the table slides across
+   as one page while a copy of the side being left (.board-ghost) slides off.
+   Both are clipped to the table's width; the cycle button stays where it is. */
+.board.swiping,
+.board-ghost {
+  clip-path: inset(-100vh 0);
+}
+.board-ghost {
+  pointer-events: none;
+}
+.board-ghost .cycle-wrap {
+  visibility: hidden;
+}
+.b-top.sliding > .b-main,
+.b-top.sliding > .b-side > :not(.cycle-wrap) {
+  translate: var(--slide, 0) 0;
+}
+.b-top.sliding .tag,
+.b-top.sliding .tag > .tag-in {
+  transition: none;
 }
 .hand {
   display: grid;
@@ -2138,13 +2198,7 @@ button.tag-rules:active > .tag-in {
   object-fit: contain;
   filter: drop-shadow(0.3rem 0.3rem 0 var(--shadow));
 }
-.player-emote span {
-  padding: 0 0.8rem;
-  border-radius: 1rem;
-  background: var(--ink);
-  color: #fff;
-  font-size: 1.2rem;
-}
+
 .player-emote.me {
   left: 10rem;
   bottom: 9rem;
@@ -2153,10 +2207,61 @@ button.tag-rules:active > .tag-in {
   right: 10rem;
   top: 9rem;
 }
+/* A player whose side of the table is not showing reacts from the cycle
+   button that leads to them: a tooltip in their own colour, with their avatar
+   and name, its arrow pointing back at the button. */
+.cycle-emotes {
+  position: absolute;
+  right: calc(100% + 1.2rem);
+  top: 2.2rem;
+  translate: 0 -50%;
+  display: grid;
+  justify-items: end;
+  gap: 1.2rem;
+  pointer-events: none;
+}
 .player-emote.other {
-  left: 50%;
-  top: 36rem;
-  margin-left: -3.6rem;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.5rem 0.8rem 0.5rem 1rem;
+  border-radius: 1.6rem;
+  background: var(--c);
+  color: var(--on, #fff);
+  font-size: 1.4rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0.25rem 0.25rem 0 var(--shadow);
+  transform-origin: 100% 50%;
+}
+.player-emote.other::after {
+  content: "";
+  position: absolute;
+  left: calc(100% - 0.1rem);
+  top: 50%;
+  margin-top: -0.8rem;
+  border: 0.8rem solid transparent;
+  border-left-color: var(--c);
+  border-right: 0;
+}
+.player-emote.other img {
+  width: 5.2rem;
+  height: 5.2rem;
+  margin: -0.9rem 0;
+}
+.emote-who {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.emote-who b {
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: inherit;
 }
 @keyframes emote {
   0% {
@@ -2676,6 +2781,10 @@ button.tag-rules:active > .tag-in {
     transform: translateY(60%);
     opacity: 0;
   }
+}
+/* redrawn in place after a table update: it is already on screen */
+.sheet.settled {
+  animation: none;
 }
 .sheet-head {
   display: flex;
