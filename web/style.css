@@ -1368,6 +1368,10 @@ body > header.topbar {
   overflow: hidden;
   transition: background 0.3s;
 }
+/* (what a tag shows is redrawn too: the tag itself takes the pointer) */
+.tag > .tag-in > * {
+  pointer-events: none;
+}
 .b-top .tag {
   padding-top: env(safe-area-inset-top);
 }
@@ -1692,6 +1696,10 @@ button.tag-rules:active > .tag-in {
 .card-flip {
   position: absolute;
   inset: 0;
+  /* Redrawn whenever the card changes. A scroll or a press belongs to the
+     card around it, which stays: browsers keep sending a trackpad's scroll to
+     whatever it began on, and lose it if that has been replaced. */
+  pointer-events: none;
   transform-style: preserve-3d;
   /* The perspective lives in the card's own transform, not on the slot: a
      perspective on the slot makes Safari depth-sort the slot's layers, so the

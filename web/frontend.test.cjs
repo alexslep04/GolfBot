@@ -178,6 +178,7 @@ test('the turn tooltip points up at the opponent on show when the turn is theirs
   const h=harness();
   h.run(`board.el=document.createElement("div");board.view={opp:1};prefs.hideTips=false;presenceState.queue=null;
     state={viewer:0,status:"playing",names:["Alice","Bob","Cy"],game:{phase:"choose",current:1,decision_player:1,final_turn:false,turn_order:[0,1,2],legal:{flip:[],guess:false,arrange:[]}}};
+    board.el.querySelector("[data-actionbar]").querySelectorAll=()=>[];
     renderSummary=()=>{};renderModal=()=>{};renderEmotes=()=>{};placeCallout=()=>{};renderChrome();`);
   const callout=()=>h.run(`JSON.stringify([board.el.querySelector(".callout").textContent,board.el.querySelector(".callout").className,board.el.querySelector(".callout").dataset.anchor])`);
   assert.equal(callout(),JSON.stringify(["Bob's turn","callout c-s1 up","turn"]));

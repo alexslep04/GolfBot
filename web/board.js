@@ -2072,10 +2072,12 @@ document.addEventListener(
 );
 /* ---------- trackpad: a sideways scroll turns the table too ---------- */
 // The opponent's side follows the scroll like a finger dragging it, and goes
-// over once it is carried far enough. A trackpad then keeps sending the
-// scroll's momentum for a second or more: that is ignored, but a fresh swipe
-// made while it is still dying away is not.
-const wheelSwipe = { slide: null, x: 0, y: 0, spent: 0, peak: 0, falling: false, trough: 0, timer: 0 };
+// over once it is carried far enough. One continuous scroll turns the table
+// once and no more: whatever is left of it (the rest of the swipe, then the
+// momentum a trackpad keeps sending for a second or more) is ignored, and the
+// next turn of the table waits for a scroll that starts after this one stops.
+const WHEEL_QUIET = 120; // ms without a scroll event: the scroll is over
+const wheelSwipe = { slide: null, x: 0, y: 0, spent: false, stamp: -Infinity, timer: 0 };
 function onBoardWheel(event) {
   // pinch-zooming, and the panels over the table that scroll, are left alone
   if (event.ctrlKey || !canCycle() || event.target.closest?.(".summary, .modal-shade, .emote-pop")) return;
@@ -2083,43 +2085,28 @@ function onBoardWheel(event) {
   // nothing, or slightly up or down): one that is let go hands the whole swipe
   // to the browser, which keeps it for its own back and forward gesture.
   event.preventDefault();
+  // The gap is read off the events' own times, so a busy moment that delivers
+  // them late can't split one scroll in two.
+  if (event.timeStamp - wheelSwipe.stamp > WHEEL_QUIET) endWheel();
+  wheelSwipe.stamp = event.timeStamp;
   clearTimeout(wheelSwipe.timer);
-  wheelSwipe.timer = setTimeout(endWheel, 140); // the scroll has stopped
-  if (tableSwipe?.slide) return;
+  wheelSwipe.timer = setTimeout(endWheel, WHEEL_QUIET);
+  if (wheelSwipe.spent || tableSwipe?.slide) return;
   const unit = event.deltaMode === 1 ? 16 : 1;
-  const dx = -event.deltaX * unit; // scrolling right moves what is under the pointer to the left
-  const size = Math.abs(dx);
-  if (wheelSwipe.spent) {
-    // What follows a swipe that has gone over is its own tail: the finger
-    // slowing, then momentum, which only ever fades and never turns round.
-    // Once that has clearly passed its peak, a scroll that picks up again (or
-    // goes the other way) is a new swipe.
-    let fresh = Math.sign(dx) === -wheelSwipe.spent && size > 6;
-    if (!wheelSwipe.falling) {
-      wheelSwipe.peak = Math.max(wheelSwipe.peak, size);
-      if (size <= wheelSwipe.peak / 2) Object.assign(wheelSwipe, { falling: true, trough: size });
-    } else {
-      wheelSwipe.trough = Math.min(wheelSwipe.trough, size);
-      fresh ||= size > wheelSwipe.trough * 1.5 + 6;
-    }
-    if (!fresh) return;
-    Object.assign(wheelSwipe, { slide: null, x: 0, y: 0, spent: 0 });
-  }
-  wheelSwipe.x += dx;
+  wheelSwipe.x -= event.deltaX * unit; // scrolling right moves what is under the pointer to the left
   wheelSwipe.y += Math.abs(event.deltaY) * unit;
   if (wheelSwipe.slide && board.slide !== wheelSwipe.slide) wheelSwipe.slide = null; // something else moved the table on
   let slide = wheelSwipe.slide;
   // a scroll that has barely begun, or is mostly up and down, moves nothing yet
   if (!slide && (Math.abs(wheelSwipe.x) < 6 || Math.abs(wheelSwipe.x) <= wheelSwipe.y)) return;
   const direction = wheelSwipe.x < 0 ? 1 : -1;
-  const spend = () => Object.assign(wheelSwipe, { slide: null, spent: Math.sign(dx) || -direction, peak: size, falling: false });
   if (!slide || slide.direction !== direction) {
     if (slide) endSlide(slide);
     slide = wheelSwipe.slide = beginSlide(direction);
     if (!slide) {
       // reduced motion: nothing follows the scroll, a firm one just changes opponent
       if (Math.abs(wheelSwipe.x) > 60) {
-        spend();
+        wheelSwipe.spent = true;
         cycleOpponent(direction);
       }
       return;
@@ -2127,15 +2114,16 @@ function onBoardWheel(event) {
   }
   setSlide(slide, wheelSwipe.x);
   if (Math.abs(slide.x) < slide.width * 0.35) return;
-  spend();
+  Object.assign(wheelSwipe, { slide: null, spent: true });
   settleSlide(slide, true);
   spinCycle(direction);
 }
+/** The scroll has stopped: one that was only part-way over either counts, or goes back. */
 function endWheel() {
+  clearTimeout(wheelSwipe.timer);
   const slide = wheelSwipe.slide;
-  Object.assign(wheelSwipe, { slide: null, x: 0, y: 0, spent: 0 });
+  Object.assign(wheelSwipe, { slide: null, x: 0, y: 0, spent: false });
   if (!slide || board.slide !== slide) return;
-  // a short scroll that stopped: far enough to count, or back it goes
   const commit = Math.abs(slide.x) > slide.width * 0.15;
   settleSlide(slide, commit);
   if (commit) spinCycle(slide.direction);
