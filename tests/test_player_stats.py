@@ -114,6 +114,107 @@ class StatsTests(unittest.TestCase):
                 build_stats(self.matches, player, opponent)
 
 
+class SeededProfileStatsTests(unittest.TestCase):
+    def test_new_account_and_bot_have_zero_stats_on_current_patch(self):
+        from patches import PATCH_VERSION
+        profiles = [{'id': 'account:new', 'unique_name': 'new_user', 'display_name': 'New User', 'kind': 'account'},
+                    {'id': BOT_ID, 'kind': 'bot', 'display_name': 'Golfbot'}]
+        data = build_stats([], 'account:new', BOT_ID, patch=PATCH_VERSION, profiles=profiles)
+        self.assertEqual(data['player']['profile'], {
+            'id': 'account:new', 'username': 'new_user', 'unique_name': 'new_user',
+            'is_bot': False, 'display_names': ['New User'], 'is_guest': False, 'label': '@new_user'})
+        self.assertEqual(data['comparison']['profile']['label'], 'Golfbot (solo AI)')
+        for entry in (data['player'], data['comparison']):
+            for scope in ('overall', 'head_to_head'):
+                self.assertEqual(entry[scope]['rounds'], 0)
+                self.assertEqual(entry[scope]['total_points'], 0)
+                self.assertIsNone(entry[scope]['round_win_rate'])
+        self.assertEqual(data['filters']['patch'], PATCH_VERSION)
+
+    def test_seeded_guest_is_distinct_from_account_with_same_display_name(self):
+        profiles = [{'id': 'player:Same', 'display_name': 'Same', 'kind': 'guest'},
+                    {'id': BOT_ID, 'display_name': 'Golfbot', 'kind': 'bot'}]
+        saved = {**match(['Same', 'Rival'], [result([1, 5])], 0),
+                 'participants': [{'id': 'account:same', 'unique_name': 'registered'}, None]}
+        data = build_stats([saved], 'player:Same', BOT_ID, profiles=profiles)
+        self.assertEqual(data['player']['profile']['label'], 'Same (guest)')
+        self.assertTrue(data['player']['profile']['is_guest'])
+        self.assertEqual(data['player']['overall']['rounds'], 0)
+        self.assertIn('account:same', [p['id'] for p in data['players']])
+
+    def test_seed_refreshes_public_name_and_merges_historical_aliases(self):
+        saved = {**match(['Old display', 'Golfbot'], [result([1, 5])], 0, solo=True),
+                 'participants': [{'id': 'account:viewer', 'unique_name': 'old_name'}, None]}
+        seed = {'id': 'account:viewer', 'unique_name': 'current_name', 'display_name': 'Current display', 'kind': 'account'}
+        original = dict(seed)
+        data = build_stats([saved], 'account:viewer', BOT_ID, profiles=[seed, {'id': BOT_ID, 'display_name': 'Golfbot'}])
+        profile = data['player']['profile']
+        self.assertEqual(profile['username'], 'current_name')
+        self.assertEqual(profile['display_names'], ['Current display', 'Old display'])
+        self.assertEqual(data['player']['overall']['rounds'], 1)
+        self.assertEqual(len(data['players']), 2)
+        self.assertEqual(seed, original)
+
+    def test_seeded_default_uses_viewer_and_explicit_selections_still_validate(self):
+        saved = [match(['Aaron', 'Rival'], [result([1, 5])], 0)]
+        profiles = [{'id': 'player:Zoe', 'display_name': 'Zoe', 'kind': 'guest'},
+                    {'id': BOT_ID, 'display_name': 'Golfbot', 'kind': 'bot'}]
+        self.assertEqual(build_stats(saved, profiles=profiles)['player']['profile']['id'], 'player:Zoe')
+        self.assertEqual(build_stats(saved, 'player:Aaron', profiles=profiles)['player']['overall']['rounds'], 1)
+        self.assertEqual(build_stats(saved)['player']['profile']['id'], 'player:Aaron')
+        for selected, opponent in [('player:missing', None), ('player:Zoe', 'player:missing'), ('player:Zoe', 'player:Zoe')]:
+            with self.assertRaises(ValueError):
+                build_stats(saved, selected, opponent, profiles=profiles)
+
+
+class ModifierStatsTests(unittest.TestCase):
+    def test_average_uses_source_owned_instances_and_excludes_legacy_rounds(self):
+        rounds = [
+            {**result([1, 5], rules={"king_queen": True}, activations=[["king_queen"], []]), "modifier_counts": [{"king_queen": 3}, {}]},
+            {**result([6, 2], rules={"v10": True}), "modifier_counts": [{}, {"v10": 1}]},
+            result([0, 8], rules={"king_queen": True}, activations=[["king_queen"], []]),
+        ]
+        games = [match(["tester", "Rival"], rounds, 0)]
+        own = build_stats(games, "player:tester")["player"]["overall"]
+        other = build_stats(games, "player:Rival")["player"]["overall"]
+        self.assertEqual(own["average_rules_in_play"], 1.5)
+        self.assertEqual(other["average_rules_in_play"], .5)
+        self.assertEqual((own["known_modifier_games"], own["unknown_modifier_games"]), (2, 1))
+        self.assertEqual(next(row for row in own["rule_activations"] if row["key"] == "king_queen")["games"], 2)
+
+    def test_older_enabled_rules_and_activation_sets_cannot_prove_instance_counts(self):
+        games = [match(["tester", "Rival"], [result([1, 5], {"king_queen": True}, activations=[["king_queen"], []])], 0)]
+        stats = build_stats(games, "player:tester")["player"]["overall"]
+        self.assertIsNone(stats["average_rules_in_play"])
+        self.assertEqual((stats["known_modifier_games"], stats["unknown_modifier_games"]), (0, 1))
+
+    def test_malformed_counts_remain_unknown_but_empty_counts_are_known(self):
+        bad = [None, [], [{"king_queen": True}, {}], [{"king_queen": -1}, {}],
+               [{"king_queen": 1.5}, {}], [{"unrecognized": 1}, {}], [None, {}]]
+        rounds = [{**result([1, 5]), "modifier_counts": value} for value in bad]
+        rounds.append({**result([1, 5]), "modifier_counts": [{}, {}]})
+        stats = build_stats([match(["tester", "Rival"], rounds, 0)], "player:tester")["player"]["overall"]
+        self.assertEqual(stats["average_rules_in_play"], 0)
+        self.assertEqual((stats["known_modifier_games"], stats["unknown_modifier_games"]), (1, len(bad)))
+
+    def test_final_counts_do_not_claim_to_recover_cumulative_action_activations(self):
+        game = match(["tester", "Rival"], [{**result([1, 5]), "modifier_counts": [{"v10": 1}, {}]}], 0)
+        stats = build_stats([game], "player:tester")["player"]["overall"]
+        self.assertEqual(stats["average_rules_in_play"], 1)
+        self.assertEqual(stats["known_activation_games"], 0)
+        self.assertEqual(stats["unknown_activation_games"], 1)
+
+    def test_counts_follow_patch_rule_and_head_to_head_filters(self):
+        rounds = [
+            {**result([1, 5], {"king_queen": True}), "patch": "1.2.0", "modifier_counts": [{"king_queen": 2}, {}]},
+            {**result([1, 5], {"king_queen": True}), "patch": "1.1.1", "modifier_counts": [{"king_queen": 3}, {}]},
+        ]
+        stats = build_stats([match(["tester", "Rival"], rounds, 0)], "player:tester", "player:Rival",
+                            enabled=["king_queen"], patch="1.2.0")["player"]["head_to_head"]
+        self.assertEqual(stats["average_rules_in_play"], 2)
+        self.assertEqual(stats["known_modifier_games"], 1)
+
+
 class StatsApiTests(unittest.TestCase):
     def test_reading_stats_keeps_a_live_game_unchanged(self):
         store = Store()

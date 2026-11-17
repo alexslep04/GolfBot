@@ -12,18 +12,26 @@ def identities(match):
             (BOT_ID if seat == 1 and match.get('solo') else 'player:' + match['names'][seat]) for seat in range(len(match['names']))]
 
 
-def player_catalog(matches):
+def player_catalog(matches, profiles=()):
     players = {}
+
+    def add(player_id, profile, display_name):
+        bot = player_id == BOT_ID
+        unique = profile.get('unique_name')
+        name = 'Golfbot' if bot else unique or display_name
+        aliases = set(players.get(player_id, {}).get('display_names', [])) | {display_name}
+        players[player_id] = {'id': player_id, 'username': name, 'unique_name': unique, 'is_bot': bot,
+                              'display_names': sorted(aliases), 'is_guest': not bot and not unique,
+                              'label': 'Golfbot (solo AI)' if bot else '@' + unique if unique else name + ' (guest)'}
+
     for match in matches:
         for seat, player_id in enumerate(identities(match)):
-            bot = player_id == BOT_ID
             profile = ((match.get('participants') or [None] * len(match['names']))[seat] or {})
-            unique = profile.get('unique_name')
-            name = 'Golfbot' if bot else unique or match['names'][seat]
-            aliases = set(players.get(player_id, {}).get('display_names', [])) | {match['names'][seat]}
-            players[player_id] = {'id': player_id, 'username': name, 'unique_name': unique, 'is_bot': bot,
-                                  'display_names': sorted(aliases), 'is_guest': not bot and not unique,
-                                  'label': 'Golfbot (solo AI)' if bot else '@' + unique if unique else name + ' (guest)'}
+            add(player_id, profile, match['names'][seat])
+    # Current public identities refresh names while retaining historical aliases.
+    for profile in profiles:
+        add(profile['id'], profile, profile.get('display_name') or profile.get('unique_name') or
+            ('Golfbot' if profile['id'] == BOT_ID else profile['id'].removeprefix('player:')))
     return sorted(players.values(), key=lambda player: (player['is_bot'], player['username'].casefold(), player['id']))
 
 
@@ -35,13 +43,26 @@ def result_patch(result, match):
     return result.get('patch', match.get('patch')) or 'legacy'
 
 
+def recorded_modifier_counts(result, seat, player_count):
+    """Read a source-owned final snapshot; legacy activation sets lack multiplicity."""
+    recorded = result.get('modifier_counts')
+    if not isinstance(recorded, list) or len(recorded) != player_count:
+        return None
+    counts = recorded[seat]
+    rule_keys = {key for key, _ in RULE_OPTIONS}
+    if not isinstance(counts, dict) or any(
+            key not in rule_keys or type(value) is not int or value < 0 for key, value in counts.items()):
+        return None
+    return counts
+
+
 def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, house_only=False, patch=None):
     wins = losses = draws = total_points = opponent_points = 0
     match_wins = match_losses = completed_matches = unfinished_matches = ambiguous_matches = 0
     match_draws = 0
     points, activations, activation_wins = [], Counter(), Counter()
     known_activations = 0
-    turns, rule_counts = [], []
+    turns, modifier_counts = [], []
     for match in matches:
         seats = identities(match)
         if player_id not in seats:
@@ -71,10 +92,9 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
             opponent_points += other
             if type(result.get('turns')) is int:
                 turns.append(result['turns'])
-            rules = dict(result.get('rules', match['rules']))
-            if rules.pop('jack_swap', False) or rules.pop('queen_swap', False):
-                rules['royal_pairs'] = True
-            rule_counts.append(sum(bool(rules.get(key)) for key, _ in RULE_OPTIONS))
+            counts = recorded_modifier_counts(result, seat, len(seats))
+            if counts is not None:
+                modifier_counts.append(sum(counts.values()))
             recorded = result.get('activations')
             if isinstance(recorded, list) and len(recorded) == len(seats) and isinstance(recorded[seat], list):
                 known_activations += 1
@@ -110,7 +130,9 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
         'average_advantage': (total_points - opponent_points) / count if count else None,
         'average_turns': sum(turns) / len(turns) if turns else None,
         'known_turn_games': len(turns),
-        'average_rules_in_play': sum(rule_counts) / count if count else None,
+        # Keep the public metric key, now counting actual final modifier instances.
+        'average_rules_in_play': sum(modifier_counts) / len(modifier_counts) if modifier_counts else None,
+        'known_modifier_games': len(modifier_counts), 'unknown_modifier_games': count - len(modifier_counts),
         'best_round': min(points) if count else None, 'worst_round': max(points) if count else None,
         'known_activation_games': known_activations, 'unknown_activation_games': count - known_activations,
         'rule_activations': [{'key': key, 'name': name, 'games': activations[key],
@@ -121,8 +143,15 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
     }
 
 
-def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=(), house_only=False, patch=None):
-    players = player_catalog(matches)
+def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=(), house_only=False, patch=None,
+                profiles=()):
+    """Seed public viewer/bot identities even before their first recorded round.
+
+    The first supplied profile is the default viewer; explicit selections win.
+    With no seeds, historical catalog selection and empty-history behavior stay the same.
+    """
+    profiles = tuple(profiles)
+    players = player_catalog(matches, profiles)
     by_id = {player['id']: player for player in players}
     patches = sorted({result_patch(result, match) for match in matches for result in match['rounds']},
                      key=lambda value: (value != 'legacy', tuple(int(part) if part.isdigit() else -1 for part in value.split('.'))), reverse=True)
@@ -135,7 +164,7 @@ def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=
         # Bookmarked selections should show an empty page after a history reset.
         player_id = opponent_id = None
     if player_id is None and players:
-        player_id = players[0]['id']
+        player_id = profiles[0]['id'] if profiles else players[0]['id']
     if player_id is not None and player_id not in by_id:
         raise ValueError('That player has no saved results.')
     if opponent_id is not None and opponent_id not in by_id:

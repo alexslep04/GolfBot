@@ -20,7 +20,7 @@ let catalog = [],
   tableEpoch = 0,
   toastTimer;
 // Pages that can be read without leaving (or redrawing over) an open table.
-const SIDE_PAGES = ["history", "stats", "account", "patches", "rules"];
+const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard"];
 
 const starter = {
   host: "Host first",
@@ -393,6 +393,7 @@ document.getElementById("social-dialog").addEventListener("cancel", (event) => {
 
 /* ---------- home ---------- */
 function home() {
+  leaveAfterSignIn = null;
   clearEmotes();
   emoteTable = "";
   document.title = "Golf";
@@ -410,12 +411,13 @@ function home() {
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} Resume your table</button>` : ""}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
-    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>Practice</span>${practice[1]}</button>
+    <button type="button" class="btn c-p2" data-nav="leaderboard">${medal[0]}<span>Leaderboard</span>${medal[1]}</button>
     <div class="row split">
       <button type="button" class="btn tile c-p4 grow" data-nav="stats">${tilted("medal", 33)}<span>Leaderboard</span></button>
       <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
-  </div><p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p></div>`,
+    <p class="credit">handcrafted by spencer &amp; alex</p>
+  </div></div>`,
   );
   renderQueueBanner();
   pollPresence();
@@ -456,13 +458,19 @@ function settingsSheet() {
       ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
       <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} ${account ? e(account.unique_name ? "@" + account.unique_name : "Choose unique name") : "Sign in with Google"}</button>
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
-      <button type="button" class="btn c-p2" data-nav="stats">${tilted("medal", 26)} Leaderboard</button>
+      <button type="button" class="btn c-p2" data-nav="leaderboard">${tilted("medal", 26)} Leaderboard</button>
+      ${voidOfferButton()}
       <button type="button" class="btn c-p4" data-nav="patches">${tilted("newspaper.fill", 26)} Patch notes</button>
       <a class="btn c-fw" href="privacy">${tilted("lock.fill", 26)} Privacy</a>
     </div>
     ${prefsHtml()}
     ${padHelpHtml()}
   </section>`);
+}
+function voidOfferButton() {
+  if (!state?.rated) return "";
+  const disabled = state.status !== "playing" || state.void_offer || state.void_offered?.[state.viewer];
+  return `<button type="button" class="btn c-p4" data-void-offer ${disabled ? "disabled" : ""}>Void game &amp; end series early</button>`;
 }
 function gameMenuSheet() {
   const link = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
@@ -474,6 +482,7 @@ function gameMenuSheet() {
       ${state.solo ? "" : `<button type="button" class="btn c-p3" data-copy="${e(link)}">${tilted("link", 26)} Copy invite link</button>`}
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p4" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
+      ${voidOfferButton()}
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
     </div>
     ${prefsHtml()}
@@ -481,9 +490,9 @@ function gameMenuSheet() {
   </section>`);
 }
 
-/* ---------- match setup (Practice and Host) ---------- */
+/* ---------- host match setup ---------- */
 const draft = {
-  mode: "solo",
+  mode: "host",
   step: 0,
   style: "wins",
   length: 3,
@@ -495,7 +504,6 @@ const draft = {
   rulesOpen: false,
 };
 const ENTRY_STYLE = {
-  solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice: matches its red home button
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
 };
 function entryButton(attribute, label) {
@@ -506,7 +514,7 @@ function startSetup(mode) {
   Object.assign(draft, {
     mode,
     step: 0,
-    style: mode === "solo" ? "single" : "wins",
+    style: "wins",
     length: 3,
     preset: "house",
     rules: { ...matchOptions.house_rules },
@@ -542,7 +550,7 @@ function setupPage() {
         ${selectField("Match Style", `data-draft="style" aria-label="Match style"`, [["single", "Single game", draft.style === "single"], ["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"], ["continuous", "Play until you leave", draft.style === "continuous"]], "pointer.arrow.rays", fixed ? "hug" : "")}
         ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), null, "grow") : ""}
       </div><p class="hint">${e(styleHint())}</p></div>
-    </div><div class="row">${backButton(draft.mode === "host" ? "friends" : "home")}${entryButton("data-setup-next", "Continue")}</div></div>`,
+    </div><div class="row">${backButton("friends")}${entryButton("data-setup-next", "Continue")}</div></div>`,
     );
     return;
   }
@@ -711,7 +719,7 @@ function rulesPicker() {
     <div class="collapse ${draft.rulesOpen ? "open" : ""}" data-rules-open><div ${closed ? "inert" : ""}><div class="rules-body">
       <div class="chips" style="justify-content:space-around">${presets.map(([key, label, symbol]) => `<button type="button" class="rule-row" style="flex-direction:column;gap:1.4rem;color:var(--fw-text)" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 52, { tilt: key === "house" ? 6 : -6, style: draft.preset === key ? "--fill:var(--p1b);--stroke:var(--p1)" : "" })}<span>${label}${key === "house" ? " Rules" : ""}</span></button>`).join("")}</div>
       ${group("In-Play", on)}${group("Popular", off.filter((rule) => POPULAR_RULES.includes(rule.key)))}${group("Others", off.filter((rule) => !POPULAR_RULES.includes(rule.key)))}
-      ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(draft.mode === "solo" ? { ...starter, host: "You first", guest: "Golfbot first" } : starter).map(([key, label]) => [key, label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
+      ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(starter).map(([key, label]) => [key, label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
       ${locked ? `<p class="hint dark">${draft.gameType === "many" ? "Turn order is shuffled each game at big tables." : "House rules always pick a random first player."}</p>` : ""}
     </div></div></div></div>
     <div class="collapse ${closed ? "open" : ""}" data-rules-closed><div ${closed ? "" : "inert"}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(rulesSummary(draft.rules))}</p></div></div></div>`;
@@ -760,13 +768,12 @@ function applyPreset(preset) {
   refreshRulesPicker();
 }
 async function submitSetup() {
-  const solo = draft.mode === "solo";
   const epoch = tableEpoch;
   const house = draft.preset === "house";
   const requested = {
     username: session.username,
     avatar: session.avatar,
-    ...(solo ? {} : { name: draft.lobbyName.trim() || "Friendly Golf" }),
+    name: draft.lobbyName.trim() || "Friendly Golf",
     best_of:
       draft.style === "continuous"
         ? null
@@ -774,29 +781,93 @@ async function submitSetup() {
           ? 1
           : draft.length,
     series_mode: draft.style === "points" ? "points" : "wins",
-    game_type: solo ? "1v1" : draft.gameType,
+    game_type: draft.gameType,
     house_rules: house,
     first: house ? "random" : draft.first,
     rules: Object.fromEntries(
       catalog.map((rule) => [rule.key, !!draft.rules[rule.key]]),
     ),
   };
-  await abandonExisting();
-  const next = await api(solo ? "/api/solo" : "/api/lobbies", "POST", requested);
+  if (!(await abandonExisting())) return;
+  const next = await api("/api/lobbies", "POST", requested);
   if (epoch !== tableEpoch) return;
   enterRoom(next);
 }
 
 /* ---------- play with friends: browse, join, wait ---------- */
-async function abandonExisting() {
+let pendingLeaveResolve = null;
+let leaveAfterSignIn = null;
+function resolveLeavePrompt(choice) {
+  document.getElementById("leave-dialog")?.close();
+  const resolve = pendingLeaveResolve;
+  pendingLeaveResolve = null;
+  resolve?.(choice);
+}
+function leavePrompt(leaving) {
+  if (pendingLeaveResolve) return Promise.resolve("stay");
+  let dialog = document.getElementById("leave-dialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "leave-dialog";
+    dialog.className = "social-dialog leave-dialog";
+    dialog.setAttribute("aria-labelledby", "leave-title");
+    dialog.setAttribute("aria-describedby", "leave-description");
+    dialog.addEventListener("cancel", event => {
+      event.preventDefault();
+      resolveLeavePrompt("stay");
+    });
+    document.body.append(dialog);
+  }
+  const guestPractice = leaving.practice && !session.account;
+  const title = guestPractice ? "Sign in to keep your streak" : "Leave table?";
+  const description = guestPractice
+    ? "Sign in before leaving to save your practice game and streak. If you leave without signing in, an unfinished game's current streak will reset."
+    : leaving.rated && leaving.status === "playing"
+      ? `Leaving counts as a loss and costs you ${leaving.forfeit_elo_loss} Elo.`
+      : leaving.rated
+        ? "This ends the series early. Completed games and their Elo changes are kept."
+        : "Your game and streak will be saved to your account so you can resume later.";
+  dialog.innerHTML = `<h2 id="leave-title">${title}</h2><p id="leave-description">${description}</p><div class="dialog-actions">${guestPractice ? `<button type="button" class="btn c-p3" data-leave-choice="signin">Sign in</button>` : ""}<button type="button" class="btn ${guestPractice ? "c-p2" : "c-p3"}" data-leave-choice="leave">${guestPractice ? "No, leave" : "Leave table"}</button><button type="button" class="btn c-fw" data-leave-choice="stay">Keep playing</button></div>`;
+  closeSheet();
+  const response = new Promise(resolve => { pendingLeaveResolve = resolve; });
+  dialog.showModal();
+  return response;
+}
+function canSignInDuringPractice() {
+  return !!(session.room_id && state?.id === session.room_id && state.practice && !session.account);
+}
+async function finishPracticeSignIn() {
+  if (!leaveAfterSignIn || !session.account?.unique_name) return false;
+  const roomId = leaveAfterSignIn, epoch = tableEpoch;
+  leaveAfterSignIn = null;
+  if (session.room_id !== roomId || state?.id !== roomId) return true;
+  await abandonExisting({confirmed:true});
+  if (epoch !== tableEpoch || session.room_id !== null || state?.id !== roomId) return true;
+  state = null;
+  home();
+  toast("Your practice game and streak are saved.");
+  return true;
+}
+async function abandonExisting({confirmed = false} = {}) {
   const roomId = session.room_id,
     epoch = tableEpoch;
   if (roomId) {
+    const leaving = state?.id === roomId ? state : await api(`/api/lobbies/${roomId}/state`);
+    if (!confirmed && ((leaving.rated && ["playing", "round_over"].includes(leaving.status)) || leaving.practice)) {
+      const choice = await leavePrompt(leaving);
+      if (choice === "signin") {
+        leaveAfterSignIn = roomId;
+        accountPage();
+        return false;
+      }
+      if (choice !== "leave") return false;
+    }
     await api(`/api/lobbies/${roomId}/leave`, "POST");
     if (epoch === tableEpoch && session.room_id === roomId)
       session.room_id = null;
   }
   if (epoch === tableEpoch) closeSocket();
+  return true;
 }
 async function friendsPage() {
   document.title = "Play with Friends · Golf";
@@ -896,6 +967,7 @@ function accept(next) {
     state?.game?.phase !== next.game?.phase ||
     state?.game?.decision_player !== next.game?.decision_player;
   state = next;
+  renderVoidOffer();
   session.room_id = next.id;
   if (SIDE_PAGES.includes(page)) return;
   page = "room";
@@ -907,9 +979,11 @@ function enterRoom(next) {
   history.pushState({}, "", appPath(`/lobby/${next.id}`));
   board.selected = [];
   accept(next);
+  if (next.resume_notice) toast(next.resume_notice);
   connectRoom(next.id);
 }
 async function resume(id = session.room_id) {
+  leaveAfterSignIn = null;
   if (!id) return home();
   const epoch = tableEpoch;
   const next = await api(`/api/lobbies/${id}/state`);
@@ -961,7 +1035,7 @@ async function playerStatsSheet(player) {
 }
 /** Send one table action. Resolves true when the server accepted it. */
 async function move(action, extra = {}) {
-  if (busy || !state) return false;
+  if (busy || !state || state.void_offer) return false;
   const roomId = state.id;
   let ok = false;
   busy = true;
@@ -998,7 +1072,7 @@ let initializedGoogleNonce = null;
 async function renderGoogleSignIn() {
   const container = document.getElementById("google-signin-button");
   if (!container || page !== "account") return;
-  if (session.account || !session.google_client_id || session.room_id) return;
+  if (session.account || !session.google_client_id || (session.room_id && !canSignInDuringPractice())) return;
   try {
     if (!window.google?.accounts?.id) {
       googleScript ??= new Promise((resolve, reject) => {
@@ -1018,7 +1092,7 @@ async function renderGoogleSignIn() {
     }
     if (
       session.account ||
-      session.room_id ||
+      (session.room_id && !canSignInDuringPractice()) ||
       page !== "account" ||
       !container.isConnected
     )
@@ -1030,13 +1104,19 @@ async function renderGoogleSignIn() {
         callback: async ({ credential }) => {
           try {
             const keep = { username: session.username, avatar: session.avatar };
-            session = await api("/api/auth/google", "POST", {
+            const epoch = tableEpoch, roomId = session.room_id;
+            const next = await api("/api/auth/google", "POST", {
               credential,
               csrf_token: session.csrf_token,
             });
-            Object.assign(session, keep);
+            const currentRoom = session.room_id;
+            session = {...next, ...keep};
+            if (epoch !== tableEpoch || currentRoom !== roomId || page !== "account") {
+              session.room_id = currentRoom;
+              return;
+            }
             if (!session.account.unique_name) accountPage();
-            else {
+            else if (!(await finishPracticeSignIn())) {
               home();
               toast("Signed in as @" + session.account.unique_name);
             }
@@ -1070,7 +1150,7 @@ function accountPage() {
         ? account.unique_name
           ? `<h2>@${e(account.unique_name)}</h2><p>Your games are grouped under this unique name on the Leaderboard. Your display name at the table can change each game.</p>`
           : `<h2>Choose your unique name</h2><p>This identifies you on the Leaderboard across all your display names. Pick once; your display name can change whenever you play.</p><form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]{3,24}" autocomplete="username" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–24 letters, numbers or underscores. Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>`
-        : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id ? `<p>Leave your current table before signing in.</p>` : session.google_client_id ? `<div id="google-signin-button" aria-live="polite">Loading Google sign-in…</div>` : `<p>Google sign-in is not available on this server yet. You can keep playing as a guest.</p>`}`
+        : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id && !canSignInDuringPractice() ? `<p>Leave your current table before signing in.</p>` : session.google_client_id ? `<div id="google-signin-button" aria-live="polite">Loading Google sign-in…</div>` : `<p>Google sign-in is not available on this server yet. You can keep playing as a guest.</p>`}`
     }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div></div>`,
   );
   renderGoogleSignIn();
@@ -1165,70 +1245,18 @@ const statPercent = (value) =>
         style: "percent",
         maximumFractionDigits: 1,
       }).format(value);
-/* ---------- leaderboard & player stats ---------- */
-// Filters work like the rule picker before a game: House (official stats) or
-// any rules, and with House off each rule can be required or excluded.
-const statsRuleState = (key) =>
-  statsSelection.house_rules
-    ? matchOptions.house_rules[key]
-      ? "on"
-      : "any"
-    : statsSelection.enabled.includes(key)
-      ? "on"
-      : statsSelection.disabled.includes(key)
-        ? "off"
-        : "any";
-function statsQuery(withPlayers = true) {
-  const query = new URLSearchParams();
-  if (!statsSelection.house_rules) query.set("house_rules", "false");
-  else {
-    statsSelection.enabled = [];
-    statsSelection.disabled = [];
-  }
-  if (statsSelection.patch) query.set("patch", statsSelection.patch);
-  if (withPlayers && statsSelection.player) {
-    query.set("player", statsSelection.player);
-    if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
-  }
-  for (const key of statsSelection.enabled) query.append("enabled", key);
-  for (const key of statsSelection.disabled) query.append("disabled", key);
-  return query;
-}
-function statsFilterSummary() {
-  const names = (keys) =>
-    catalog
-      .filter((rule) => keys.includes(rule.key))
-      .map((rule) => RULE_SHORT[rule.key] || rule.name)
-      .join(", ");
-  const { enabled, disabled, house_rules, patch } = statsSelection;
-  const parts = [];
-  if (house_rules) parts.push("Official stats: games played with the saved House rules.");
-  else if (!enabled.length && !disabled.length) parts.push("Every saved game, whatever rules were on.");
-  else {
-    if (enabled.length) parts.push(`With ${names(enabled)}.`);
-    if (disabled.length) parts.push(`Without ${names(disabled)}.`);
-  }
-  if (patch) parts.push(patch === "legacy" ? "Earlier patches only." : `Patch ${patch} only.`);
-  return parts.join(" ");
-}
-function statsFiltersHtml(patches) {
-  const { enabled, disabled, house_rules, patch } = statsSelection;
-  const custom = enabled.length + disabled.length;
-  const preset = house_rules ? "house" : custom ? "custom" : "any";
-  const presets = [
-    ["house", "House", "house.fill"],
-    ["any", "Any rules", "infinity"],
-  ];
-  const open = statsFiltersOpen;
-  const title = house_rules
-    ? "House rules"
-    : custom
-      ? `${custom} rule filter${custom === 1 ? "" : "s"}`
-      : "Any rules";
-  const words = { on: "required", off: "excluded", any: "either way" };
-  const row = (rule) => {
-    const value = statsRuleState(rule.key);
-    return `<button type="button" class="rule-row filter-row ${value}" data-stats-rule="${e(rule.key)}" aria-label="${e(rule.name)}: ${words[value]}" title="${e(rule.description)}" ${house_rules ? "disabled" : ""}>${tilted(value === "on" ? "checkmark.circle.fill" : value === "off" ? "xmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5, cls: value === "any" ? "bare" : "" })}<span>${e(rule.name)}</span></button>`;
+function readStatsForm() {
+  const form = document.getElementById("stats-form");
+  if (!form) return;
+  const data = new FormData(form);
+  statsSelection = {
+    player: data.get("player") || "",
+    opponent: data.get("opponent") || "",
+    enabled: [],
+    disabled: [],
+    initialized: true,
+    house_rules: data.has("house_rules"),
+    patch: data.get("patch") || "",
   };
   const patchField = selectField(
     "Patch",
@@ -1324,7 +1352,7 @@ function statsTable(entries, scope, title, color) {
     ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
     ["Average turns per game", (s) => statNumber(s.average_turns ?? null)],
     [
-      "Average rules in play per game",
+      "Average modifiers in play per game",
       (s) => statNumber(s.average_rules_in_play ?? null),
     ],
     [
@@ -1344,13 +1372,20 @@ async function statsPage(fromUrl = false) {
   if (fromUrl) {
     const query = new URLSearchParams(location.search);
     statsSelection = {
-      player: query.get("player") || "",
-      opponent: query.get("opponent") || "",
+      initialized: true,
+      player: query.get("player") || (session.account ? "account:" + session.account.id : "player:" + session.username),
+      opponent: query.has("opponent") ? query.get("opponent") : "bot:golfbot",
       enabled: query.getAll("enabled"),
       disabled: query.getAll("disabled"),
       house_rules: query.get("house_rules") !== "false",
-      patch: query.get("patch") || "",
+      patch: query.has("patch") ? query.get("patch") : (session.patch || matchOptions.patch),
     };
+  }
+  if (!statsSelection.initialized) {
+    statsSelection.player ||= session.account ? "account:" + session.account.id : "player:" + session.username;
+    statsSelection.opponent ||= "bot:golfbot";
+    statsSelection.patch ||= (session.patch || matchOptions.patch);
+    statsSelection.initialized = true;
   }
   const request = ++statsRequest;
   // the ranking, or (once a player is picked) that player's own page
@@ -1358,9 +1393,24 @@ async function statsPage(fromUrl = false) {
   const same = page === "stats" && root.querySelector("[data-stats-view]")?.dataset.statsView === view;
   const query = statsQuery();
   document.title = "Leaderboard · Golf";
-  history.replaceState({}, "", appPath("/stats") + (query.toString() ? "?" + query : ""));
-  const head = (title) => subHeader(title, statsSelection.player ? "stats" : undefined);
-  if (!same)
+  const query = new URLSearchParams();
+  if (!statsSelection.house_rules) query.set("house_rules", "false");
+  else {
+    statsSelection.enabled = [];
+    statsSelection.disabled = [];
+  }
+  query.set("patch", statsSelection.patch || "");
+  if (statsSelection.player) query.set("player", statsSelection.player);
+  query.set("opponent", statsSelection.opponent || "");
+  for (const key of statsSelection.enabled) query.append("enabled", key);
+  for (const key of statsSelection.disabled) query.append("disabled", key);
+  history.replaceState(
+    {},
+    "",
+    appPath("/stats") + (query.toString() ? "?" + query : ""),
+  );
+  const head = subHeader("Leaderboard") + leaderboardTabs("advanced");
+  if (!wasStats)
     show(
       "stats",
       `<div class="page scroll">${head(statsSelection.player ? "Player stats" : "Leaderboard")}<div class="loading">Loading player stats…</div></div>`,
@@ -1387,10 +1437,16 @@ async function statsPage(fromUrl = false) {
     }
     show(
       "stats",
-      `<div class="page scroll" data-stats-view="${e(view)}">${head(statsSelection.player ? result.player.profile.label : "Leaderboard")}
-        <div data-stats-filters>${filters}</div>
-        <div id="stats-content" class="stack wide">${content}</div>
-      </div>`,
+      `<div class="page scroll">${head}<p class="hint dark">Pick a player to see their record, or compare two head to head. ${session.room_id ? "Your table is still open." : ""}</p>
+      <form id="stats-form" class="panel c-p2"><div class="form-grid">
+        ${field("Player", `<select aria-label="Player" id="stats-player" name="player" data-stats-select>${options(statsSelection.player)}</select>`, null, "compact")}
+        ${field("Compare With", `<select aria-label="Compare with" id="stats-opponent" name="opponent" data-stats-select><option value="">Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select>`, null, "compact")}
+        ${field("Patch", `<select id="stats-patch" name="patch" aria-label="Patch" data-stats-select><option value="">All time</option>${result.patches.map((patch) => `<option value="${e(patch)}" ${statsSelection.patch === patch ? "selected" : ""}>${e(patch === "legacy" ? "Earlier patches" : patch)}</option>`).join("")}</select>`, null, "compact")}
+      </div>
+      <label class="check" style="margin-top:1.4rem"><input type="checkbox" aria-label="House rules" name="house_rules" data-stats-house ${statsSelection.house_rules ? "checked" : ""}><span>House rules only <small style="display:block;opacity:.7;font-size:1.3rem">Official stats · saved house-rule games</small></span></label>
+      <details id="stats-rules" style="margin-top:1rem" ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${statsSelection.house_rules ? "House rules" : active ? active + " selected" : "any rules"}</summary><fieldset ${statsSelection.house_rules ? "disabled" : ""}><p>Any allows either setting. On requires the rule; Off excludes it.</p><div class="row" style="margin:1rem 0"><button type="button" class="btn small" data-stats-all="on">All on</button><button type="button" class="btn small" data-stats-all="off">All off</button></div><div class="form-grid">${catalog.map((rule) => field(rule.name, `<select name="filter-${e(rule.key)}" aria-label="${e(rule.name)} filter"><option value="any">Any</option><option value="on" ${(statsSelection.house_rules ? matchOptions.house_rules[rule.key] : statsSelection.enabled.includes(rule.key)) ? "selected" : ""}>On</option><option value="off" ${(statsSelection.house_rules ? !matchOptions.house_rules[rule.key] : statsSelection.disabled.includes(rule.key)) ? "selected" : ""}>Off</option></select>`, null, "compact")).join("")}</div></fieldset></details>
+      <div class="row" style="margin-top:1.4rem"><button class="btn small grow" type="submit">Apply filters</button><button class="btn small" type="button" data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form>
+      <div id="stats-content" class="stack wide">${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head", "c-p1") : `<p class="hint">Choose a comparison player above for head-to-head results.</p>`}<details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Modifiers in play counts the scoring modifiers affecting that player's hand, including separate variants of a rule. The average excludes older games without modifier records. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></div>`,
     );
   } catch (error) {
     if (page === "stats" && request === statsRequest)
@@ -1398,6 +1454,104 @@ async function statsPage(fromUrl = false) {
         "stats",
         `<div class="page scroll">${head("Leaderboard")}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button></div>`,
       );
+  }
+}
+
+const RULE_EXAMPLES = {
+  royal_pairs: [["Queen pair earns one bonus swap", ["QH",null,null,"QS",null,null]], ["Jack pair earns one bonus swap", ["JH",null,null,"JS",null,null]]],
+  devils_row: [["Three 6s lock this row", ["6H","6S","6D",null,null,null]]],
+  gamblers_row: [["Earn final score divided by 7, even if this row later breaks", ["7H","7S","7D",null,null,null]]],
+  angels_row: [["Earn opponent's final score times 9 during play", ["9H","9S","9D",null,null,null]]],
+  king_queen: [["Same-color King-Queen column: 5 points", ["KH",null,null,"QD",null,null]], ["Different-color column: 15 points", ["KH",null,null,"QS",null,null]]],
+  holdem: [["Five-card flush: -5 points", ["AH","3H","6H","8H","JH",null]], ["Five-card straight: -5 points", ["3H","4S","5D","6C","7H",null]], ["Full house: -5 points", ["3H","3S","3D","8C","8H",null]], ["Four of a kind: -5 points", ["4H","4S","4D","4C","AH",null]]],
+  v10: [["10, J, Q in a V: final score divided by 5", ["10H",null,"JS",null,"QD",null]], ["Inverted V also counts", [null,"10H",null,"JS",null,"QD"]]],
+  tricky_straights: [["Ascending 3-4-5: +5 to opponent", ["3H","4S","5D",null,null,null]], ["Descending 5-4-3: -3 from your score", ["5H","4S","3D",null,null,null]]],
+  ripped_five: [["Diamond 5 and opposite-row 5 cancel; no column pair required", ["5D",null,null,null,"5S",null]]],
+  roman_fives: [["8 + 4 + (-2) = 10 base points: final score divided by 2", ["8H",null,"2S",null,"4D",null]], ["Inverted V: 5 + 4 + A = 10", [null,"4S",null,"5D",null,"AH"]]],
+  beggars: [["Your 10 is the unique highest visible value. Guess the chosen hidden card's rank before it flips", ["10H",null,null,null,null,null], ["3H",null,null,null,null,null], "Opponent: a correct guess trades your 10 for their lowest visible card after the reveal"]],
+  four_kind: [["Four visible 4s may be arranged into two columns", ["4H","4S",null,"4D","4C",null]]],
+  poisoned_card: [["First player to reveal all six during play: +2 before divisions", ["AH","3S","5D","7C","9H","KC"]]],
+  suited_rows: [["Red row: middle 4 adds +4 to every opponent", ["AH","4H","8H",null,null,null]], ["Black row: middle 4 subtracts 4 from you", ["AS","4S","8S",null,null,null]]],
+  all_in_color: [["All six red: every opponent's final score times 2", ["AH","3D","5H","7D","9H","KD"]], ["All six black: your final score divided by 2", ["AS","3C","5S","7C","9S","KC"]]],
+};
+function exampleHand(cards) {
+  return `<div class="example-hand" role="img" aria-label="${e(cards.map(value => value || "face down").join(", "))}">${cards.map(value => {
+    const card = value ? {suit:value.slice(-1), label:value.slice(0,-1)} : null;
+    return `<span class="example-card${card ? " is-face" : ""}" aria-hidden="true"><span class="card"><span class="card-flip">${faceHtml(card)}</span></span></span>`;
+  }).join("")}</div>`;
+}
+const matchRuleExampleOpen = new Set();
+let matchRuleExampleRoom = null;
+function matchExampleKey(player, rule) {
+  if (matchRuleExampleRoom !== state.id) {
+    matchRuleExampleOpen.clear();
+    matchRuleExampleRoom = state.id;
+  }
+  return `${player}:${rule}`;
+}
+function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
+  const inMatch = player !== null;
+  const preview = inMatch ? state.game.rule_previews?.[player]?.[rule.key] : null;
+  const active = inMatch && activeRules(player).includes(rule.key);
+  const token = inMatch ? `match-${player}-${rule.key}` : rule.key;
+  const expanded = inMatch && matchRuleExampleOpen.has(matchExampleKey(player, rule.key));
+  let examples;
+  if (preview) {
+    const participating = new Set(preview.indices);
+    const cards = state.game.players[player].map((slot,index) =>
+      participating.has(index) && slot.visible && slot.card ? slot.card.label + slot.card.suit : null);
+    const caption = player === state.viewer ? "Your current cards" : `${state.names[player]}'s current cards`;
+    examples = `<p class="example-caption">${e(caption)}</p>${exampleHand(cards)}${preview.note ? `<p class="example-caption">${e(preview.note)}</p>` : ""}`;
+  } else {
+    examples = (RULE_EXAMPLES[rule.key] || []).map(([caption,cards,other,otherCaption]) => `<p class="example-caption">${e(caption)}</p>${exampleHand(cards)}${other ? `<p class="example-caption">${e(otherCaption)}</p>${exampleHand(other)}` : ""}`).join("");
+  }
+  return `<div class="rule-card${on ? "" : " off"}"><div class="rule-icon-controls"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",24,{idle:false})}</button></div><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div></div>`;
+}
+
+let voidTimer;
+function renderVoidOffer() {
+  clearTimeout(voidTimer);
+  let dialog = document.getElementById("void-dialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "void-dialog";
+    dialog.className = "social-dialog";
+    dialog.setAttribute("aria-label", "Void game offer");
+    dialog.addEventListener("cancel", event => event.preventDefault());
+    document.body.append(dialog);
+  }
+  const offer = state?.void_offer;
+  if (!offer) { if (dialog.open) dialog.close(); delete dialog.dataset.offer; return; }
+  const own = offer.by === state.viewer;
+  const expiry = typeof offer.expires_at === "number" ? offer.expires_at * 1000 : Date.parse(offer.expires_at);
+  const seconds = Math.max(0, Math.min(30, Math.ceil((expiry - Date.now()) / 1000)));
+  const signature = `${state.id}|${offer.by}|${offer.expires_at}`;
+  if (dialog.dataset.offer !== signature) {
+    dialog.dataset.offer = signature;
+    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO ELO CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own ? "" : `<div class="dialog-actions"><button type="button" class="btn c-p3" data-void-reply="accept">Accept</button><button type="button" class="btn c-p2" data-void-reply="decline">Decline</button></div>`}`;
+  }
+  dialog.querySelector("[data-void-seconds]").textContent = Number.isFinite(seconds) ? seconds : 30;
+  if (!dialog.open) dialog.showModal();
+  voidTimer = setTimeout(renderVoidOffer, 1000);
+}
+
+function leaderboardTabs(selected) {
+  return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
+}
+let leaderboardRequest = 0;
+async function leaderboardPage(tab = "pvp") {
+  const request = ++leaderboardRequest;
+  document.title = "Leaderboard - Golf";
+  history.replaceState({}, "", appPath("/leaderboard"));
+  const head = subHeader("Leaderboard") + leaderboardTabs(tab);
+  show("leaderboard", `<div class="page scroll">${head}<div class="loading">Loading leaderboard...</div></div>`);
+  try {
+    const result = await api("/api/leaderboards");
+    if (page !== "leaderboard" || request !== leaderboardRequest) return;
+    const solo = tab === "solo", rows = result[tab] || [];
+    show("leaderboard", `<div class="page scroll">${head}<section class="panel c-p2 leaderboard-panel"><h2>${solo ? "Practice streaks" : "PVP ratings"}</h2><p class="hint">Patch ${e(result.patch)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Rank</th><th scope="col">Player</th>${solo ? "<th>Best streak</th>" : "<th>Elo</th>"}<th>W-D-L</th><th>Win rate</th></tr></thead><tbody>${rows.map((row,index) => `<tr><td>${index + 1}</td><th scope="row">${e(row.label)}</th>${solo ? `<td>${statNumber(row.best_streak)}</td>` : `<td>${statNumber(row.elo)}</td>`}<td class="leader-record">${statNumber(row.wins)}-${statNumber(row.draws)}-${statNumber(row.losses)}</td><td>${statPercent(row.win_rate)}</td></tr>`).join("")}</tbody></table></div>${rows.length ? "" : `<p>No ${solo ? "Practice streaks" : "rated results"} yet.</p>`}</section></div>`);
+  } catch (error) {
+    if (page === "leaderboard" && request === leaderboardRequest) show("leaderboard", `<div class="page scroll">${head}<p class="empty">${e(error.message)}</p></div>`);
   }
 }
 
@@ -1441,21 +1595,18 @@ function rulesPage() {
     <section class="panel c-p1"><h2>${tilted("flag.pattern.checkered", 26)} The goal</h2>${body("Everyone gets six face-down cards in two rows of three. Flip, draw and swap to build the <b>lowest</b> score. When a player has all six cards face up, everyone else gets one final turn.")}</section>
     <section class="panel c-p3"><h2>${tilted("hand.tap.fill", 26)} Your turn</h2>${body("<b>Double-tap</b> a face-down card to flip it, or the go-fish pile to draw.")}${body("<b>Drag</b> any card to move it. While you drag, every legal move lights up: swap with the discards, swap with your go-fish card, or discard.")}${body("After flipping a card you can swap it away, go fish, or end your turn.")}</section>
     <section class="panel c-p2"><h2>${tilted("number", 26)} Card points</h2><div class="table-wrap"><table><tbody><tr><th>Ace</th><td>1</td></tr><tr><th>2</th><td>−2</td></tr><tr><th>3–10</th><td>Face value</td></tr><tr><th>Jack, Queen</th><td>10</td></tr><tr><th>King</th><td>0</td></tr><tr><th>Matching column</th><td>0 for both</td></tr></tbody></table></div></section>
-    <section class="panel c-p4"><h2>${tilted("checklist", 26)} Optional rules</h2>${catalog.map((rule) => `<div class="rule-card"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill", 30, { idle: false })}</span><div><strong>${e(rule.name)}${matchOptions.house_rules[rule.key] ? ` <span class="pill c-p1">House</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}</div></div>`).join("")}</section>
+    ${[true, false].map(house => `<section class="panel ${house ? "c-p4" : "c-fw"}"><h2>${house ? "House rules" : "Optional rules"}</h2>${catalog.filter(rule => !!matchOptions.house_rules[rule.key] === house).map(rule => ruleHelpCard(rule)).join("")}</section>`).join("")}
     </div></div>`,
   );
 }
 
 /* ---------- events ---------- */
 async function navigate(target) {
+  if (target !== "account") leaveAfterSignIn = null;
   if (target === "home") return home();
   if (target === "history") return historyPage();
-  if (target === "stats") {
-    // always lands on the ranking; a player's page is opened from there
-    statsSelection.player = "";
-    statsSelection.opponent = "";
-    return statsPage();
-  }
+  if (target === "leaderboard") return leaderboardPage();
+  if (target === "stats") return statsPage();
   if (target === "patches") return patchesPage();
   if (target === "account") return accountPage();
   if (target === "rules") return rulesPage();
@@ -1465,7 +1616,11 @@ async function navigate(target) {
     page = "room";
     return resume();
   }
-  if (target === "solo" || target === "host") {
+  if (target === "solo") {
+    if (document.getElementById("username")) saveName(name());
+    return enterRoom(await api("/api/solo", "POST", {house_rules:true, first:"random", best_of:null, practice:true, username:session.username, avatar:session.avatar}));
+  }
+  if (target === "host") {
     if (document.getElementById("username")) saveName(name());
     return startSetup(target);
   }
@@ -1478,11 +1633,35 @@ document.addEventListener("click", async (event) => {
   if (button.matches("a[data-nav]")) event.preventDefault();
   const data = button.dataset;
   try {
+    if (data.leaveChoice) return resolveLeavePrompt(data.leaveChoice);
     if (button.classList.contains("slot")) {
       // pointer taps are handled by the board; this is keyboard activation.
       // (A tap on the haptic switch also clicks with no detail: not a key press.)
       if (event.detail === 0 && event.target === button)
         tapSlot(JSON.parse(data.ref), button);
+      return;
+    }
+    if (data.leaderTab) return data.leaderTab === "advanced" ? statsPage() : leaderboardPage(data.leaderTab);
+    if (data.ruleExample) {
+      const example = document.getElementById(`example-${data.ruleExample}`);
+      example.hidden = !example.hidden;
+      if (data.rulePlayer !== undefined) {
+        const key = matchExampleKey(Number(data.rulePlayer), data.ruleKey);
+        if (example.hidden) matchRuleExampleOpen.delete(key);
+        else matchRuleExampleOpen.add(key);
+      }
+      button.setAttribute("aria-expanded", String(!example.hidden));
+      button.classList.toggle("c-p3", !example.hidden);
+      return;
+    }
+    if ("voidOffer" in data || "voidReply" in data) {
+      const id = state.id;
+      button.disabled = true;
+      try {
+        const next = await api(`/api/lobbies/${id}/${"voidOffer" in data ? "void-offer" : "void-reply"}`, "POST", "voidReply" in data ? {accept:data.voidReply === "accept"} : {});
+        closeSheet();
+        if (session.room_id === id) accept(next);
+      } finally { button.disabled = false; }
       return;
     }
     if ("sheetClose" in data) return closeSheet();
@@ -1681,7 +1860,7 @@ document.addEventListener("click", async (event) => {
     if (data.join) {
       const epoch = tableEpoch;
       saveName(name());
-      await abandonExisting();
+      if (!(await abandonExisting())) return;
       const next = await api(`/api/lobbies/${data.join}/join`, "POST", {
         username: session.username,
         avatar: session.avatar,
@@ -1691,7 +1870,7 @@ document.addEventListener("click", async (event) => {
     }
     if ("leave" in data) {
       const epoch = tableEpoch;
-      await abandonExisting();
+      if (!(await abandonExisting())) return;
       if (epoch !== tableEpoch) return;
       state = null;
       return home();
@@ -1741,12 +1920,18 @@ root.addEventListener("submit", async (event) => {
   if (event.target.id === "account-name-form") {
     try {
       const keep = { username: session.username, avatar: session.avatar };
-      session = await api("/api/account/name", "POST", {
+      const epoch = tableEpoch, roomId = session.room_id;
+      const next = await api("/api/account/name", "POST", {
         unique_name: new FormData(event.target).get("unique_name"),
         csrf_token: session.csrf_token,
       });
-      Object.assign(session, keep);
-      accountPage();
+      const currentRoom = session.room_id;
+      session = {...next, ...keep};
+      if (epoch !== tableEpoch || currentRoom !== roomId || page !== "account") {
+        session.room_id = currentRoom;
+        return;
+      }
+      if (!(await finishPracticeSignIn())) accountPage();
     } catch (error) {
       toast(error.message);
     }
@@ -1807,6 +1992,7 @@ function route() {
   const path = currentPath();
   if (path === "/patch-notes") return patchesPage();
   if (path === "/account") return accountPage();
+  if (path === "/leaderboard") return leaderboardPage();
   if (path === "/stats") return statsPage(true);
   if (path === "/history") return historyPage();
   const id = path.match(/^\/lobby\/([^/]+)$/)?.[1];

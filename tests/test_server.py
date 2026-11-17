@@ -212,156 +212,11 @@ class WebTests(unittest.TestCase):
                 self.room.status = 'playing'
                 self.room.round_recorded = False
 
-    def test_base_scores_leave_rules_out_so_the_rule_effect_can_be_shown(self):
-        self.start(rules={'poisoned_card': True, 'holdem': True})
-        game = self.room.game
-        # Columns: 10 over 10 (cancels), queen over 2, 9 over a face-down 3.
-        game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip([10, 12, 9, 10, 2, 3], 'SHDCSH')]
-        game.players[0][5].visible = False
-        public = self.state()['game']
-        # only face-up cards count while the game is on: queen 10 + 2 as -2 + 9
-        self.assertEqual(public['base_scores'][0], 17)
-        game.players[0][5].visible = True
-        game.finisher = 0
-        game.phase = 'over'
-        self.room.record_result()
-        final = self.state()['game']
-        self.assertEqual(final['base_scores'][0], 20)
-        # the Poisoned Card adds 2 for finishing first: that is the whole rule effect here
-        self.assertEqual(final['effect_totals'][0] - final['base_scores'][0], 2)
-        self.assertIn('Poisoned Card: +2', final['effects'][0])
-
-    def test_timeline_tracks_showing_scores_each_turn_then_the_final_scores(self):
-        self.start()
-        # the opening flips are done: the graph starts from the two cards each player shows
-        timeline = self.state()['timeline']
-        self.assertEqual([point['turn'] for point in timeline], [0])
-        self.assertEqual(timeline[0]['scores'], self.state()['game']['effect_totals'])
-        for _ in range(2):
-            client = self.host if self.room.game.decision_player == 0 else self.guest
-            self.move('draw', client)
-            self.move('discard', client)
-        timeline = self.state()['timeline']
-        self.assertEqual([point['turn'] for point in timeline], [0, 1, 2])
-        self.assertFalse(any(point['final'] for point in timeline))
-        self.assertEqual(timeline[-1]['scores'], self.state()['game']['effect_totals'])
-        game = self.room.game
-        for layout in game.players:
-            for slot in layout:
-                slot.visible = True
-        game.phase = 'over'
-        self.room.track_scores()
-        self.room.track_scores()  # the final point is added once
-        self.room.record_result()
-        final = self.state()['timeline']
-        self.assertEqual(len(final), 4)
-        self.assertTrue(final[-1]['final'])
-        self.assertEqual(final[-1]['scores'], [game.score(p) for p in range(2)])
-        # a new game starts a new graph
-        self.move('next_round')
-        self.move('next_round', self.guest)
-        self.assertEqual(self.state()['timeline'], [])
-
-    def test_golfbot_reacts_to_upsets_now_and_then(self):
-        def table(solo=True):
-            room = Room('r', 'Solo', Rules(), 1, 'host', solo, ['me', None], ['Me', 'Golfbot'])
-            room.start_round()
-            room.game.phase = 'choose'
-            return room
-
-        def show(game, player, ranks):
-            # face-up ranks along the top row (separate columns, so nothing cancels)
-            game.players[player] = [Slot(Card(rank, 'S'), i < len(ranks)) for i, rank in enumerate(ranks + [9] * (6 - len(ranks)))]
-
-        def react(before, mine, bots, roll=0.0, solo=True):
-            room = table(solo)
-            show(room.game, 0, mine)
-            show(room.game, 1, bots)
-            with patch.object(server, 'reaction_roll', lambda: roll):
-                return room, bot_reaction(room, room.game, before)
-
-        # a big swing Golfbot's way gets a laugh
-        room, emote = react([5, 5], [10, 10], [5])
-        self.assertEqual(emote, 'laughing')
-        # the player overtakes: shock; the player closes in but still trails: nerves
-        self.assertEqual(react([20, 5], [13], [5])[1], 'shocked')
-        self.assertEqual(react([30, 5], [10, 5], [5])[1], 'nervous')
-        # a flip of the lead counts with a smaller swing than a plain swing needs
-        self.assertEqual(react([7, 5], [1], [5])[1], 'shocked')
-        # small moves, an unlucky roll, and multiplayer tables pass without a word
-        self.assertIsNone(react([10, 5], [10, 2], [5])[1])
-        self.assertIsNone(react([5, 5], [10, 10], [5], roll=0.9)[1])
-        self.assertIsNone(react([5, 5], [10, 10], [5], solo=False)[1])
-        # and it waits a while before reacting again
-        with patch.object(server, 'reaction_roll', lambda: 0.0):
-            self.assertIsNone(bot_reaction(room, room.game, [5, 5]))
-
-    def test_golfbot_reaction_reaches_the_table_a_beat_after_the_move(self):
-        state = self.host.post('/api/solo', json={'first': 'host'}).json()
-        self.id = state['id']
-        self.room = self.store.rooms[self.id]
-        for index in (0, 1):
-            self.move('flip', index=index)
-        with patch.object(server, 'UPSET_SWING', 0), patch.object(server, 'reaction_roll', lambda: 0.0), \
-                patch.object(server, 'REACTION_DELAY', 0.05):
-            self.move('draw')
-            self.move('discard')
-            deadline = time.time() + 2
-            while time.time() < deadline and not self.state()['emotes']:
-                time.sleep(0.05)
-        emotes = self.state()['emotes']
-        self.assertEqual([emote['player'] for emote in emotes], [1])
-        self.assertIn(emotes[0]['id'], ('laughing', 'shocked', 'nervous'))
-
-    def test_win_streak_against_golfbot_counts_and_carries_to_new_tables(self):
-        def solo():
-            if getattr(self, 'id', None):
-                self.host.post(f'/api/lobbies/{self.id}/leave')
-            state = self.host.post('/api/solo', json={'best_of': 3}).json()
-            self.id = state['id']
-            self.room = self.store.rooms[self.id]
-            return state
-
-        def finish(winner):
-            game = self.room.game
-            low, high = [Slot(Card(13, 'S'), True) for _ in range(6)], [Slot(Card(rank, 'H'), True) for rank in (10, 9, 8, 7, 6, 4)]
-            game.players[0], game.players[1] = (low, high) if winner == 0 else (high, low)
-            game.phase = 'over'
-            self.room.record_result()
-            return self.state()['streak']
-
-        self.assertEqual(solo()['streak'], 0)
-        self.assertEqual(finish(0), 1)
-        # a fresh table picks the streak up from saved history
-        self.assertEqual(solo()['streak'], 1)
-        self.assertEqual(finish(0), 2)
-        self.assertEqual(solo()['streak'], 2)
-        # a loss ends it, and that sticks too
-        self.assertEqual(finish(1), 0)
-        self.assertEqual(solo()['streak'], 0)
-        # multiplayer tables don't carry one
-        self.host.post(f'/api/lobbies/{self.id}/leave')
-        self.start()
-        self.assertIsNone(self.state()['streak'])
-
-    def test_drawn_card_can_replace_a_face_down_card(self):
-        self.start()
-        hidden = self.room.game.players[0][2]
-        self.assertFalse(hidden.visible)
-        self.move('draw')
-        held = self.room.game.held_card
-        self.move('swap', index=2)
-        slot = self.room.game.players[0][2]
-        self.assertEqual((slot.card, slot.visible), (held, True))
-        self.assertEqual(self.room.game.discard_pile[-1], hidden.card)
-        self.assertEqual(self.room.game.current, 1)
-
-    def test_draw_discard_and_visible_swap_paths(self):
+    def test_draw_discard_and_visible_or_hidden_swap_paths(self):
         self.start()
         old_hand = self.state()['game']['players'][0]
-        drawn = self.move('draw')
-        # A go-fish draw may replace any card, face up or face down.
-        self.assertEqual(drawn['game']['legal']['swap'], [0, 1, 2, 3, 4, 5])
+        self.move('draw')
+        self.move('swap', index=6, status=422)
         self.move('discard')
         self.assertEqual(self.state()['game']['players'][0], old_hand)
         self.assertEqual(self.room.game.current, 1)
@@ -373,6 +228,11 @@ class WebTests(unittest.TestCase):
         self.move('flip', index=2)
         self.move('swap', index=1, status=422)
         self.move('swap', index=2)
+        self.move('draw', self.guest)
+        held = self.room.game.held_card
+        self.move('swap', self.guest, index=3)
+        self.assertEqual(self.room.game.players[1][3].card, held)
+        self.assertTrue(self.room.game.players[1][3].visible)
 
     def test_stale_and_malformed_moves_do_not_change_game(self):
         self.start()

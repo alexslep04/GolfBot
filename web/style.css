@@ -3007,80 +3007,33 @@ button:disabled > .haptic-switch {
   }
 }
 
-/* ---------- leaderboard & player stats ---------- */
-.board-row .rank {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 4.4rem;
-  font: 700 3rem/1 var(--round);
-  --sw: 0.6rem;
-  --fill: var(--c);
-  --stroke: var(--paper);
-}
-.board-row .rate {
-  flex: none;
-  font: 700 2.4rem/1 var(--round);
-  letter-spacing: -0.04rem;
-}
-/* a rule filter left out on purpose */
-.filter-row.off {
-  color: var(--fw-text);
-  --fill: var(--p2b);
-  --stroke: var(--p2);
-}
-.filter-row.on {
-  color: var(--fw-text);
-  --fill: var(--p1b);
-  --stroke: var(--p1);
-}
-.rules-body .rule-row[aria-pressed="true"] {
-  color: var(--fw-text);
-}
-.stat-hero {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.8rem;
-  text-align: center;
-}
-.stat-rate {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 0.2rem;
-  height: 6rem;
-  --fill: var(--c);
-  --stroke: var(--paper);
-}
-.stat-rate .stk {
-  font: 700 6.4rem/1 var(--round);
-  --sw: 0.9rem;
-  margin-right: -0.1rem;
-}
-.stat-rate .stk.pts {
-  font-size: 3.2rem;
-  margin: 0 0 0.6rem 0.2rem;
-}
-.stat-tiles {
-  display: flex;
-  justify-content: center;
-  gap: 0.8rem;
-  width: 100%;
-}
-.stat-tiles > div {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 0.8rem 0.4rem;
-  border-radius: 1.6rem;
-  background: rgb(255 255 255 / 0.55);
-}
-.stat-tiles b {
-  display: block;
-  font: 700 2rem/1.2 var(--round);
-}
-.stat-tiles span {
-  display: block;
-  font-size: 1.3rem;
-  opacity: 0.75;
-}
+/* Patch 1.2: keep the paper-and-sticker palette. */
+.leader-tabs { display:flex; gap:.7rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+.leader-tabs .btn { flex:1; white-space:nowrap; }
+.practice-streak { display:flex; align-items:center; justify-content:center; gap:.5rem; width:100%; margin-top:1rem; --fill:var(--p2); --stroke:#111; }
+.practice-streak[hidden] { display:none; }
+.practice-streak .ico { flex:none; width:3.6rem !important; height:4.5rem !important; margin:0 !important; }
+.practice-streak .streak-count { flex:none; min-width:2.7rem; padding:.4rem .5rem; border:.2rem solid var(--ink); border-radius:1rem; background:var(--paper); color:var(--ink); text-align:center; font:700 2.2rem/1 var(--round); }
+.practice-streak.streak-grey .ico { filter:grayscale(1); }
+.rule-icon-controls { width:4rem; flex:none; display:flex; flex-direction:column; align-items:center; gap:.8rem; }
+.rule-help-copy { min-width:0; flex:1; }
+.rule-eye { background:#ddd; color:#555; padding:.4rem; min-width:3.8rem; border:1px solid #111; border-radius:1rem; cursor:pointer; }
+.rule-eye.c-p3 { background:var(--p3); color:#111; }
+.rule-example { margin-top:1rem; }
+.example-hand { display:grid; grid-template-columns:repeat(3,4.411rem); gap:.6rem; margin:.8rem 0; }
+.example-card { position:relative; display:block; width:4.411rem; height:6.15rem; perspective:60rem; }
+.example-card > .card { width:8.822rem; height:12.3rem; inset:0 auto auto 0; transform:scale(.5); transform-origin:top left; }
+.example-caption { font-size:1.35rem; }
+.leave-dialog .dialog-actions { flex-wrap:wrap; }
+
+.leaderboard-panel table { width:100%; table-layout:fixed; font-size:1.35rem; }
+.leaderboard-panel th, .leaderboard-panel td { padding:.65rem .35rem; overflow-wrap:anywhere; }
+.leaderboard-panel th:first-child, .leaderboard-panel td:first-child { width:4.6rem; white-space:nowrap; overflow-wrap:normal; }
+.leaderboard-panel th:nth-child(2) { width:30%; }
+.leaderboard-panel .leader-record { white-space:nowrap; overflow-wrap:normal; }
+.leaderboard-panel .table-wrap { min-width:0; }
+
+.rule-eye { --fill:#888; --stroke:#fff; }
+.rule-eye.c-p3 { --fill:var(--p3); --stroke:#111; }
+.leaderboard-panel th, .leaderboard-panel td { white-space:normal; }
+.leaderboard-panel .leader-record { white-space:nowrap; }
