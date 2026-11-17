@@ -211,11 +211,24 @@ class WebTests(unittest.TestCase):
                 self.room.status = 'playing'
                 self.room.round_recorded = False
 
+    def test_drawn_card_can_replace_a_face_down_card(self):
+        self.start()
+        hidden = self.room.game.players[0][2]
+        self.assertFalse(hidden.visible)
+        self.move('draw')
+        held = self.room.game.held_card
+        self.move('swap', index=2)
+        slot = self.room.game.players[0][2]
+        self.assertEqual((slot.card, slot.visible), (held, True))
+        self.assertEqual(self.room.game.discard_pile[-1], hidden.card)
+        self.assertEqual(self.room.game.current, 1)
+
     def test_draw_discard_and_visible_swap_paths(self):
         self.start()
         old_hand = self.state()['game']['players'][0]
-        self.move('draw')
-        self.move('swap', index=2, status=422)
+        drawn = self.move('draw')
+        # A go-fish draw may replace any card, face up or face down.
+        self.assertEqual(drawn['game']['legal']['swap'], [0, 1, 2, 3, 4, 5])
         self.move('discard')
         self.assertEqual(self.state()['game']['players'][0], old_hand)
         self.assertEqual(self.room.game.current, 1)

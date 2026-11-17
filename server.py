@@ -339,7 +339,9 @@ def public_room(room):
             "players": sum(seat is not None for seat in room.seats), "solo": room.solo,
             "house_rules": room.house_rules, "house_version": room.house_version,
             "series_mode": room.series_mode, "game_type": room.game_type, "capacity": room.capacity,
-            "patch": room.patch, "avatars": room.avatars}
+            "patch": room.patch, "avatars": room.avatars,
+            # the stats identity of each seat (already public on the leaderboard)
+            "player_ids": [profile["id"] if profile else None for profile in room.participants]}
 
 
 def message(room, viewer):

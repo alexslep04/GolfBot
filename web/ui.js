@@ -10,10 +10,31 @@ const e = (value) =>
       ],
   );
 
-// Every sticker drifts on its own slightly different loop so nothing moves in unison.
-function idleStyle() {
-  const r = Math.random;
-  return `--ix:${(0.07 + r() * 0.1).toFixed(3)}rem;--iy:${(0.1 + r() * 0.13).toFixed(3)}rem;--ir:${(1.4 + r() * 2.2).toFixed(2)}deg;--idle-d:${(3 + r() * 2.8).toFixed(2)}s;--idle-delay:-${(r() * 6).toFixed(2)}s`;
+// Every sticker drifts on its own slightly different loop so nothing moves in
+// unison. The loop is derived from what the sticker is (its seed, and how many
+// of that seed came before it in this render) and runs against one shared
+// clock, so drawing the same sticker again continues its drift instead of
+// restarting it somewhere else.
+const idleEpoch = performance.now();
+let idleSeen = null;
+function idleStyle(seed = "") {
+  if (!idleSeen) {
+    idleSeen = new Map();
+    queueMicrotask(() => (idleSeen = null)); // counts start over with each render
+  }
+  const nth = idleSeen.get(seed) || 0;
+  idleSeen.set(seed, nth + 1);
+  // a small seeded generator (string hash into mulberry32)
+  let state = 2166136261;
+  for (const char of `${seed}#${nth}`) state = Math.imul(state ^ char.charCodeAt(0), 16777619);
+  const r = () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const age = (performance.now() - idleEpoch) / 1000;
+  return `--ix:${(0.07 + r() * 0.1).toFixed(3)}rem;--iy:${(0.1 + r() * 0.13).toFixed(3)}rem;--ir:${(1.4 + r() * 2.2).toFixed(2)}deg;--idle-d:${(3 + r() * 2.8).toFixed(2)}s;--idle-delay:-${(r() * 6 + age).toFixed(2)}s`;
 }
 
 /**
@@ -36,7 +57,7 @@ function icon(name, size = 24, opts = {}) {
   if (opts.ink) classes.push("ink");
   if (opts.cls) classes.push(opts.cls);
   const width = ((stroke * 2) / scale).toFixed(1);
-  const style = `width:${rem(w + pad * 2)}rem;height:${rem(h + pad * 2)}rem;margin:-${rem(pad)}rem -${rem(opts.tight ? pad : 1)}rem;${opts.idle !== false ? idleStyle() + ";" : ""}${opts.style || ""}`;
+  const style = `width:${rem(w + pad * 2)}rem;height:${rem(h + pad * 2)}rem;margin:-${rem(pad)}rem -${rem(opts.tight ? pad : 1)}rem;${opts.idle !== false ? idleStyle(opts.key ?? `${name}@${size}`) + ";" : ""}${opts.style || ""}`;
   return `<svg class="${classes.join(" ")}" viewBox="${(x - pad).toFixed(1)} ${(y - pad).toFixed(1)} ${(w + pad * 2).toFixed(1)} ${(h + pad * 2).toFixed(1)}" style="${style}" aria-hidden="true">${(data.l || [[0, data.d]]).map(([cut, d]) => (cut ? `<path class="cut" d="${d}"/>` : `<path d="${d}" stroke-width="${width}"/>`)).join("")}</svg>`;
 }
 
@@ -68,18 +89,219 @@ function tilted(name, size, opts = {}) {
 /** Sticker text; each character can drift on its own when `split` is set. */
 function stickerText(text, opts = {}) {
   const chars = opts.split ? [...String(text)] : [String(text)];
+  // seeded by position, so a number that changes keeps each digit's drift
+  const seed = opts.key ?? `text:${opts.cls || ""}:${opts.split ? "" : text}`;
   return chars
     .map(
-      (char) =>
-        `<span class="stk${opts.idle === false ? "" : " idle"}${opts.cls ? " " + opts.cls : ""}" style="${opts.idle === false ? "" : idleStyle()}">${e(char)}</span>`,
+      (char, i) =>
+        `<span class="stk${opts.idle === false ? "" : " idle"}${opts.cls ? " " + opts.cls : ""}" style="${opts.idle === false ? "" : idleStyle(`${seed}:${i}`)}">${e(char)}</span>`,
     )
     .join("");
 }
 
+/* ---------- preferences (kept on this device) ---------- */
+const prefs = {
+  confirm: true, // moves wait for the Confirm button beside the discard pile
+  padDrag: "hold", // controller: hold the trigger to carry a card, or "toggle"
+  haptics: true,
+  hideTips: false,
+};
+try {
+  Object.assign(prefs, JSON.parse(localStorage.getItem("golf-prefs") || "{}"));
+} catch {}
+function applyPrefs() {
+  const html = document.documentElement.classList;
+  html.toggle("no-haptics", !prefs.haptics);
+  html.toggle("no-tips", prefs.hideTips);
+}
+function setPref(key, value) {
+  prefs[key] = value;
+  try {
+    localStorage.setItem("golf-prefs", JSON.stringify(prefs));
+  } catch {}
+  applyPrefs();
+}
+applyPrefs();
+
+/* ---------- taps ---------- */
+// A click only counts when the press began and ended on the same control
+// without travelling. A drag that passes over a button, or a press that slides
+// off one, must never activate it (the haptic switches would otherwise toggle
+// when a finger is dragged across them).
+let lastPress = null;
+const pressControl = (target) => target.closest?.("button, a, summary, label") || null;
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    lastPress = {
+      id: event.pointerId,
+      control: pressControl(event.target),
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+      ended: 0,
+    };
+  },
+  true,
+);
+document.addEventListener(
+  "pointermove",
+  (event) => {
+    const press = lastPress;
+    if (!press || press.ended || event.pointerId !== press.id) return;
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 12) press.moved = true;
+  },
+  true,
+);
+for (const type of ["pointerup", "pointercancel"])
+  document.addEventListener(
+    type,
+    (event) => {
+      const press = lastPress;
+      if (!press || event.pointerId !== press.id) return;
+      press.ended = performance.now();
+      if (type === "pointercancel") press.moved = true; // it turned into a scroll
+    },
+    true,
+  );
+document.addEventListener(
+  "click",
+  (event) => {
+    const press = lastPress;
+    // keyboard and scripted clicks have no press behind them
+    if (!press || !event.isTrusted) return;
+    if (press.ended && performance.now() - press.ended > 700) return;
+    if (press.moved || pressControl(event.target) !== press.control) {
+      event.stopImmediatePropagation();
+      event.preventDefault();
+    }
+  },
+  true,
+);
+
+/* ---------- haptics ---------- */
+// Android has the Vibration API. iOS does not, but toggling a native switch
+// (<input type="checkbox" switch>) makes the system play a tick, and since
+// iOS 26.5 only when a finger toggles it directly. So on iOS every button
+// carries an invisible native switch over itself: the tap lands on the switch,
+// the system ticks, and the click bubbles up to the button as usual.
+const HAPTIC_PATTERNS = {
+  tap: 8,
+  grab: 12,
+  snap: 6,
+  drop: 14,
+  flip: 10,
+  turn: [18, 70, 18],
+};
+const touchDevice = matchMedia("(pointer: coarse)").matches;
+const canVibrate = typeof navigator.vibrate === "function";
+const switchHaptics =
+  !canVibrate &&
+  touchDevice &&
+  (() => {
+    const probe = document.createElement("input");
+    probe.type = "checkbox";
+    return "switch" in probe;
+  })();
+const hapticsAvailable = (canVibrate && touchDevice) || switchHaptics;
+let hapticProbe = null;
+/** Play a short tick for something that happened (a card picked up, a drop, your turn). */
+function haptic(kind = "tap") {
+  if (!prefs.haptics || !hapticsAvailable) return;
+  if (canVibrate) {
+    try {
+      navigator.vibrate(HAPTIC_PATTERNS[kind] || HAPTIC_PATTERNS.tap);
+    } catch {}
+    return;
+  }
+  // iOS: taps are played by the switch under the finger. For everything else,
+  // toggling a hidden switch from script still ticks on iOS before 26.5.
+  if (kind === "tap") return;
+  if (!hapticProbe) {
+    hapticProbe = document.createElement("label");
+    hapticProbe.className = "haptic-probe";
+    hapticProbe.setAttribute("aria-hidden", "true");
+    hapticProbe.innerHTML = `<input type="checkbox" switch tabindex="-1">`;
+    document.body.appendChild(hapticProbe);
+  }
+  hapticProbe.click();
+}
+/** A run of quick ticks, one per card, for the deal. */
+function hapticFlurry(count, gap, delay = 0) {
+  if (!prefs.haptics || !hapticsAvailable) return;
+  setTimeout(() => {
+    if (canVibrate) {
+      const pattern = [];
+      for (let i = 0; i < count; i++) pattern.push(7, Math.max(1, gap - 7));
+      try {
+        navigator.vibrate(pattern);
+      } catch {}
+    } else for (let i = 0; i < count; i++) setTimeout(() => haptic("snap"), i * gap);
+  }, delay);
+}
+/** Lay the invisible switch over every button that does not have one yet. */
+function hapticOverlay(scope = document) {
+  // not the avatars: a native switch would take the sideways swipe for itself
+  scope.querySelectorAll("button[type=button]:not(.avatar)").forEach((button) => {
+    if (button.lastElementChild?.classList.contains("haptic-switch")) return;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.setAttribute("switch", "");
+    input.className = "haptic-switch";
+    input.tabIndex = -1;
+    input.setAttribute("aria-hidden", "true");
+    // clip-path rounds the hit area too, so corners outside the button stay dead
+    input.style.clipPath = `inset(0 round ${getComputedStyle(button).borderRadius || "0px"})`;
+    button.appendChild(input);
+  });
+}
+function hapticsInstall(force = false) {
+  if (canVibrate && !force) {
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (event.target.closest?.("button, a.btn, summary")) haptic("tap");
+      },
+      true,
+    );
+    return;
+  }
+  if (!switchHaptics && !force) return;
+  let queued = 0;
+  const sweep = () => {
+    queued = 0;
+    hapticOverlay();
+  };
+  new MutationObserver(() => {
+    if (!queued) queued = requestAnimationFrame(sweep);
+  }).observe(document.body, { childList: true, subtree: true });
+  hapticOverlay();
+}
+if (touchDevice) hapticsInstall();
+
 // The wordmark is laid out on the exact Figma letter boxes (widths in design px,
 // each overlapping the next by 10); the idle drift is applied on top of that.
+// It appears as one piece: hidden until the club artwork and the display font are in.
+let logoReady = false;
+(() => {
+  const club = new Image();
+  club.src = "static/assets/logo-club.svg";
+  const drawn = club.decode
+    ? club.decode()
+    : new Promise((done) => (club.onload = club.onerror = done));
+  const font = document.fonts?.load
+    ? document.fonts.load('700 64px "FOT-Seurat Pro"', "Gof")
+    : Promise.resolve();
+  const giveUp = new Promise((done) => setTimeout(done, 4000));
+  Promise.race([Promise.allSettled([drawn, font]), giveUp]).then(() => {
+    logoReady = true;
+    document
+      .querySelectorAll(".logo.pending")
+      .forEach((logo) => logo.classList.remove("pending"));
+  });
+})();
 function logoHtml() {
   const letter = (char, width, fill, stroke, tilt) =>
-    `<span class="lg" style="width:${width / 10}rem"><span class="stk idle" style="--fill:${fill};--stroke:${stroke};transform:rotate(${tilt}deg);${shadowVars(tilt)}${idleStyle()}">${char}</span></span>`;
-  return `<a class="logo" href="." data-nav="home" aria-label="Golf home">${letter("G", 62.797, "var(--p1b)", "var(--p1)", -4)}${letter("o", 45, "var(--p3b)", "var(--p3)", 0)}<span class="lg club"><span class="club-box idle" style="${idleStyle()}"><img src="static/assets/logo-club.svg" alt="l"></span></span>${letter("f", 42.571, "var(--fw3)", "var(--fw)", 8)}</a>`;
+    `<span class="lg" style="width:${width / 10}rem"><span class="stk idle" style="--fill:${fill};--stroke:${stroke};transform:rotate(${tilt}deg);${shadowVars(tilt)}${idleStyle(`logo:${char}`)}">${char}</span></span>`;
+  return `<a class="logo${logoReady ? "" : " pending"}" href="." data-nav="home" aria-label="Golf home">${letter("G", 62.797, "var(--p1b)", "var(--p1)", -4)}${letter("o", 45, "var(--p3b)", "var(--p3)", 0)}<span class="lg club"><span class="club-box idle" style="${idleStyle("logo:club")}"><img src="static/assets/logo-club.svg" alt="l"></span></span>${letter("f", 42.571, "var(--fw3)", "var(--fw)", 8)}</a>`;
 }

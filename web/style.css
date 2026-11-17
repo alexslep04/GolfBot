@@ -19,6 +19,15 @@
   font-weight: 700;
   font-display: swap;
 }
+@font-face {
+  font-family: "SF Pro Rounded";
+  src:
+    local("SF Pro Rounded Heavy"),
+    local("SFProRounded-Heavy"),
+    url(fonts/sf-pro-rounded-heavy.woff2) format("woff2");
+  font-weight: 800;
+  font-display: swap;
+}
 :root {
   --u: min(1px, 100vw / 402);
   font-size: calc(var(--u) * 10);
@@ -62,6 +71,57 @@
   --c: var(--fw);
   --c2: var(--fw3);
   --ct: var(--fw-text);
+}
+/* Seat colours: the same for everyone at the table. Inside the table, --p1
+   ("mine") is re-pointed at the viewer's own seat colour. */
+:root {
+  --s0: var(--p1);
+  --s0b: var(--p1b);
+  --s0t: var(--p1t);
+  --s1: var(--p2);
+  --s1b: var(--p2b);
+  --s1t: var(--p2t);
+  --s2: var(--p3);
+  --s2b: var(--p3b);
+  --s2t: var(--p3t);
+  --s3: var(--p4);
+  --s3b: var(--p4b);
+  --s3t: var(--p4t);
+}
+.c-s0 {
+  --c: var(--s0);
+  --c2: var(--s0b);
+  --ct: var(--s0t);
+}
+.c-s1 {
+  --c: var(--s1);
+  --c2: var(--s1b);
+  --ct: var(--s1t);
+}
+.c-s2 {
+  --c: var(--s2);
+  --c2: var(--s2b);
+  --ct: var(--s2t);
+}
+.c-s3 {
+  --c: var(--s3);
+  --c2: var(--s3b);
+  --ct: var(--s3t);
+}
+.board[data-seat="1"] {
+  --p1: var(--s1);
+  --p1b: var(--s1b);
+  --p1t: var(--s1t);
+}
+.board[data-seat="2"] {
+  --p1: var(--s2);
+  --p1b: var(--s2b);
+  --p1t: var(--s2t);
+}
+.board[data-seat="3"] {
+  --p1: var(--s3);
+  --p1b: var(--s3b);
+  --p1t: var(--s3t);
 }
 .c-p1 {
   --c: var(--p1);
@@ -177,6 +237,10 @@ p {
 .ico.flat {
   filter: none;
 }
+/* textured, but lying flat on the page: no drop shadow (unchecked circles) */
+.ico.bare {
+  filter: url(#texture);
+}
 .ico.ink path {
   fill: currentColor;
   stroke: none;
@@ -234,9 +298,14 @@ p {
   padding-bottom: max(1.6rem, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  /* content hangs from the top, so anything that expands only pushes what is
+     below it; the closing row of buttons stays pinned to the bottom */
+  justify-content: flex-start;
   gap: 2.4rem;
   animation: page-in 0.35s var(--spring) both;
+}
+.page:not(.scroll) > :last-child:not(:first-child) {
+  margin-top: auto;
 }
 .page.scroll {
   justify-content: flex-start;
@@ -277,6 +346,11 @@ p {
   height: 6.4rem;
   font: 700 6.4rem/1 var(--text);
   text-decoration: none;
+  transition: opacity 0.25s;
+}
+/* held back until the club artwork and the display font have loaded */
+.logo.pending {
+  opacity: 0;
 }
 .logo .lg {
   flex: none;
@@ -344,9 +418,49 @@ p {
 .hint.dark {
   color: var(--fw);
 }
+/* inside a themed surface, notes take that surface's primary colour */
+.sheet .hint,
+.summary .hint,
+.modal .hint,
+.sheet .empty,
+.sheet .loading {
+  color: var(--c);
+}
+
+/* Scrollbars: a slim pill in the surrounding theme colour, with no track. */
+::-webkit-scrollbar {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 0.35rem solid transparent;
+  border-radius: 99rem;
+  background: var(--c) padding-box;
+}
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--ct);
+}
+/* keep the pill clear of rounded corners */
+.sheet::-webkit-scrollbar-track,
+.summary::-webkit-scrollbar-track,
+.social-dialog::-webkit-scrollbar-track {
+  margin-block: 2.4rem;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c) transparent;
+  }
+}
 .credit {
   font: 700 1.6rem/1 var(--round);
-  color: var(--fw3);
+  /* the fairway's secondary text colour, as on hints and pile labels */
+  color: var(--accent);
   text-align: center;
   padding-top: 0.6rem;
 }
@@ -609,12 +723,8 @@ p {
 }
 .avatar-strip {
   display: flex;
-  align-items: flex-start;
-  gap: 1.6rem;
   width: calc(100% + 3.2rem);
   margin: 0 -1.6rem;
-  /* room for the arc: side avatars sit lower, as on the rim of a big wheel */
-  padding: 1.6rem calc(50% - 3.6rem) 6.4rem;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
@@ -626,20 +736,80 @@ p {
 .avatar-strip::-webkit-scrollbar {
   display: none;
 }
-.avatar {
+/* The track is what scrolls: one snap stop per avatar. The stage rides along
+   pinned to the viewport, and app.js places the avatars on it every frame. */
+.avatar-track {
+  --pitch: 8.8rem;
+  --more: calc(var(--stops, 0) * var(--pitch));
   flex: none;
+  display: flex;
+  align-items: flex-start;
+  width: calc(100% + var(--more));
+}
+.avatar-stage {
+  position: sticky;
+  left: 0;
+  flex: none;
+  box-sizing: content-box;
+  width: calc(100% - var(--more));
+  margin-right: calc(var(--more) - 100%);
+  height: 7.2rem;
+  /* room for the arc: side avatars sit lower, as on the rim of a big wheel */
+  padding: 1.6rem 0 6.4rem;
+  overflow: hidden;
+}
+.avatar-stops {
+  flex: none;
+  display: flex;
+  height: 1px;
+  pointer-events: none;
+}
+.avatar-stops i {
+  flex: none;
+  width: var(--pitch);
+  scroll-snap-align: start;
+}
+.avatar {
+  position: absolute;
+  left: calc(50% - 3.6rem);
+  top: 1.6rem;
   display: grid;
   place-items: center;
   width: 7.2rem;
   height: 7.2rem;
   --fill: var(--fw3);
   --stroke: var(--fw);
-  scroll-snap-align: center;
-  will-change: transform, filter;
+  will-change: transform, opacity, filter;
 }
-.avatar[aria-checked="true"] {
-  --fill: var(--p2b);
-  --stroke: var(--p2);
+/* the art keeps its texture; its shadow is the flat copy underneath */
+.avatar > .ico {
+  filter: url(#texture);
+}
+.avatar-shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  display: grid;
+  place-items: center;
+  opacity: 0.25;
+  pointer-events: none;
+  will-change: transform;
+}
+.avatar-shade .ico path,
+.avatar-shade .ico path.cut {
+  fill: #000;
+  stroke: #000;
+}
+/* the avatar under the pointer wears your player colour (player 1 blue,
+   2 red, …); the colour flows from one to the next as the wheel turns */
+.avatar.near {
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.avatar > .ico path {
+  transition:
+    fill 0.18s,
+    stroke 0.18s;
 }
 .avatar-pick {
   gap: 0.4rem;
@@ -657,9 +827,7 @@ p {
   flex: none;
   width: 4.4rem;
   height: 4.4rem;
-  border-radius: 1.4rem;
-  border: 0.3rem solid var(--c);
-  background: var(--c2);
+  /* just the sticker: no box or outline around it */
   --fill: var(--c2);
   --stroke: var(--c);
 }
@@ -729,12 +897,26 @@ p {
   gap: 2.4rem;
   padding: 1.4rem 1.2rem 1.6rem;
 }
+/* the clip box is widened a little so chip shadows are not cut off */
+[data-rules-closed] > div {
+  margin: 0 -0.6rem;
+  padding: 0 0.6rem;
+}
 .rules-closed {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: 1rem 0.5rem 0.5rem;
-  margin: 0 -0.5rem;
+  padding: 1rem 0 0.6rem;
+}
+/* the three presets share the row evenly and may shrink, so none runs off
+   the edge of a narrow screen */
+.rules-closed .chip {
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 0.5rem;
+  padding: 1.2rem 0.4rem;
+  font-size: 1.5rem;
+  white-space: nowrap;
 }
 .rules-box.opening .rule-row {
   animation: row-in 0.4s var(--spring) both;
@@ -854,7 +1036,8 @@ td {
 tbody th {
   white-space: normal;
 }
-tfoot tr:last-child > * {
+tfoot tr:last-child > *,
+table:not(:has(tfoot)) tr:last-child > * {
   border-bottom: 0;
 }
 td {
@@ -993,6 +1176,42 @@ body > header.topbar {
   transition: background 0.3s;
   text-align: left;
 }
+/* "YOUR TURN" sits in the top band of your score tag, and your tags' frame
+   breathes a little lighter while the table waits on you */
+.tag-score {
+  position: relative;
+}
+.turn-label {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  color: #000;
+  mix-blend-mode: soft-light;
+  font: 800 1rem/1 var(--round);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(0.5rem) scale(0.7);
+  transition:
+    opacity 0.2s,
+    transform 0.4s var(--spring);
+  pointer-events: none;
+}
+.my-turn > .turn-label {
+  opacity: 1;
+  transform: none;
+}
+.tag.my-turn {
+  animation: turn-pulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes turn-pulse {
+  to {
+    background-color: color-mix(in srgb, var(--c) 74%, white);
+  }
+}
 .tag > .tag-in {
   display: flex;
   align-items: center;
@@ -1065,7 +1284,7 @@ button.tag-rules:active > .tag-in {
   font: 700 4.8rem/1 var(--round);
   letter-spacing: -0.144rem;
   --sw: 0.8rem;
-  margin-right: -0.4rem;
+  margin-right: -0.12rem;
   transform: rotate(2deg);
 }
 .score .digits .stk:nth-child(even) {
@@ -1131,7 +1350,9 @@ button.tag-rules:active > .tag-in {
   justify-content: center;
   align-items: flex-start;
   gap: 1.6rem;
-  padding: 0 0.8rem;
+  /* on phones the piles sit a little left of centre, leaving room beside the
+     discard pile for End Turn / Confirm */
+  padding: 0 2.8rem 0 0.8rem;
   flex: none;
   position: relative;
 }
@@ -1226,7 +1447,7 @@ button.tag-rules:active > .tag-in {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 0.9rem 0.5rem;
+  padding: 1.2rem 0.9rem;
   --fill: var(--ink);
   --stroke: var(--paper);
 }
@@ -1242,6 +1463,8 @@ button.tag-rules:active > .tag-in {
   gap: 0.7rem;
   width: 2.2rem;
   transform: rotate(1.4deg);
+  /* same paper texture as the stickers, without their drop shadow */
+  filter: url(#texture);
 }
 .corner + .corner {
   align-self: flex-end;
@@ -1349,7 +1572,7 @@ button.tag-rules:active > .tag-in {
   inset: -0.6rem;
   border-radius: 2.2rem;
   border: 0.4rem dashed var(--p1);
-  background: rgb(83 170 239 / 0.14);
+  background: color-mix(in srgb, var(--p1) 14%, transparent);
   transform: rotate(var(--rot, 0deg));
   animation: target-pulse 0.9s ease-in-out infinite alternate;
   pointer-events: none;
@@ -1468,13 +1691,79 @@ button.tag-rules:active > .tag-in {
     opacity: 0;
   }
 }
-.end-turn {
-  min-height: 4.4rem;
-  padding: 0.4rem 1rem;
-  border-radius: 2.2rem;
-  font-size: 1.5rem;
+/* Beside the discard pile: Confirm (controller) and, on phones, End Turn.
+   Same sticker-over-label look as the desktop action bar. */
+.pile-side {
+  position: absolute;
+  left: calc(100% + 0.35rem);
+  top: 50%;
+  z-index: 5;
+  display: grid;
+  justify-items: center;
+  transform: translateY(-50%);
+}
+/* Undo mirrors Confirm: the gaps differ so the two symbols end up the same
+   distance from their piles (Confirm's sits inside a wider label; the go-fish
+   pile's fanned cards overhang its box). */
+.pile-side.left {
+  left: auto;
+  right: calc(100% + 1.6rem);
+}
+.side-act {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--p1t);
+  font-size: 1.4rem;
+  line-height: 1.3;
   white-space: nowrap;
+  --fill: var(--p1);
+  --stroke: var(--paper);
+  transition: transform 0.28s var(--spring);
   animation: pop 0.4s var(--spring);
+}
+.side-act .act-ico {
+  display: grid;
+  place-items: center;
+  height: 4.6rem;
+}
+/* the table actions, up to two a side on phones: a little smaller, and only
+   there while they can be used */
+.pile-side {
+  gap: 0.3rem;
+}
+.bar-act {
+  font-size: 1.3rem;
+}
+.bar-act .act-ico {
+  height: 3.5rem;
+}
+.side-act:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.side-act:active {
+  transform: scale(0.9);
+  transition-duration: 0.08s;
+}
+.side-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.act.side-act .pad-key {
+  position: static;
+  display: none;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0 0.5rem;
+  font-size: 1.1rem;
+  box-shadow: none;
+}
+:root.pad .act.side-act .pad-key {
+  display: inline-grid;
 }
 .board-btns {
   display: flex;
@@ -1489,6 +1778,62 @@ button.tag-rules:active > .tag-in {
 }
 .actionbar {
   display: none;
+}
+
+/* ---------- controller ---------- */
+/* The cursor glides between whatever can be pressed. */
+#pad-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 400;
+  box-sizing: border-box;
+  border: 0.4rem solid var(--paper);
+  border-radius: 2rem;
+  box-shadow:
+    0 0 0 0.3rem var(--ink),
+    0.4rem 0.4rem 0 0.3rem var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.16s cubic-bezier(0.3, 1, 0.4, 1),
+    width 0.16s cubic-bezier(0.3, 1, 0.4, 1),
+    height 0.16s cubic-bezier(0.3, 1, 0.4, 1),
+    border-radius 0.16s,
+    opacity 0.15s;
+}
+#pad-cursor.on {
+  opacity: 1;
+}
+#pad-cursor.jump {
+  transition: opacity 0.15s;
+}
+:root.pad,
+:root.pad * {
+  cursor: none;
+}
+.pad-key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 0.6rem;
+  border-radius: 99rem;
+  background: var(--ink);
+  color: var(--paper);
+  font: 800 1.2rem/1 var(--round), system-ui;
+  white-space: nowrap;
+}
+.pad-help {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.8rem 1.2rem;
+  align-items: center;
+  font-size: 1.4rem;
+}
+.pad-help .keys {
+  display: flex;
+  gap: 0.4rem;
 }
 .emote-pop {
   position: absolute;
@@ -1583,8 +1928,16 @@ button.tag-rules:active > .tag-in {
   max-height: 60%;
   overflow: auto;
   transform: translate(-50%, -50%);
-  box-shadow: 0.4rem 0.4rem 0 var(--shadow);
+  box-shadow:
+    0.4rem 0.4rem 0 var(--shadow),
+    0 0 0 200vmax rgb(34 71 21 / 0.24);
   animation: summary-in 0.5s var(--spring) both;
+}
+.summary .row {
+  align-items: center;
+}
+.summary .close-btn {
+  padding: 0 0.6rem;
 }
 @keyframes summary-in {
   from {
@@ -1681,6 +2034,8 @@ button.tag-rules:active > .tag-in {
   max-height: 86dvh;
   overflow: auto;
   overscroll-behavior: contain;
+  /* an equal gutter each side, so the scrollbar never pushes content off-centre */
+  scrollbar-gutter: stable both-edges;
   padding: 2rem 1.6rem max(2rem, env(safe-area-inset-bottom));
   border: 0.4rem solid var(--c);
   border-bottom: 0;
@@ -1701,7 +2056,7 @@ button.tag-rules:active > .tag-in {
 }
 .sheet-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 1rem;
   margin-bottom: 1.4rem;
 }
@@ -1716,13 +2071,16 @@ button.tag-rules:active > .tag-in {
   opacity: 0.7;
 }
 .close-btn {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
   flex: none;
-  width: 4.4rem;
-  height: 4.4rem;
-  --fill: var(--c);
-  --stroke: var(--paper);
+  color: var(--ct);
+  font-size: 1.6rem;
+  line-height: 1.2;
+  --fill: var(--c2);
+  --stroke: var(--c);
   transition: transform 0.25s var(--spring);
 }
 .close-btn:hover {
@@ -1744,6 +2102,33 @@ button.tag-rules:active > .tag-in {
   display: flex;
   justify-content: space-between;
   gap: 1.2rem;
+}
+/* a rule that is affecting the hand: its sticker(s), then what it does */
+.tally .effect {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.8rem;
+}
+.effect-ico {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 3.4rem;
+  justify-content: center;
+}
+/* a rule sticker; a variant rides small on its bottom-right corner */
+.rule-stk {
+  position: relative;
+  display: inline-flex;
+}
+.rule-sub {
+  position: absolute;
+  right: -0.4rem;
+  bottom: -0.4rem;
+  z-index: 1;
+  display: inline-flex;
+  translate: calc(var(--n, 0) * -1.1rem) 0;
 }
 .tally b {
   font-family: var(--text);
@@ -1797,6 +2182,68 @@ button.tag-rules:active > .tag-in {
   justify-content: flex-start;
   padding: 0.8rem 1.6rem;
   gap: 1.2rem;
+}
+.menu-list .pref {
+  font-size: 1.7rem;
+}
+.pref .grow {
+  text-align: left;
+}
+.pref-value {
+  flex: none;
+  min-width: 5.6rem;
+  padding: 0.2rem 1rem;
+  border-radius: 99rem;
+  background: var(--c);
+  color: var(--paper);
+  font: 700 1.5rem/1.5 var(--text);
+  text-align: center;
+  opacity: 0.45;
+}
+.pref-value.on {
+  opacity: 1;
+}
+/* "Hide tooltips": the labels that name a move go; highlights stay */
+.no-tips .move-label,
+.no-tips .drag-note {
+  display: none;
+}
+
+/* ---------- haptics ---------- */
+/* iOS plays a system tick when a native switch is toggled by a finger, so an
+   invisible one covers each button. Its native appearance must stay intact
+   (opacity, not display or appearance), or the tick is lost.
+   The whole selector sits in :where() so it never outranks a button's own
+   positioning (:has() would otherwise count as a class). */
+:where(button:has(> .haptic-switch)) {
+  position: relative;
+}
+.haptic-switch {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.slot > .haptic-switch {
+  touch-action: none;
+}
+.no-haptics .haptic-switch,
+button:disabled > .haptic-switch {
+  display: none;
+}
+.haptic-probe {
+  position: fixed;
+  left: -99rem;
+  top: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 .toast {
   position: fixed;
@@ -1912,47 +2359,102 @@ button.tag-rules:active > .tag-in {
   }
   .b-mid {
     gap: 5.6rem;
+    padding: 0 0.8rem;
   }
   .b-top .b-side,
   .b-bottom .b-side {
     flex: 0 0 11.4rem;
   }
+  /* your tags are free-standing here, so their bottom edge is framed and rounded too */
   .b-bottom .tag {
-    padding-bottom: 0;
+    padding-bottom: 0.8rem;
+    border-radius: 2.4rem;
   }
-  /* Flip / Swap / Draw / Discard / End turn sit under the player's score and rules bar */
+  .b-bottom .tag > .tag-in {
+    border-radius: 1.6rem;
+  }
+  /* Flip / Swap / Draw / Discard / End Turn float in a bar of their own under the tags */
   .actionbar {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.8rem;
+    align-items: flex-end;
+    justify-content: space-between;
     width: 41.066rem;
-    min-height: 7rem;
-    margin: 0 auto;
-    padding: 1rem 0.8rem;
-    padding-bottom: max(1rem, env(safe-area-inset-bottom));
-    background: var(--p1);
-  }
-  .actionbar .btn {
-    flex: 1 1 0;
-    min-height: 5rem;
-    padding: 0.4rem 0.6rem;
-    border-radius: 1.8rem;
-    font-size: 1.6rem;
-    white-space: nowrap;
-    --c: var(--paper);
+    margin: 1.2rem auto max(1.2rem, env(safe-area-inset-bottom));
+    padding: 0.6rem 1.8rem 0.8rem;
+    border: 0.8rem solid var(--p1);
+    border-radius: 2.4rem;
+    background: var(--p1b);
+    color: var(--p1t);
+    --c: var(--p1);
     --c2: var(--p1b);
     --ct: var(--p1t);
+    --fill: var(--p1);
+    --stroke: var(--paper);
   }
-  .actionbar .btn kbd {
-    font: 700 1.2rem/1 var(--text);
-    opacity: 0.55;
+  .act {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    color: inherit;
+    font-size: 1.6rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    transition:
+      transform 0.28s var(--spring),
+      opacity 0.2s;
   }
-  .board-extra .end-turn {
+  .act-ico {
+    display: grid;
+    place-items: center;
+    height: 5rem;
+  }
+  .act:hover:not(:disabled) {
+    transform: translateY(-0.3rem) scale(1.08);
+  }
+  .act:active:not(:disabled) {
+    transform: scale(0.92);
+    transition-duration: 0.08s;
+  }
+  .act:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .act {
+    position: relative;
+  }
+  .act .pad-key {
+    position: absolute;
+    top: -0.2rem;
+    right: -1.4rem;
+    display: none;
+    min-width: 1.9rem;
+    height: 1.9rem;
+    padding: 0 0.5rem;
+    font-size: 1.1rem;
+    box-shadow: 0 0 0 0.25rem var(--p1b);
+  }
+  :root.pad .act .pad-key {
+    display: inline-grid;
+  }
+  /* the table actions live in the action bar here */
+  .pile-side .bar-act {
     display: none;
   }
+  .side-act {
+    font-size: 1.6rem;
+  }
+  .pile-side {
+    left: calc(100% + 2.4rem);
+  }
+  .pile-side.left {
+    left: auto;
+    right: calc(100% + 4rem);
+  }
+  /* beside the chat button, as on phones (it sits further in on this layout) */
   .emote-pop {
-    left: 11rem;
+    left: 17.2rem;
     bottom: 26rem;
   }
   .player-emote.me {
@@ -1976,7 +2478,8 @@ button.tag-rules:active > .tag-in {
   .idle,
   .avatar-pick .pointer,
   .slot.selected::after,
-  .slot.target::before {
+  .slot.target::before,
+  .tag.my-turn {
     animation: none;
   }
   .page,

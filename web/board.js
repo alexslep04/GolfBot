@@ -10,7 +10,10 @@ const SUIT_ICON = {
   C: "suit.club.fill",
 };
 const SUIT_NAME = { S: "spades", H: "hearts", D: "diamonds", C: "clubs" };
-const OPPONENT_COLORS = ["c-p2", "c-p3", "c-p4"];
+// Colours go by seat, so every screen shows the same player in the same colour:
+// player 1 blue, 2 red, 3 yellow, 4 purple (then round again at bigger tables).
+const SEAT_COLORS = ["c-s0", "c-s1", "c-s2", "c-s3"];
+const OPPONENT_COLORS = ["c-p1", ...SEAT_COLORS]; // every class a tag may be wearing
 const RULE_ICON = {
   royal_pairs: "crown.fill",
   devils_row: "flame.fill",
@@ -90,6 +93,8 @@ const board = {
   hover: null,
   lastTap: null,
   pendingDrop: null,
+  staged: null, // a move waiting for the Confirm button
+  carry: null, // a card being carried with the controller trigger
   emotesOpen: false,
   summaryHidden: false,
   signatures: {},
@@ -135,9 +140,7 @@ function cycleOpponent(direction) {
   renderBoard();
 }
 function colorFor(player) {
-  if (player === state.viewer) return "c-p1";
-  const seats = state.names.map((_, p) => p).filter((p) => p !== state.viewer);
-  return OPPONENT_COLORS[seats.indexOf(player) % OPPONENT_COLORS.length];
+  return SEAT_COLORS[player % SEAT_COLORS.length];
 }
 
 /* ---------- card markup ---------- */
@@ -156,6 +159,21 @@ function cardName(card) {
 }
 
 /* ---------- mounting ---------- */
+// controller button shown on each action while a controller is in use
+const PAD_ACTION_KEY = { flip: "lb", swap: "rt", draw: "lt", discard: "x", end_turn: "rb" };
+// The five table actions: a bar under your panels on desktop, and on phones
+// the same buttons split to the left and right of the piles.
+const ACTIONS = [
+  ["flip", "Flip", "rectangle.portrait.rotate"],
+  ["swap", "Swap", "rectangle.2.swap"],
+  ["draw", "Draw", "figure.fishing"],
+  ["discard", "Discard", "trash.fill"],
+  ["end_turn", "End Turn", "flag.pattern.checkered"],
+];
+function sideAction(action) {
+  const [, label, symbol] = ACTIONS.find(([key]) => key === action);
+  return `<button type="button" class="act side-act bar-act" data-action="${action}"><span class="act-ico">${icon(symbol, 24, { sw: 3.4 })}</span><span class="side-label"><kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd>${label}</span></button>`;
+}
 function mountBoard() {
   const me = state.viewer;
   const hand = (player, tilts) =>
@@ -167,7 +185,7 @@ function mountBoard() {
         <div class="hand" data-hand="opp">${hand("opp", HAND_TILT[1])}</div>
       </div>
       <div class="b-side">
-        <div class="tag tag-score" data-score-for="opp"><span class="tag-in"></span></div>
+        <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span></button>
         <button type="button" class="cycle" data-cycle-next hidden></button>
       </div>
     </section>
@@ -178,11 +196,20 @@ function mountBoard() {
           ${slotHtml(["under", null], 97, "under")}
           ${slotHtml(["draw", null], 84)}
           ${slotHtml(["held", null], 88, "is-face held")}
+          <div class="pile-side left" data-side-actions>
+            <button type="button" class="act side-act" data-undo hidden><span class="act-ico">${icon("delete.left.fill", 30, { sw: 4 })}</span><span class="side-label"><kbd class="pad-key" data-key="b"></kbd>Undo</span></button>
+            ${sideAction("flip")}${sideAction("draw")}
+          </div>
         </div>
       </div>
       <div class="pile">
         <div class="pile-label">discards</div>
-        <div class="pile-area">${slotHtml(["discard", null], 90.6, "is-face")}</div>
+        <div class="pile-area">${slotHtml(["discard", null], 90.6, "is-face")}
+          <div class="pile-side" data-side-actions>
+            <button type="button" class="act side-act" data-confirm hidden><span class="act-ico">${icon("checkmark.circle.fill", 30, { sw: 4 })}</span><span class="side-label"><kbd class="pad-key" data-key="a"></kbd>Confirm</span></button>
+            ${sideAction("swap")}${sideAction("discard")}${sideAction("end_turn")}
+          </div>
+        </div>
       </div>
     </section>
     <div class="bottom-wrap">
@@ -193,7 +220,7 @@ function mountBoard() {
             <button type="button" class="icon-btn" data-game-menu aria-label="Table menu">${icon("gear", 44)}</button>
             <button type="button" class="icon-btn" data-emotes aria-label="Quick emotes">${icon("text.bubble.fill", 44)}</button>
           </div>
-          <div class="tag tag-score c-p1" data-score-for="me"><span class="tag-in"></span></div>
+          <div class="tag tag-score c-p1" data-score-for="me"><span class="tag-in"></span><span class="turn-label" aria-hidden="true">Your turn</span></div>
         </div>
         <div class="b-main">
           <div class="hand" data-hand="me">${hand(me, HAND_TILT[0])}</div>
@@ -209,11 +236,15 @@ function mountBoard() {
     <div class="layer" data-modal></div>
   </div>`;
   board.el = root.querySelector("[data-board]");
+  // inside the table, "player 1 blue" (--p1) becomes your own seat's colour
+  board.el.dataset.seat = String(me % SEAT_COLORS.length);
   board.signatures = {};
   board.view = null;
   board.selected = [];
   board.drag = null;
   board.pendingDrop = null;
+  board.staged = null;
+  board.carry = null;
   board.emotesOpen = false;
   board.summaryHidden = false;
   board.el.addEventListener("pointerdown", onBoardPointerDown);
@@ -308,6 +339,11 @@ function renderBoard() {
     mountBoard();
   }
   document.documentElement.classList.add("in-game");
+  // anything half-done belongs to the table as it was; a new state drops it
+  const stale = (pending) =>
+    pending && (pending.version !== state.version || state.status !== "playing");
+  if (stale(board.staged)) cancelStaged(false);
+  if (stale(board.carry)) cancelCarry(false);
   const view = boardView();
   syncCards(board.view, view);
   board.view = view;
@@ -439,27 +475,71 @@ function dealIn(view) {
         delay: order++ * 45,
       });
     }
+  // a tick as each card lands
+  hapticFlurry(order, 45, 380);
 }
 
-function scoreDigits(value) {
+function scoreDigits(value, side) {
   const text = String(value);
-  return `<span class="digits${text.length > 2 ? " long" : ""}">${stickerText(text, { split: true })}</span>${stickerText("pts", { cls: "pts" })}`;
+  return `<span class="digits${text.length > 2 ? " long" : ""}">${stickerText(text, { split: true, key: `score:${side}` })}</span>${stickerText("pts", { cls: "pts", key: `pts:${side}` })}`;
 }
 /**
  * The stickers a hand has earned: one per rule (or rule variant) that is
  * affecting that player right now. Rules that are merely enabled show nothing.
  */
+/** The rules (and their variants) one effect line, as the server words it, stands for. */
+function effectStickers(effect) {
+  const found = [];
+  const add = (rule, variant) => found.push({ rule, variant });
+  const rule = EFFECT_RULE.find(([pattern]) => pattern.test(effect))?.[1];
+  if (!rule) return found;
+  if (rule === "king_queen") add(rule, /: 5 \(/.test(effect) ? 0 : 1);
+  else if (rule === "holdem")
+    ["flush", "straight", "full house", "four kind"].forEach(
+      (hand, variant) => effect.includes(hand) && add(rule, variant),
+    );
+  else if (rule === "tricky_straights")
+    add(rule, /Incoming|opponent/.test(effect) ? 0 : 1);
+  else if (rule === "suited_rows") add(rule, /Incoming|opponents/.test(effect) ? 0 : 1);
+  else if (rule === "all_in_color") add(rule, /red/.test(effect) ? 0 : 1);
+  else add(rule);
+  return found;
+}
+/** Gather rule/variant pairs into one sticker per rule, variants riding along. */
+function groupStickers(pairs) {
+  const groups = new Map();
+  for (const { rule, variant } of pairs) {
+    if (!groups.has(rule))
+      groups.set(rule, { rule, icon: RULE_ICON[rule] || "star.fill", subs: [] });
+    const sub = variant === undefined ? null : RULE_VARIANTS[rule][variant][0];
+    if (sub && !groups.get(rule).subs.includes(sub)) groups.get(rule).subs.push(sub);
+  }
+  return [...groups.values()];
+}
+/**
+ * A rule's sticker. When a variant of the rule is what triggered, the variant's
+ * sticker sits small on the bottom-right corner of the main one.
+ */
+function ruleStickerHtml(sticker, size, opts = {}) {
+  const main =
+    opts.tilt === undefined
+      ? icon(sticker.icon, size, { idle: false })
+      : tilted(sticker.icon, size, { tilt: opts.tilt });
+  const subs = sticker.subs
+    .map(
+      (name, i) =>
+        `<span class="rule-sub" style="--n:${i}">${icon(name, Math.round(size * 0.5), { idle: false, sw: 2.4 })}</span>`,
+    )
+    .join("");
+  return `<span class="rule-stk">${main}${subs}</span>`;
+}
+/**
+ * The stickers a hand has earned: one per rule that is affecting that player
+ * right now. Rules that are merely enabled show nothing.
+ */
 function ruleStickers(player) {
   const g = state.game,
-    stickers = [];
-  const add = (rule, variant) => {
-    const glyph =
-      variant === undefined
-        ? RULE_ICON[rule] || "star.fill"
-        : RULE_VARIANTS[rule][variant][0];
-    if (!stickers.some((sticker) => sticker.icon === glyph))
-      stickers.push({ icon: glyph, rule });
-  };
+    pairs = [];
   // A Jack or Queen pair earns a bonus swap; it has no score line of its own.
   if (state.rules.royal_pairs)
     for (let column = 0; column < 3; column++) {
@@ -471,24 +551,10 @@ function ruleStickers(player) {
         top.card.rank === bottom.card.rank &&
         [11, 12].includes(top.card.rank)
       )
-        add("royal_pairs", top.card.rank === 11 ? 0 : 1);
+        pairs.push({ rule: "royal_pairs", variant: top.card.rank === 11 ? 0 : 1 });
     }
-  for (const effect of g.effects[player] || []) {
-    const rule = EFFECT_RULE.find(([pattern]) => pattern.test(effect))?.[1];
-    if (!rule) continue;
-    if (rule === "king_queen") add(rule, /: 5 \(/.test(effect) ? 0 : 1);
-    else if (rule === "holdem")
-      ["flush", "straight", "full house", "four kind"].forEach(
-        (hand, variant) => effect.includes(hand) && add(rule, variant),
-      );
-    else if (rule === "tricky_straights")
-      add(rule, /Incoming|opponent/.test(effect) ? 0 : 1);
-    else if (rule === "suited_rows")
-      add(rule, /Incoming|opponents/.test(effect) ? 0 : 1);
-    else if (rule === "all_in_color") add(rule, /red/.test(effect) ? 0 : 1);
-    else add(rule);
-  }
-  return stickers;
+  for (const effect of g.effects[player] || []) pairs.push(...effectStickers(effect));
+  return groupStickers(pairs);
 }
 function activeRules(player) {
   return [...new Set(ruleStickers(player).map((sticker) => sticker.rule))];
@@ -497,8 +563,19 @@ function ruleDelta(player) {
   const g = state.game;
   return g.effect_totals[player] - g.scores[player];
 }
+/** True while the table is waiting on this player (including opening flips). */
+function myTurn() {
+  const g = state.game;
+  if (!g || state.status !== "playing" || g.phase === "over") return false;
+  return g.phase === "setup"
+    ? g.legal.flip.length > 0
+    : g.decision_player === state.viewer;
+}
 function renderTags() {
   const g = state.game;
+  const turn = myTurn();
+  if (turn && board.signatures.turn === false) haptic("turn");
+  board.signatures.turn = turn;
   const enabled = catalog.filter((rule) => state.rules[rule.key]).length;
   for (const [side, player] of [
     ["me", state.viewer],
@@ -508,8 +585,10 @@ function renderTags() {
     const scoreTag = board.el.querySelector(`[data-score-for='${side}']`);
     const rulesTag = board.el.querySelector(`[data-rules-for='${side}']`);
     for (const tag of [scoreTag, rulesTag]) {
-      tag.classList.remove("c-p1", ...OPPONENT_COLORS);
+      tag.classList.remove(...OPPONENT_COLORS);
       tag.classList.add(color);
+      // your own tags carry the "your turn" label and a gentle pulse
+      tag.classList.toggle("my-turn", side === "me" && myTurn());
     }
     const score = g.phase === "over" ? g.scores[player] : g.effect_totals[player];
     const offline = !state.connected[player] && !state.solo;
@@ -519,7 +598,7 @@ function renderTags() {
       scoreTag.firstElementChild,
       `${player}|${state.names[player]}|${score}`,
       () =>
-        `<span class="who">${e(state.names[player])}</span><span class="score">${scoreDigits(score)}</span>`,
+        `<span class="who">${e(state.names[player])}</span><span class="score">${scoreDigits(score, side)}</span>`,
     );
     if (changed && board.signatures[`seen-${side}`] === player) {
       const element = scoreTag.querySelector(".score");
@@ -528,7 +607,7 @@ function renderTags() {
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}`,
+      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && myTurn() ? ", your turn" : ""}${side === "opp" ? ". Open their stats." : ""}`,
     );
     const delta = g.phase === "over" ? 0 : ruleDelta(player);
     const stickers = ruleStickers(player);
@@ -541,13 +620,11 @@ function renderTags() {
     patch(
       `rules-ico-${side}`,
       rulesTag.querySelector(".icons"),
-      `${color}|${stickers.map((sticker) => sticker.icon).join()}`,
+      `${color}|${stickers.map((sticker) => `${sticker.icon}:${sticker.subs.join("+")}`).join()}`,
       () =>
         stickers
           .slice(0, 3)
-          .map((sticker, i) =>
-            tilted(sticker.icon, 36, { tilt: [-13, -4, 16][i] }),
-          )
+          .map((sticker, i) => ruleStickerHtml(sticker, 36, { tilt: [-13, -4, 16][i] }))
           .join(""),
     );
     rulesTag.setAttribute(
@@ -580,6 +657,13 @@ function renderTags() {
 }
 
 function promptText() {
+  const [text, side] = promptFor();
+  // with tooltips hidden, your own prompts go; whose turn it is stays
+  if (prefs.hideTips && side === "me" && state.status === "playing")
+    return [state.game.final_turn && myTurn() ? "Final turn" : null, "me"];
+  return [text, side];
+}
+function promptFor() {
   const g = state.game,
     me = state.viewer;
   if (state.status === "closed") return ["Table closed", "me"];
@@ -661,7 +745,7 @@ function renderChrome() {
     callout.className = `callout ${color} ${side === "me" ? "down" : "up"}`;
     callout.dataset.side = side;
     callout.dataset.anchor =
-      g.phase === "setup" && g.legal.flip.length ? "card" : "";
+      g.phase === "setup" && g.legal.flip.length && !prefs.hideTips ? "card" : "";
     if (board.signatures.callout !== text + side) {
       board.signatures.callout = text + side;
       callout.textContent = text;
@@ -669,32 +753,26 @@ function renderChrome() {
     }
     placeCallout();
   }
-  // Mobile: only "End turn" needs a button — every other move is a gesture.
   const extra = board.el.querySelector(".board-extra");
   const queue = presenceState.queue;
   patch(
     "extra",
     extra,
-    `${g.legal.end_turn}|${queue?.status}`,
+    `${queue?.status}`,
     () =>
-      `${queue && ["waiting", "offer"].includes(queue.status) ? `<button type="button" class="icon-btn queue" data-queue-view aria-label="Quickplay queue">${icon("sparkles", 32)}</button>` : ""}${g.legal.end_turn ? `<button type="button" class="btn small c-p1 end-turn" data-action="end_turn">End turn</button>` : ""}`,
+      queue && ["waiting", "offer"].includes(queue.status)
+        ? `<button type="button" class="icon-btn queue" data-queue-view aria-label="Quickplay queue">${icon("sparkles", 32)}</button>`
+        : "",
   );
   const bar = board.el.querySelector("[data-actionbar]");
-  const buttons = [
-    ["flip", "Flip"],
-    ["swap", "Swap"],
-    ["draw", "Draw"],
-    ["discard", "Discard"],
-    ["end_turn", "End turn"],
-  ];
   patch(
     "actionbar",
     bar,
     "static",
-    buttons
+    ACTIONS
       .map(
-        ([action, label]) =>
-          `<button type="button" class="btn" data-action="${action}">${label}${action === "end_turn" ? " <kbd>↵</kbd>" : ""}</button>`,
+        ([action, label, symbol]) =>
+          `<button type="button" class="act" data-action="${action}"${action === "end_turn" ? ' title="Enter"' : ""}><span class="act-ico">${icon(symbol, 30, { sw: 4 })}</span><span>${label}</span><kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd></button>`,
       )
       .join(""),
   );
@@ -793,7 +871,7 @@ function renderSummary() {
       : state.status === "round_over"
         ? `<button type="button" class="btn c-p1" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for others…" : `${tilted("play.fill", 28)} Next game`}</button>`
         : viewer === 0
-          ? `<div class="row"><button type="button" class="btn round c-fw" data-leave aria-label="Back to menu">${icon("house.fill", 24, { idle: false })}</button><button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 28)} Play again</button></div>`
+          ? `<div class="row"><button type="button" class="close-btn" data-leave aria-label="Return home">${icon("house.fill", 44)}</button><button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 28)} Play again</button></div>`
           : `<p class="hint dark">The host can start a rematch.</p><button type="button" class="btn c-fw" data-leave>Back to menu</button>`;
     return `<section class="summary panel ${closed ? "c-p2" : "c-fw"}" role="dialog" aria-label="Results"><h2>${e(title)}</h2>${closed ? `<p style="margin:1rem 0;text-align:center">${e(state.message)}</p>` : `<div class="scores">${rows}</div>`}<div class="stack">${action}${closed ? "" : `<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button>`}</div></section>`;
   });
@@ -877,7 +955,9 @@ function canFlip(ref) {
     (ref[0] === state.viewer && legal.flip.includes(ref[1]))
   );
 }
+/** Flips play at once: there is no confirm step for turning a card over. */
 function flipMove(ref) {
+  haptic("flip");
   return ref[0] === "draw" ? move("draw") : move("flip", { index: ref[1] });
 }
 
@@ -897,7 +977,8 @@ function showTargets(moves) {
 }
 function paintSelection() {
   if (!board.el) return;
-  board.selected = board.selected.filter((ref) => slotFor(ref));
+  // nothing can be picked up when it is not your turn, so nothing stays outlined
+  board.selected = myTurn() ? board.selected.filter((ref) => slotFor(ref)) : [];
   board.slots.forEach((slot) => {
     const ref = JSON.parse(slot.dataset.ref);
     slot.classList.toggle("selected", hasRef(board.selected, ref));
@@ -907,11 +988,246 @@ function paintSelection() {
         (canFlip(ref) || movesFrom(ref).length > 0),
     );
   });
-  if (!board.drag?.active)
+  const staged = board.staged,
+    carry = board.carry;
+  if (staged)
+    showTargets([]); // the preview itself shows the move
+  else if (carry) {
+    showTargets(carry.moves);
+    if (carry.hot) slotFor(carry.hot.ref)?.classList.add("hot");
+  } else if (!board.drag?.active)
     showTargets(board.selected.length === 1 ? movesFrom(board.selected[0]) : []);
-  board.el.querySelectorAll("[data-actionbar] [data-action]").forEach((button) => {
-    button.disabled = !actionAllowed(button.dataset.action);
+  board.el
+    .querySelectorAll("[data-actionbar] [data-action], [data-side-actions] [data-action]")
+    .forEach((button) => {
+      button.disabled = !actionAllowed(button.dataset.action);
+    });
+  // Beside the piles: Undo and Confirm while a move is staged; otherwise
+  // whichever table actions can be used right now (phones).
+  const confirm = board.el.querySelector("[data-confirm]");
+  confirm.hidden = !staged?.ready;
+  if (staged) confirm.setAttribute("aria-label", `Confirm: ${staged.label}`);
+  board.el.querySelector("[data-undo]").hidden = !staged?.ready;
+  board.el.querySelectorAll("[data-side-actions] [data-action]").forEach((button) => {
+    button.hidden = !!staged || button.disabled;
   });
+}
+
+/* ---------- confirm step, and trigger-drag for controllers ---------- */
+const wantsConfirm = () => prefs.confirm;
+/** Play a move now, or (with the confirm step on) stage it for the Confirm button. */
+function playMove(action, extra = {}, info = {}) {
+  if (!wantsConfirm()) return move(action, extra);
+  if (!busy) stageMove({ action, extra, ...info });
+  return Promise.resolve(false);
+}
+/**
+ * Where each card ends up if this move is played: [card's slot, slot it lands on].
+ * Flips and draws reveal a card nobody has seen yet, so they have no preview.
+ */
+function previewPlan(item) {
+  const { action, extra } = item;
+  const discard = slotFor(["discard", null]);
+  if (action === "discard") return [[slotFor(["held", null]), discard]];
+  if (action !== "swap") return [];
+  if (extra.refs) {
+    // two table cards trade places (bonus swap, Beggars trade)
+    const [a, b] = extra.refs.map(slotFor);
+    return [
+      [a, b],
+      [b, a],
+    ];
+  }
+  // the drawn card (or the top discard) goes into the hand; the card it
+  // replaces goes onto the discard pile
+  const hand = slotFor([state.viewer, extra.index]);
+  const incoming = state.game.held ? slotFor(["held", null]) : discard;
+  return [
+    [incoming, hand],
+    [hand, discard],
+  ];
+}
+function stageMove(staged) {
+  if (board.staged) cancelStaged(false);
+  const item = (board.staged = { ...staged, version: state.version, ready: false, movers: [] });
+  const plan = previewPlan(item).filter(([slot, to]) => slot && to && slot !== to);
+  board.selected = item.from && !plan.length ? [item.from] : [];
+  board.lastTap = null;
+  paintSelection();
+  // Confirm and Undo show up once the move has played out in front of you
+  const ready = () => {
+    if (board.staged !== item || item.ready) return;
+    item.ready = true;
+    paintSelection();
+  };
+  if (!plan.length) return item.from ? setTimeout(ready, 240) : ready();
+  // Preview: every card involved travels to where the move will leave it, and
+  // turns to lie the way its new place does. Undo sends them all back.
+  const offset = (slot, key) => motionFor(slot).values[key]?.value || 0;
+  const rest = new Map(); // where each slot sits when nothing is moving it
+  for (const slot of new Set(plan.flat())) {
+    const pose = poseOf(slot);
+    rest.set(slot, {
+      x: pose.x - offset(slot, "x"),
+      y: pose.y - offset(slot, "y"),
+      angle: pose.angle - offset(slot, "lean"),
+    });
+  }
+  for (const [slot, to] of plan) {
+    if (slot.classList.contains("empty")) continue;
+    const from = rest.get(slot),
+      goal = rest.get(to);
+    item.movers.push(slot);
+    slot.classList.remove("returning");
+    slot.classList.add("dragging");
+    motionFor(slot).to({
+      x: goal.x - from.x,
+      y: goal.y - from.y,
+      lean: goal.angle - from.angle,
+      scale: 1.04,
+      lift: 0.8,
+      rx: 0,
+      ry: 0,
+    });
+  }
+  haptic("snap");
+  setTimeout(ready, 420);
+}
+function cancelStaged(paint = true) {
+  const staged = board.staged;
+  if (!staged) return;
+  board.staged = null;
+  for (const slot of staged.movers) if (slot.isConnected) releaseDrag(slot);
+  board.selected = [];
+  if (paint) paintSelection();
+}
+async function confirmStaged() {
+  const staged = board.staged;
+  if (!staged || !staged.ready || busy) return false;
+  board.staged = null;
+  board.selected = [];
+  paintSelection();
+  haptic("drop");
+  // the cards stay where the preview left them; the new state settles from there
+  const ok = await move(staged.action, staged.extra);
+  for (const slot of staged.movers) {
+    if (!slot.isConnected) continue;
+    if (ok) slot.classList.remove("dragging");
+    else releaseDrag(slot);
+  }
+  if (ok)
+    for (const slot of staged.movers)
+      if (slot.isConnected && Object.keys(motionFor(slot).values).length) releaseDrag(slot);
+  return ok;
+}
+/** Play a move for a card that is being held away from its slot. */
+async function dropCard(slot, ref, item) {
+  // Hold the card where it was dropped; the state update animates from there.
+  motionFor(slot).to({ lean: 0, scale: 1.04 });
+  board.pendingDrop = { key: refKey(ref), pose: poseOf(slot) };
+  const ok = await move(item.action, item.extra);
+  if (board.pendingDrop?.key === refKey(ref)) board.pendingDrop = null;
+  if (!ok || slot.classList.contains("dragging")) releaseDrag(slot);
+  return ok;
+}
+/** Pick a card up with the controller: it then rides along with the cursor. */
+function grabCard(slot) {
+  if (busy || board.carry || board.staged || board.drag) return false;
+  const ref = JSON.parse(slot.dataset.ref);
+  const moves = movesFrom(ref).filter((item) => {
+    const target = slotFor(item.ref);
+    return target && !target.classList.contains("empty");
+  });
+  if (!moves.length) {
+    popSlot(slot, 0.3);
+    return false;
+  }
+  board.selected = [];
+  board.lastTap = null;
+  paintSelection();
+  board.carry = { slot, ref, moves, hot: null, home: poseOf(slot), x: 0, y: 0, version: state.version };
+  slot.classList.remove("returning");
+  slot.classList.add("dragging");
+  showTargets(moves);
+  motionFor(slot).to({ scale: 1.14, lift: 1 }).kick({ scale: 2.4 });
+  haptic("grab");
+  return true;
+}
+/**
+ * Move the carried card freely by a step (in px). Near a place it can go, it
+ * snaps onto it; pushing on past the edge of that pull lets it go again.
+ */
+function carryBy(dx, dy) {
+  const carry = board.carry;
+  if (!carry) return;
+  const bounds = board.el.getBoundingClientRect();
+  carry.x = clamp(carry.x + dx, bounds.left - carry.home.x, bounds.right - carry.home.x);
+  carry.y = clamp(carry.y + dy, bounds.top - carry.home.y, bounds.bottom - carry.home.y);
+  const at = { x: carry.home.x + carry.x, y: carry.home.y + carry.y };
+  const well = (item) => {
+    const rect = slotFor(item.ref).getBoundingClientRect();
+    const x = rect.left + rect.width / 2,
+      y = rect.top + rect.height / 2;
+    return { x, y, pull: Math.max(rect.width, rect.height) * 0.5, away: Math.hypot(at.x - x, at.y - y) };
+  };
+  let hot = carry.hot;
+  // already snapped: it takes a firm push (a wider radius) to pull free
+  if (hot && well(hot).away > well(hot).pull * 1.3) hot = null;
+  if (!hot) {
+    let nearest = Infinity;
+    for (const item of carry.moves) {
+      const spot = well(item);
+      if (spot.away < spot.pull && spot.away < nearest) [hot, nearest] = [item, spot.away];
+    }
+    if (hot) {
+      // the free position jumps to the centre too, so leaving takes real travel
+      const spot = well(hot);
+      carry.x = spot.x - carry.home.x;
+      carry.y = spot.y - carry.home.y;
+    }
+  }
+  const motion = motionFor(carry.slot);
+  if (hot !== carry.hot) {
+    if (carry.hot) slotFor(carry.hot.ref)?.classList.remove("hot");
+    carry.hot = hot;
+    if (hot) {
+      slotFor(hot.ref).classList.add("hot");
+      motion.kick({ scale: 1.2 });
+      haptic("snap");
+    }
+  }
+  const shown = hot ? well(hot) : at;
+  // lean into the direction of travel, as a dragged card does
+  motion.to({
+    x: shown.x - carry.home.x,
+    y: shown.y - carry.home.y,
+    lean: hot ? 0 : clamp(dx * 1.6, -18, 18),
+  });
+}
+/** Let go: play the move under the card, or put the card back. */
+function dropCarry() {
+  const carry = board.carry;
+  if (!carry) return;
+  board.carry = null;
+  clearTargets();
+  const item = carry.hot;
+  if (!item || busy) {
+    releaseDrag(carry.slot);
+    paintSelection();
+    return;
+  }
+  if (wantsConfirm())
+    return stageMove({ ...item, to: item.ref, from: carry.ref });
+  haptic("drop");
+  paintSelection();
+  return dropCard(carry.slot, carry.ref, item);
+}
+function cancelCarry(paint = true) {
+  const carry = board.carry;
+  if (!carry) return;
+  board.carry = null;
+  if (carry.slot.isConnected) releaseDrag(carry.slot);
+  if (paint) paintSelection();
 }
 
 /** Desktop action bar: the same moves, driven by the current selection. */
@@ -921,10 +1237,14 @@ function barAction(action) {
   if (action === "swap") {
     if (picked.length === 2) {
       const item = movesFrom(picked[0]).find((m) => same(m.ref, picked[1]));
-      return item ? move(item.action, item.extra) : null;
+      return item
+        ? playMove(item.action, item.extra, { from: picked[0], to: picked[1], label: item.label })
+        : null;
     }
-    return move("swap", { index: picked[0][1] });
+    return playMove("swap", { index: picked[0][1] }, { from: picked[0], label: "swap" });
   }
+  if (action === "discard")
+    return playMove("discard", {}, { from: ["held", null], to: ["discard", null], label: "discard" });
   return move(action);
 }
 
@@ -944,6 +1264,12 @@ function setHover(slot, event) {
 }
 function onBoardPointerDown(event) {
   const slot = event.target.closest(".slot");
+  // touching anything but Confirm calls a staged move off
+  if (board.staged && !event.target.closest("[data-confirm]")) {
+    const moved = board.staged.movers.includes(slot);
+    cancelStaged();
+    if (moved || event.target.closest("[data-undo]")) return; // the cards just go back
+  }
   if (!slot || board.drag || event.button > 0 || slot.classList.contains("empty"))
     return;
   board.drag = {
@@ -976,6 +1302,7 @@ function beginDrag(drag) {
   showTargets(drag.moves);
   // the pickup "pop": overshoot the lifted size, then settle into the hand
   motionFor(drag.slot).to({ scale: 1.14, lift: 1 }).kick({ scale: 2.4 });
+  haptic("grab");
 }
 function hotTarget(drag) {
   const centre = poseOf(drag.slot);
@@ -1051,6 +1378,7 @@ function onBoardPointerMove(event) {
     if (hot) {
       slotFor(hot.ref).classList.add("hot");
       motionFor(drag.slot).kick({ scale: 1.2 });
+      haptic("snap");
     }
   }
   const drawing =
@@ -1089,7 +1417,13 @@ async function onBoardPointerUp(event) {
     paintSelection();
     return;
   }
+  if (wantsConfirm() && drag.hot) {
+    // the cards play the move out, then wait for Confirm (a draw just happens)
+    stageMove({ ...drag.hot, to: drag.hot.ref, from: drag.ref });
+    return;
+  }
   // Hold the card where it was dropped; the state update animates from there.
+  haptic("drop");
   motionFor(drag.slot).to({ lean: 0, scale: 1.04 });
   board.pendingDrop = { key: refKey(drag.ref), pose: poseOf(drag.slot) };
   const ok = drag.hot
@@ -1123,12 +1457,14 @@ function tapSlot(ref, slot) {
     return;
   }
   board.lastTap = canFlip(ref) ? { ref, time: now, version: state.version } : null;
+  if (!myTurn()) return popSlot(slot, 0.3); // not your turn: a nudge, no selection
   if (board.selected.length === 1 && !same(board.selected[0], ref)) {
     const item = movesFrom(board.selected[0]).find((m) => same(m.ref, ref));
     if (item && !busy) {
+      const from = board.selected[0];
       board.selected = [];
       paintSelection();
-      move(item.action, item.extra);
+      playMove(item.action, item.extra, { from, to: ref, label: item.label });
       return;
     }
   }
@@ -1174,10 +1510,10 @@ function rulesSheet(player) {
     `<div class="rule-card ${on ? "" : "off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill", 30, { idle: false })}</span><div><strong>${e(rule.name)}${active.includes(rule.key) ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}</div></div>`;
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${e(state.names[player])}${player === state.viewer ? " (you)" : ""}</h2><button type="button" class="close-btn" data-sheet-close aria-label="Close">${icon("xmark.circle.fill", 36, { idle: false })}</button></div>
+    <div class="sheet-head"><h2>${e(state.names[player])}${player === state.viewer ? " (you)" : ""}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
-      ${effects.map((effect) => `<div><span>${e(effect)}</span></div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
+      ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span><span>${e(effect)}</span></div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
       <div class="total"><span>${g.phase === "over" ? "Final score" : "Active score"}</span><b>${total} pts</b></div>
     </div>
     <p class="hint dark" style="margin-top:.8rem">Face-down cards are not counted until the game ends.</p>
