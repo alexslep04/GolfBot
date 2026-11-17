@@ -495,7 +495,7 @@ const draft = {
   rulesOpen: false,
 };
 const ENTRY_STYLE = {
-  solo: { color: "c-fw", glyph: "dumbbell.fill" }, // Practice
+  solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice: matches its red home button
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
 };
 function entryButton(attribute, label) {

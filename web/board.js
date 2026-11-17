@@ -186,6 +186,7 @@ function mountBoard() {
       </div>
       <div class="b-side">
         <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span></button>
+        <span class="tag-avatar" data-avatar-for="opp" aria-hidden="true"></span>
         <button type="button" class="cycle" data-cycle-next hidden></button>
       </div>
     </section>
@@ -220,6 +221,7 @@ function mountBoard() {
             <button type="button" class="icon-btn" data-game-menu aria-label="Table menu">${icon("gear", 44)}</button>
             <button type="button" class="icon-btn" data-emotes aria-label="Quick emotes">${icon("text.bubble.fill", 44)}</button>
           </div>
+          <span class="tag-avatar" data-avatar-for="me" aria-hidden="true"></span>
           <div class="tag tag-score c-p1" data-score-for="me"><span class="tag-in"></span><span class="turn-label" aria-hidden="true">Your turn</span></div>
         </div>
         <div class="b-main">
@@ -598,6 +600,14 @@ function renderTags() {
       // your own tags carry the "your turn" label and a gentle pulse
       tag.classList.toggle("my-turn", side === "me" && myTurn());
     }
+    // the player's avatar, a big sticker tucked behind their score tag
+    const avatarTag = board.el.querySelector(`[data-avatar-for='${side}']`);
+    const avatarId = state.avatars?.[player];
+    avatarTag.classList.remove(...OPPONENT_COLORS);
+    avatarTag.classList.add(color);
+    patch(`avatar-${side}`, avatarTag, `${avatarId}`, () =>
+      icon(avatarIcon(avatarId), 54, { key: `avatar:${side}` }),
+    );
     const score = g.phase === "over" ? g.scores[player] : g.effect_totals[player];
     const offline = !state.connected[player] && !state.solo;
     scoreTag.classList.toggle("offline", offline);
