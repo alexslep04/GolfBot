@@ -236,6 +236,9 @@ function haptic(kind = "tap") {
   // iOS: taps are played by the switch under the finger. For everything else,
   // toggling a hidden switch from script still ticks on iOS before 26.5.
   if (kind === "tap") return;
+  probeTick();
+}
+function probeTick() {
   if (!hapticProbe) {
     hapticProbe = document.createElement("label");
     hapticProbe.className = "haptic-probe";
@@ -258,11 +261,32 @@ function hapticFlurry(count, gap, delay = 0) {
     } else for (let i = 0; i < count; i++) setTimeout(() => haptic("snap"), i * gap);
   }, delay);
 }
-/** Lay the invisible switch over every button that does not have one yet. */
+/**
+ * Whether a swipe starting on this element should be able to scroll. A native
+ * switch claims any touch that starts on it, so a button with one can't start a
+ * scroll: buttons in anything that scrolls right now go without.
+ */
+function inScroller(element) {
+  for (let el = element.parentElement; el && el !== document.body; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight + 1) return true;
+    if (el.classList.contains("board")) return false; // the table never scrolls
+  }
+  return document.documentElement.scrollHeight > innerHeight + 1;
+}
+/**
+ * Lay the invisible switch over every button that can take it, and take it off
+ * buttons that now sit in something scrollable (they tick from a click instead).
+ */
 function hapticOverlay(scope = document) {
   // not the avatars: a native switch would take the sideways swipe for itself
   scope.querySelectorAll("button[type=button]:not(.avatar)").forEach((button) => {
-    if (button.lastElementChild?.classList.contains("haptic-switch")) return;
+    const existing = button.lastElementChild?.classList.contains("haptic-switch") ? button.lastElementChild : null;
+    if (inScroller(button)) {
+      existing?.remove();
+      return;
+    }
+    if (existing) return;
     const input = document.createElement("input");
     input.type = "checkbox";
     input.setAttribute("switch", "");
@@ -291,9 +315,29 @@ function hapticsInstall(force = false) {
     queued = 0;
     hapticOverlay();
   };
-  new MutationObserver(() => {
+  // sweep on the next frame, and again once things settle: a page animating in
+  // can briefly overflow the screen, which would leave its buttons without a switch
+  let settle = 0;
+  const soon = () => {
     if (!queued) queued = requestAnimationFrame(sweep);
-  }).observe(document.body, { childList: true, subtree: true });
+    clearTimeout(settle);
+    settle = setTimeout(() => requestAnimationFrame(sweep), 500);
+  };
+  new MutationObserver(soon).observe(document.body, { childList: true, subtree: true });
+  // a page can start or stop scrolling without new elements: a resize, a section opening
+  addEventListener("resize", soon);
+  document.addEventListener("toggle", soon, true);
+  // buttons left without a switch (they sit in something scrollable) tick on
+  // click instead, through the hidden switch toggled from script
+  document.addEventListener(
+    "click",
+    (event) => {
+      const control = event.target.closest?.("button, a.btn, summary");
+      if (control && !control.querySelector(":scope > .haptic-switch") && !event.target.classList?.contains("haptic-switch"))
+        if (prefs.haptics) probeTick();
+    },
+    true,
+  );
   hapticOverlay();
 }
 if (touchDevice) hapticsInstall();

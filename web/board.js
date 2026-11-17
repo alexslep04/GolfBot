@@ -187,6 +187,7 @@ function mountBoard() {
       <div class="b-side">
         <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span></button>
         <span class="tag-avatar" data-avatar-for="opp" aria-hidden="true"></span>
+        <div class="streak" data-streak role="img" hidden></div>
         <button type="button" class="cycle" data-cycle-next hidden></button>
       </div>
     </section>
@@ -497,6 +498,18 @@ function scoreDigits(value, side) {
  * The stickers a hand has earned: one per rule (or rule variant) that is
  * affecting that player right now. Rules that are merely enabled show nothing.
  */
+/**
+ * An effect line split into the rule and what it does to the score, so the
+ * maths can sit in the right-hand column: "Poisoned Card: +2" and "Roman 5s /2"
+ * become "Poisoned Card" | "+2" and "Roman 5s" | "/2".
+ */
+function effectParts(effect) {
+  const colon = effect.indexOf(": ");
+  const divide = effect.match(/^(.*\S) (\/\d+)$/);
+  const [name, op] =
+    colon > 0 ? [effect.slice(0, colon), effect.slice(colon + 2)] : divide ? [divide[1], divide[2]] : [effect, ""];
+  return `<span class="effect-name">${e(name)}</span>${op ? `<b class="effect-op">${e(op)}</b>` : ""}`;
+}
 /** The rules (and their variants) one effect line, as the server words it, stands for. */
 function effectStickers(effect) {
   const found = [];
@@ -589,7 +602,31 @@ function myTurn() {
     ? g.legal.flip.length > 0
     : g.decision_player === state.viewer;
 }
+/**
+ * Solo only: your win streak against Golfbot, a flame over a sticker number
+ * like the points counter. Faded at zero; lit and glowing brighter as it grows.
+ */
+function renderStreak() {
+  const holder = board.el.querySelector("[data-streak]");
+  const count = state.solo && typeof state.streak === "number" ? state.streak : null;
+  holder.hidden = count === null;
+  if (count === null) return;
+  holder.classList.toggle("hot", count > 0);
+  holder.style.setProperty("--heat", Math.min(count, 10));
+  holder.setAttribute("aria-label", `Win streak against Golfbot: ${count}`);
+  const before = board.signatures.streak;
+  const changed = patch(
+    "streak",
+    holder,
+    `${count}`,
+    () =>
+      `<span class="flame">${icon("flame.fill", 40, { key: "streak-flame" })}</span><span class="score"><span class="digits${String(count).length > 2 ? " long" : ""}">${stickerText(String(count), { split: true, key: "streak" })}</span></span>`,
+  );
+  // a new win pops the number, like the points counter
+  if (changed && before !== undefined && count > Number(before)) holder.querySelector(".score").classList.add("bump");
+}
 function renderTags() {
+  renderStreak();
   const g = state.game;
   const turn = myTurn();
   if (turn && board.signatures.turn === false) haptic("turn");
@@ -919,10 +956,19 @@ function evalChart() {
   if (overflow > 0) for (const label of labels) label.at -= overflow;
   for (let i = labels.length - 2; i >= 0; i--) labels[i].at = Math.min(labels[i].at, labels[i + 1].at - gap);
   const endX = x(points.length - 1);
-  const names = labels
+  // the arrow is drawn in the graph; the tag itself is plain HTML laid over it,
+  // so its text centres the same in every browser (Safari places SVG text its own way)
+  const arrows = labels
+    .map(({ p, at }) => {
+      const point = y(points.at(-1).scores[p]);
+      const mid = Math.min(Math.max(point, at - 4), at + 4);
+      return `<polygon class="tag-arrow" style="--tip:var(--s${p % 4})" points="${(endX + 4.5).toFixed(1)},${point.toFixed(1)} ${(endX + 11).toFixed(1)},${(mid - 4).toFixed(1)} ${(endX + 11).toFixed(1)},${(mid + 4).toFixed(1)}"/>`;
+    })
+    .join("");
+  const tags = labels
     .map(
       ({ p, at }) =>
-        `<g class="tag-tip" style="--tip:var(--s${p % 4});--on:var(--s${p % 4}on)" data-at="${at.toFixed(1)}" data-point="${y(points.at(-1).scores[p]).toFixed(1)}" data-x="${endX.toFixed(1)}"><path/><text x="${(endX + 14).toFixed(1)}" y="${at.toFixed(1)}"><tspan>${e(short(p))}</tspan> <tspan class="val">${points.at(-1).scores[p]}</tspan></text></g>`,
+        `<span class="end-tag" style="--tip:var(--s${p % 4});--on:var(--s${p % 4}on);left:${(((endX + 10) / w) * 100).toFixed(2)}%;top:${((at / h) * 100).toFixed(2)}%">${e(short(p))} <b>${points.at(-1).scores[p]}</b></span>`,
     )
     .join("");
   const turns = points.filter((point) => !point.final).at(-1).turn;
@@ -930,28 +976,7 @@ function evalChart() {
   const summary = featured
     .map((p) => `${p === state.viewer ? "You" : state.names[p]}: ${points.map((point) => point.scores[p]).join(", ")}`)
     .join("; ");
-  return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${names}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg><div class="eval-tip" hidden></div></div></figure>`;
-}
-/** Size each end tag to its text once it's on the page: a rounded box with an arrow. */
-function layoutEvalTags(root) {
-  for (const tag of root.querySelectorAll(".tag-tip")) {
-    const text = tag.querySelector("text");
-    const width = text.getComputedTextLength();
-    const at = +tag.dataset.at,
-      point = +tag.dataset.point,
-      endX = +tag.dataset.x;
-    const left = endX + 9,
-      right = endX + 19 + width,
-      top = at - 8,
-      bottom = at + 8,
-      r = 5;
-    // the arrow leaves the box's left edge as close to its point as the box allows
-    const mid = Math.min(Math.max(point, top + r + 3), bottom - r - 3);
-    tag.querySelector("path").setAttribute(
-      "d",
-      `M${left + r} ${top}H${right - r}Q${right} ${top} ${right} ${top + r}V${bottom - r}Q${right} ${bottom} ${right - r} ${bottom}H${left + r}Q${left} ${bottom} ${left} ${bottom - r}V${mid + 3.5}L${endX + 5} ${point}L${left} ${mid - 3.5}V${top + r}Q${left} ${top} ${left + r} ${top}Z`,
-    );
-  }
+  return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${arrows}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg>${tags}<div class="eval-tip" hidden></div></div></figure>`;
 }
 /** The big result word: sticker letters that celebrate, or droop. */
 function resultTitle(mood, sentence, sub) {
@@ -1037,7 +1062,7 @@ function renderSummary() {
     state.history.length,
     (state.timeline || []).length,
   ].join("|");
-  const drawn = patch("summary", holder, signature, () => {
+  patch("summary", holder, signature, () => {
     if (board.summaryHidden)
       return `<div class="summary mini"><button type="button" class="btn small c-p1" data-summary-toggle>${glyph("chevron.up", 16)} Results</button></div>`;
     if (closed)
@@ -1071,7 +1096,6 @@ function renderSummary() {
     // the verdict and the graph float over the table; the green panel holds the rest
     return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button></div></div></section>`;
   });
-  if (drawn) layoutEvalTags(holder);
 }
 
 function renderModal() {
@@ -1474,7 +1498,11 @@ function setHover(slot, event) {
   motionFor(slot).to(targets);
 }
 function onBoardPointerDown(event) {
-  const slot = event.target.closest(".slot");
+  let slot = event.target.closest(".slot");
+  // with a card drawn, the go-fish pile can't be drawn from again: a press on
+  // the pile's visible edge means the drawn card sitting on top of it
+  if (slot?.dataset.ref === '["draw",null]' && state.game?.held)
+    slot = slotFor(["held", null]) || slot;
   // touching anything but Confirm calls a staged move off
   if (board.staged && !event.target.closest("[data-confirm]")) {
     const moved = board.staged.movers.includes(slot);
@@ -1739,7 +1767,7 @@ function rulesSheet(player) {
     <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
-      ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span><span>${e(effect)}</span></div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
+      ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
       <div class="total"><span>${g.phase === "over" ? "Final score" : "Active score"}</span><b>${total} pts</b></div>
     </div>
     <p class="hint dark" style="margin-top:.8rem">Face-down cards are not counted until the game ends.</p>

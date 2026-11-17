@@ -54,6 +54,7 @@
   --ink: #333;
   --black: #000; /* primary text */
   --grey: #8e8e93; /* secondary text */
+  --flame: #ff8a3d; /* the win streak, lit */
   --paper: #fff;
   --red: #f47979;
   --red2: #fde6e6;
@@ -1409,6 +1410,51 @@ button.tag-rules:active > .tag-in {
   --shx: -0.3rem;
   --shy: -0.3rem;
 }
+/* Solo: your win streak against Golfbot, under its score tag. A faded grey
+   flame at zero; lit in full colour with a glow that brightens as it grows. */
+.streak {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: 0.6rem;
+  --fill: var(--grey);
+  --stroke: var(--paper);
+  opacity: 0.5;
+  transition: opacity 0.4s;
+  pointer-events: none;
+}
+.streak[hidden] {
+  display: none;
+}
+.streak.hot {
+  --fill: var(--flame);
+  opacity: 1;
+}
+.streak .flame {
+  display: grid;
+}
+.streak.hot .flame {
+  /* two glows that both grow with the streak: a wide warm haze and a tight bright core */
+  filter: drop-shadow(0 0 calc(0.3rem + var(--heat, 1) * 0.3rem) rgb(255 140 40 / calc(0.3 + var(--heat, 1) * 0.06)))
+    drop-shadow(0 0 calc(var(--heat, 1) * 0.1rem) rgb(255 210 90 / calc(var(--heat, 1) * 0.07)));
+  animation: flame-glow 1.6s ease-in-out infinite alternate;
+}
+@keyframes flame-glow {
+  to {
+    filter: drop-shadow(0 0 calc(0.45rem + var(--heat, 1) * 0.4rem) rgb(255 160 50 / calc(0.4 + var(--heat, 1) * 0.06)))
+      drop-shadow(0 0 calc(var(--heat, 1) * 0.16rem) rgb(255 220 100 / calc(var(--heat, 1) * 0.08)));
+  }
+}
+.streak .score {
+  padding: 0;
+}
+.streak .score .digits {
+  height: 3rem;
+}
+.streak .score .digits .stk {
+  font-size: 3.8rem;
+}
 .offline .who::after {
   content: " ⌁";
 }
@@ -1478,7 +1524,6 @@ button.tag-rules:active > .tag-in {
   display: block;
   width: 8.822rem;
   height: 12.3rem;
-  perspective: 60rem;
   touch-action: none;
   outline-offset: 0.1rem;
   border-radius: 1.6rem;
@@ -1520,7 +1565,12 @@ button.tag-rules:active > .tag-in {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
-  transform: rotateX(var(--rx, 0deg)) rotateY(calc(var(--ry, 0deg) + var(--face, 180deg)));
+  /* The perspective lives in the card's own transform, not on the slot: a
+     perspective on the slot makes Safari depth-sort the slot's layers, so the
+     card, its shadow and the drop-target outline (all at the same depth)
+     flicker over one another instead of keeping their stacking order. */
+  transform: perspective(60rem) rotateX(var(--rx, 0deg))
+    rotateY(calc(var(--ry, 0deg) + var(--face, 180deg)));
 }
 .is-face > .card > .card-flip,
 .card.is-face > .card-flip {
@@ -2076,6 +2126,9 @@ button.tag-rules:active > .tag-in {
 .result-title .stk {
   margin: 0 0.02em;
   transform-origin: 50% 100%;
+  /* on their own layer throughout, like the other idle stickers: otherwise
+     Safari repaints slow drift in whole-pixel steps */
+  will-change: transform, translate, rotate, scale;
 }
 .result-title.win {
   --fill: var(--p3);
@@ -2095,28 +2148,19 @@ button.tag-rules:active > .tag-in {
 .result-title.lose small {
   margin-top: 0.9rem;
 }
-/* winning: the letters spring in, hop a few times, then settle into the
-   gentle idle drift every other sticker has. The hops end at rest in the
-   centre; "idle-in" eases from there out to one end of the sway, and the idle
-   picks up from that end (alternate-reverse starts at its "to" pose). Each
-   hand-off happens where the letter is momentarily still, so nothing jumps. */
+/* winning: the letters spring in, hop three times and ease out to one end of
+   the idle sway, all in one animation; the idle then carries on from that end
+   (alternate-reverse starts at its "to" pose). The single hand-off happens
+   where the letter is momentarily still, so nothing jumps. */
 .result-title.win .stk {
   animation:
     win-pop 0.55s var(--spring) both,
-    win-hop 0.5s ease-in-out 3,
-    idle-in calc(var(--idle-d, 5s) / 2) ease-in-out,
+    win-hop 3s ease-in-out,
     idle var(--idle-d, 5s) ease-in-out infinite alternate-reverse;
   animation-delay:
     calc(var(--i) * 60ms + var(--t, 0s)),
     calc(var(--i) * 70ms + 0.55s + var(--t, 0s)),
-    calc(var(--i) * 70ms + 2.05s + var(--t, 0s)),
-    calc(var(--i) * 70ms + 2.05s + var(--idle-d, 5s) / 2 + var(--t, 0s));
-}
-@keyframes idle-in {
-  to {
-    translate: var(--ix, 0.08rem) var(--iy, 0.1rem);
-    rotate: var(--ir, 1.5deg);
-  }
+    calc(var(--i) * 70ms + 3.55s + var(--t, 0s));
 }
 @keyframes win-pop {
   from {
@@ -2124,10 +2168,25 @@ button.tag-rules:active > .tag-in {
   }
 }
 @keyframes win-hop {
+  0%,
+  16.67%,
+  33.33%,
   50% {
+    translate: 0 0;
+    rotate: 0deg;
+    scale: 1;
+  }
+  8.33%,
+  25%,
+  41.67% {
     translate: 0 -0.4rem;
     rotate: calc(var(--sag) * 0.6);
     scale: 1.05;
+  }
+  100% {
+    translate: var(--ix, 0.08rem) var(--iy, 0.1rem);
+    rotate: var(--ir, 1.5deg);
+    scale: 1;
   }
 }
 /* losing: the letters arrive, drop and slump, then sag slowly where they fell */
@@ -2285,18 +2344,30 @@ button.tag-rules:active > .tag-in {
   stroke-width: 1.5;
   opacity: 0.35;
 }
-/* a tooltip-style tag at the end of each line, pointing back at it */
-.eval-plot .tag-tip path {
+/* a tooltip-style tag at the end of each line, its arrow pointing back at it */
+.eval-plot .tag-arrow {
   fill: var(--tip);
-  filter: drop-shadow(1px 1px 0 var(--shadow));
 }
-.eval-plot .tag-tip text {
-  font-size: 11px;
-  fill: var(--on);
-  dominant-baseline: central;
+.end-tag {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.7rem;
+  padding: 0 0.6rem;
+  border-radius: 0.6rem;
+  background: var(--tip);
+  color: var(--on);
+  font-size: 1.15rem;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  box-shadow: 0.1rem 0.1rem 0 var(--shadow);
+  pointer-events: none;
 }
-.eval-plot .tag-tip .val {
-  font: 700 11px var(--round);
+.end-tag b {
+  font: 700 1.15rem/1 var(--round);
 }
 .eval-plot .cross {
   display: none;
@@ -2538,6 +2609,13 @@ button.tag-rules:active > .tag-in {
   justify-content: flex-start;
   align-items: center;
   gap: 0.8rem;
+}
+/* the rule on the left, its maths in the right-hand column with the points */
+.tally .effect-op {
+  margin-left: auto;
+  padding-left: 0.8rem;
+  white-space: nowrap;
+  text-align: right;
 }
 .effect-ico {
   flex: none;

@@ -176,6 +176,7 @@ class Room:
     # with the final scores once it is over (drawn as the post-game graph)
     timeline: list = field(default_factory=list)
     reaction_at: float = 0.0
+    streak: int = 0  # solo: games in a row the player has won against Golfbot
     pending_reaction: str | None = None
 
     @property
@@ -271,6 +272,8 @@ class Room:
                              "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in range(len(self.seats))]})
         self.last_winner = winner
+        if self.solo:
+            self.streak = self.streak + 1 if winner == 0 else 0
         self.round_recorded = True
         self.ready = [False] * len(self.seats)
         if self.solo:
@@ -443,6 +446,7 @@ def snapshot(room, token):
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
              "points": room.points, "timeline": room.timeline,
+             "streak": room.streak if room.solo else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [bool(room.clients.get(seat)) if seat else room.solo and p == 1 for p, seat in enumerate(room.seats)],
              "message": message(room, viewer), "game": None}
@@ -1112,6 +1116,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     series_mode=settings.series_mode)
         room.participants = [profile_for(session), {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'}]
         room.avatars = [session.avatar, BOT_AVATAR]
+        room.streak = store.history.solo_streak(session.token)
         room.start_round()
         store.rooms[room.id] = room
         session.room_id = room.id

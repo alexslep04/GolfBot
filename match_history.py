@@ -76,6 +76,23 @@ class MatchHistory:
         return [{**json.loads(payload), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
                 for match_id, host, guest, payload in rows]
 
+    def solo_streak(self, token):
+        """Games in a row this browser has won against Golfbot, newest first; a loss or draw ends it."""
+        key = browser_key(token)
+        if not key:
+            return 0
+        with self.lock:
+            rows = self.connection.execute(
+                "SELECT payload FROM matches WHERE host=? AND json_extract(payload, '$.solo')", (key,)).fetchall()
+        rounds = [game for (payload,) in rows for game in json.loads(payload).get("rounds", [])]
+        rounds.sort(key=lambda game: game.get("ended_at", 0), reverse=True)
+        streak = 0
+        for game in rounds:
+            if game.get("winner") != 0:
+                break
+            streak += 1
+        return streak
+
     def results(self):
         """All result payloads for aggregation, without private browser keys."""
         with self.lock:

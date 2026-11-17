@@ -313,6 +313,37 @@ class WebTests(unittest.TestCase):
         self.assertEqual([emote['player'] for emote in emotes], [1])
         self.assertIn(emotes[0]['id'], ('laughing', 'shocked', 'nervous'))
 
+    def test_win_streak_against_golfbot_counts_and_carries_to_new_tables(self):
+        def solo():
+            if getattr(self, 'id', None):
+                self.host.post(f'/api/lobbies/{self.id}/leave')
+            state = self.host.post('/api/solo', json={'best_of': 3}).json()
+            self.id = state['id']
+            self.room = self.store.rooms[self.id]
+            return state
+
+        def finish(winner):
+            game = self.room.game
+            low, high = [Slot(Card(13, 'S'), True) for _ in range(6)], [Slot(Card(rank, 'H'), True) for rank in (10, 9, 8, 7, 6, 4)]
+            game.players[0], game.players[1] = (low, high) if winner == 0 else (high, low)
+            game.phase = 'over'
+            self.room.record_result()
+            return self.state()['streak']
+
+        self.assertEqual(solo()['streak'], 0)
+        self.assertEqual(finish(0), 1)
+        # a fresh table picks the streak up from saved history
+        self.assertEqual(solo()['streak'], 1)
+        self.assertEqual(finish(0), 2)
+        self.assertEqual(solo()['streak'], 2)
+        # a loss ends it, and that sticks too
+        self.assertEqual(finish(1), 0)
+        self.assertEqual(solo()['streak'], 0)
+        # multiplayer tables don't carry one
+        self.host.post(f'/api/lobbies/{self.id}/leave')
+        self.start()
+        self.assertIsNone(self.state()['streak'])
+
     def test_drawn_card_can_replace_a_face_down_card(self):
         self.start()
         hidden = self.room.game.players[0][2]
