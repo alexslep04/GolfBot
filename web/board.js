@@ -254,6 +254,14 @@ function mountBoard() {
   board.el.addEventListener("pointerup", onBoardPointerUp);
   board.el.addEventListener("pointercancel", onBoardPointerCancel);
   board.el.addEventListener("pointerleave", () => setHover(null));
+  const summary = board.el.querySelector("[data-summary]");
+  summary.addEventListener("pointermove", evalHover);
+  summary.addEventListener("pointerdown", evalHover);
+  summary.addEventListener("pointerout", (event) => {
+    const figure = event.target.closest?.("[data-eval-chart]");
+    if (figure && !figure.contains(event.relatedTarget))
+      evalHover({ type: "pointerleave", target: figure });
+  });
   board.el.addEventListener("contextmenu", (event) => {
     if (event.target.closest(".slot")) event.preventDefault();
   });
@@ -840,6 +848,162 @@ function playerEmote(player) {
   return `<div class="player-emote ${where}" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms"><img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(state.names[player])}: ${emoteNames[item.id]} emote">${where === "other" ? `<span>${e(state.names[player])}</span>` : ""}</div>`;
 }
 
+/**
+ * The post-game graph: every player's showing score after each turn, ending
+ * on the final reveal. Lines wear the seat colours (outlined in the seat's
+ * dark tone so the yellow still reads) and are named at their right-hand end.
+ */
+const CHART = { w: 300, h: 160, left: 24, right: 84, top: 12, bottom: 22 };
+function evalScale() {
+  const points = state.timeline || [];
+  const all = points.flatMap((point) => point.scores);
+  let lo = Math.min(0, ...all),
+    hi = Math.max(...all);
+  if (hi - lo < 6) hi = lo + 6;
+  const { w, h, left, right, top, bottom } = CHART;
+  return {
+    points,
+    lo,
+    hi,
+    x: (i) => left + (points.length > 1 ? i / (points.length - 1) : 0.5) * (w - left - right),
+    y: (v) => top + (1 - (v - lo) / (hi - lo)) * (h - top - bottom),
+  };
+}
+/** Which lines get colour and a name: everyone at a small table, else you and the winner. */
+function evalFeatured() {
+  const count = state.names.length;
+  if (count <= 4) return state.names.map((_, p) => p);
+  const winner = state.history.at(-1)?.winner;
+  return [...new Set([state.viewer, winner].filter((p) => p !== null && p !== undefined))];
+}
+function evalChart() {
+  const { points, lo, hi, x, y } = evalScale();
+  if (points.length < 2) return "";
+  const { w, h, left, right, top, bottom } = CHART;
+  const featured = evalFeatured();
+  const short = (p) => {
+    const name = p === state.viewer ? "You" : state.names[p];
+    return name.length > 7 ? `${name.slice(0, 6)}…` : name;
+  };
+  // top, bottom and zero first; the middle one only where it has room
+  const ticks = [];
+  for (const v of [hi, lo, ...(lo < 0 ? [0] : []), Math.round((hi + lo) / 2)])
+    if (ticks.every((kept) => Math.abs(y(kept) - y(v)) >= 14)) ticks.push(v);
+  const grid = ticks
+    .map(
+      (v) =>
+        `<line class="grid${v === 0 ? " zero" : ""}" x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${left - 6}" y="${y(v)}">${v}</text>`,
+    )
+    .join("");
+  const path = (p) => points.map((point, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(point.scores[p]).toFixed(1)}`).join("");
+  // muted lines first, then the coloured ones, with your own drawn last (on top)
+  const order = state.names
+    .map((_, p) => p)
+    .sort((a, b) => featured.includes(a) - featured.includes(b) || (a === state.viewer) - (b === state.viewer));
+  const lines = order
+    .map((p) => {
+      if (!featured.includes(p)) return `<path class="line muted" d="${path(p)}"/>`;
+      const seat = p % 4;
+      const end = points.at(-1).scores[p];
+      return `<g class="series" style="--line:var(--s${seat});--case:var(--s${seat}t)"><path class="case" d="${path(p)}"/><path class="line" d="${path(p)}"/><circle class="end" cx="${x(points.length - 1)}" cy="${y(end)}" r="4"/></g>`;
+    })
+    .join("");
+  // a tooltip-style tag at each line's end, nudged apart so they never overlap;
+  // the arrow keeps pointing at its own line however far the tag moved
+  const gap = 19;
+  const labels = featured
+    .map((p) => ({ p, at: y(points.at(-1).scores[p]) }))
+    .sort((a, b) => a.at - b.at);
+  for (let i = 1; i < labels.length; i++) labels[i].at = Math.max(labels[i].at, labels[i - 1].at + gap);
+  const overflow = labels.length ? labels.at(-1).at - (h - bottom) : 0;
+  if (overflow > 0) for (const label of labels) label.at -= overflow;
+  for (let i = labels.length - 2; i >= 0; i--) labels[i].at = Math.min(labels[i].at, labels[i + 1].at - gap);
+  const endX = x(points.length - 1);
+  const names = labels
+    .map(
+      ({ p, at }) =>
+        `<g class="tag-tip" style="--tip:var(--s${p % 4});--on:var(--s${p % 4}on)" data-at="${at.toFixed(1)}" data-point="${y(points.at(-1).scores[p]).toFixed(1)}" data-x="${endX.toFixed(1)}"><path/><text x="${(endX + 14).toFixed(1)}" y="${at.toFixed(1)}"><tspan>${e(short(p))}</tspan> <tspan class="val">${points.at(-1).scores[p]}</tspan></text></g>`,
+    )
+    .join("");
+  const turns = points.filter((point) => !point.final).at(-1).turn;
+  const axis = `<text class="axis" x="${left}" y="${h - 6}" text-anchor="start">Start</text><text class="axis" x="${(left + w - right) / 2}" y="${h - 6}">${turns} turn${turns === 1 ? "" : "s"}</text><text class="axis" x="${w - right}" y="${h - 6}" text-anchor="end">Reveal</text>`;
+  const summary = featured
+    .map((p) => `${p === state.viewer ? "You" : state.names[p]}: ${points.map((point) => point.scores[p]).join(", ")}`)
+    .join("; ");
+  return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${names}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg><div class="eval-tip" hidden></div></div></figure>`;
+}
+/** Size each end tag to its text once it's on the page: a rounded box with an arrow. */
+function layoutEvalTags(root) {
+  for (const tag of root.querySelectorAll(".tag-tip")) {
+    const text = tag.querySelector("text");
+    const width = text.getComputedTextLength();
+    const at = +tag.dataset.at,
+      point = +tag.dataset.point,
+      endX = +tag.dataset.x;
+    const left = endX + 9,
+      right = endX + 19 + width,
+      top = at - 8,
+      bottom = at + 8,
+      r = 5;
+    // the arrow leaves the box's left edge as close to its point as the box allows
+    const mid = Math.min(Math.max(point, top + r + 3), bottom - r - 3);
+    tag.querySelector("path").setAttribute(
+      "d",
+      `M${left + r} ${top}H${right - r}Q${right} ${top} ${right} ${top + r}V${bottom - r}Q${right} ${bottom} ${right - r} ${bottom}H${left + r}Q${left} ${bottom} ${left} ${bottom - r}V${mid + 3.5}L${endX + 5} ${point}L${left} ${mid - 3.5}V${top + r}Q${left} ${top} ${left + r} ${top}Z`,
+    );
+  }
+}
+/** The big result word: sticker letters that celebrate, or droop. */
+function resultTitle(mood, sentence, sub) {
+  const word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood];
+  // letters keep their place in the animation when the card redraws (someone readies up)
+  const key = `${state.id}|${state.round}|${state.status}`;
+  if (board.resultShown?.key !== key) board.resultShown = { key, at: performance.now() };
+  const elapsed = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
+  const letters = [...word]
+    .map((char, i) => {
+      const sag = (i % 2 ? -1 : 1) * (3 + ((i * 7) % 5));
+      return char === " "
+        ? `<span class="gap"></span>`
+        : `<span class="stk" style="--i:${i};--sag:${sag}deg;${idleStyle(`result:${i}`)}">${e(char)}</span>`;
+    })
+    .join("");
+  return `<h2 class="result-title ${mood}" style="--t:-${elapsed}s" aria-label="${e(sentence)}"><span class="word" aria-hidden="true">${letters}</span>${sub ? `<small aria-hidden="true">${e(sub)}</small>` : ""}</h2>`;
+}
+/** Hovering (or dragging a finger along) the graph reads out that turn. */
+function evalHover(event) {
+  const figure = event.target.closest?.("[data-eval-chart]");
+  if (!figure) return;
+  const svg = figure.querySelector("svg"),
+    tip = figure.querySelector(".eval-tip"),
+    cross = figure.querySelector(".cross");
+  if (event.type === "pointerleave" || event.type === "pointercancel") {
+    tip.hidden = true;
+    cross.classList.remove("on");
+    return;
+  }
+  const { points, x } = evalScale();
+  const box = svg.getBoundingClientRect();
+  const unit = (event.clientX - box.left) * (CHART.w / box.width);
+  let i = 0;
+  for (let k = 1; k < points.length; k++) if (Math.abs(x(k) - unit) < Math.abs(x(i) - unit)) i = k;
+  cross.setAttribute("x1", x(i));
+  cross.setAttribute("x2", x(i));
+  cross.classList.add("on");
+  const label = points[i].final ? "Reveal" : i === 0 ? "Start" : `Turn ${points[i].turn}`;
+  const rows = evalFeatured()
+    .map((p) => ({ p, v: points[i].scores[p] }))
+    .sort((a, b) => a.v - b.v)
+    .map(({ p, v }) => `<div><i style="background:var(--s${p % 4})"></i><span>${p === state.viewer ? "You" : e(state.names[p])}</span><b>${v}</b></div>`)
+    .join("");
+  tip.innerHTML = `<strong>${label}</strong>${rows}`;
+  tip.hidden = false;
+  // beside the crosshair, on whichever side has room, so it never covers the title
+  const px = (x(i) / CHART.w) * box.width;
+  const left = px < box.width / 2;
+  tip.style.left = `${left ? px + 8 : px - 8 - tip.offsetWidth}px`;
+}
+
 function renderSummary() {
   const holder = board.el.querySelector("[data-summary]");
   const over = ["round_over", "finished", "closed"].includes(state.status);
@@ -871,28 +1035,43 @@ function renderSummary() {
     state.ready.join(),
     board.summaryHidden,
     state.history.length,
+    (state.timeline || []).length,
   ].join("|");
-  patch("summary", holder, signature, () => {
+  const drawn = patch("summary", holder, signature, () => {
     if (board.summaryHidden)
       return `<div class="summary mini"><button type="button" class="btn small c-p1" data-summary-toggle>${glyph("chevron.up", 16)} Results</button></div>`;
-    const rows =
-      result && !closed
-        ? state.names
-            .map(
-              (name, p) =>
-                `<div class="${result.winner === p ? "win" : ""}"><span>${p === viewer ? youStar() : ""}${e(name)}</span><b>${result.scores[p]} pts${state.names.length > 2 || state.best_of !== 1 ? ` · ${state.series_mode === "points" ? state.points[p] + " total" : state.wins[p] + (state.wins[p] === 1 ? " win" : " wins")}` : ""}</b></div>`,
-            )
-            .join("")
-        : "";
-    const action = closed
-      ? `<button type="button" class="btn c-p1" data-leave>${tilted("house.fill", 28)} Back to menu</button>`
-      : state.status === "round_over"
-        ? `<button type="button" class="btn c-p1" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${state.ready[viewer] ? "Waiting for others…" : `${tilted("play.fill", 28)} Next game`}</button>`
-        : viewer === 0
-          ? `<div class="row"><button type="button" class="close-btn" data-leave aria-label="Return home">${icon("house.fill", 44)}</button><button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 28)} Play again</button></div>`
-          : `<p class="hint dark">The host can start a rematch.</p><button type="button" class="btn c-fw" data-leave>Back to menu</button>`;
-    return `<section class="summary panel ${closed ? "c-p2" : "c-fw"}" role="dialog" aria-label="Results"><h2>${e(title)}</h2>${closed ? `<p style="margin:1rem 0;text-align:center">${e(state.message)}</p>` : `<div class="scores">${rows}</div>`}<div class="stack">${action}${closed ? "" : `<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button>`}</div></section>`;
+    if (closed)
+      return `<section class="summary panel c-p2" role="dialog" aria-label="Results"><h2>${e(title)}</h2><p style="margin:1rem 0;text-align:center">${e(state.message)}</p><div class="stack"><button type="button" class="btn c-p1" data-leave>${tilted("house.fill", 28)} Back to menu</button></div></section>`;
+    const between = state.status === "round_over";
+    const series = state.names.length > 2 || state.best_of !== 1;
+    const verdict = finished ? state.champion : result.winner;
+    const mood = verdict === null || verdict === undefined ? "draw" : verdict === viewer ? "win" : "lose";
+    const sub =
+      mood === "lose" ? title : mood === "win" ? (finished ? "The series is yours" : "Lowest score this game") : finished ? "The series is tied" : "Nobody takes this game";
+    // one tile per player: this game's points, the series so far, and whether they're ready
+    const tiles = state.names
+      .map((name, p) => {
+        const ready = !!state.ready[p];
+        const crown = finished ? state.champion === p : result?.winner === p;
+        const status = between
+          ? `<span class="ready-state${ready ? " on" : ""}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}${ready ? "Ready" : "Not ready"}</span>`
+          : "";
+        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="who">${p === viewer ? youStar() : ""}${e(name)}${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
+      })
+      .join("");
+    // Quit is a plain sticker icon with its label underneath, left of the main button
+    const quit = `<button type="button" class="close-btn c-fw" data-leave>${icon("rectangle.portrait.and.arrow.right", 30)}<span>Quit</span></button>`;
+    const action = between
+      ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${tilted("checkmark.circle.fill", 26)} ${state.ready[viewer] ? "Waiting…" : "Ready"}</button></div>`
+      : viewer === 0
+        ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 26)} Play again</button></div>`
+        : `<div class="row">${quit}<p class="hint dark grow">The host can start a rematch.</p></div>`;
+    const heading = resultTitle(mood, title, sub);
+    const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
+    // the verdict and the graph float over the table; the green panel holds the rest
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button></div></div></section>`;
   });
+  if (drawn) layoutEvalTags(holder);
 }
 
 function renderModal() {
@@ -1282,10 +1461,13 @@ function setHover(slot, event) {
   if (board.hover && board.hover !== slot && !board.hover.classList.contains("dragging"))
     motionFor(board.hover).to({ rx: 0, ry: 0, scale: 1 });
   board.hover = slot;
-  if (!slot || !event || slot.classList.contains("empty")) return;
+  // a card being dragged or previewing a staged move is away from its slot:
+  // measuring the pointer against the slot would spin it right over
+  if (!slot || !event || slot.classList.contains("empty") || slot.classList.contains("dragging"))
+    return;
   const rect = slot.getBoundingClientRect();
-  const px = (event.clientX - rect.left) / rect.width - 0.5;
-  const py = (event.clientY - rect.top) / rect.height - 0.5;
+  const px = clamp((event.clientX - rect.left) / rect.width - 0.5, -0.5, 0.5);
+  const py = clamp((event.clientY - rect.top) / rect.height - 0.5, -0.5, 0.5);
   const targets = { ry: px * 20, rx: -py * 20 };
   if (!slot.classList.contains("selected"))
     targets.scale = slot.classList.contains("can-act") ? 1.06 : 1.02;

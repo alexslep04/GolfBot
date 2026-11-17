@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import secrets
+import random
 import time
 from urllib.parse import urlparse
 from typing import Literal
@@ -34,6 +35,14 @@ ROOT = Path(__file__).parent
 COOKIE = "golf_session"
 START_POLICIES = ("host", "guest", "alternate", "random", "winner", "loser")
 EMOTE_SECONDS = 4
+# Golfbot now and then reacts to an upset with an emote: a single move that swings
+# the gap between the scores by this much, or flips the lead with a smaller swing
+UPSET_SWING = 8
+UPSET_FLIP_SWING = 5
+REACTION_CHANCE = 0.4  # kept rare: most upsets pass without a word
+REACTION_COOLDOWN = 60  # seconds between reactions
+REACTION_DELAY = 0.9  # let the cards land first
+reaction_roll = random.random  # replaced in tests
 log = logging.getLogger(__name__)
 
 
@@ -163,6 +172,11 @@ class Room:
     patch: str = PATCH_VERSION
     series_complete: bool = False
     avatars: list = field(default_factory=lambda: [DEFAULT_AVATAR, DEFAULT_AVATAR])
+    # each player's showing score after every turn of the game in play, ending
+    # with the final scores once it is over (drawn as the post-game graph)
+    timeline: list = field(default_factory=list)
+    reaction_at: float = 0.0
+    pending_reaction: str | None = None
 
     @property
     def capacity(self):
@@ -227,7 +241,19 @@ class Room:
         if self.solo:
             self.ready[1] = True
         self.round_recorded = False
+        self.timeline = []
         self.emotes.clear()
+
+    def track_scores(self):
+        """Add a point to the score timeline when a turn ends, and the final scores at the end."""
+        game = self.game
+        if game is None or game.phase == "setup" or (self.timeline and self.timeline[-1]["final"]):
+            return
+        if game.phase == "over":
+            self.timeline.append({"turn": game.turns, "scores": [game.score(p) for p in range(game.player_count)],
+                                  "final": True})
+        elif not self.timeline or game.turns > self.timeline[-1]["turn"]:
+            self.timeline.append({"turn": game.turns, "scores": showing_scores(game), "final": False})
 
     def record_result(self):
         if self.game is None or self.game.phase != "over" or self.round_recorded:
@@ -333,6 +359,39 @@ def card_view(card):
     return {"rank": card.rank, "label": card.label, "suit": card.suit, "points": card.base_points}
 
 
+def showing_scores(game):
+    """What each player's face-up cards are worth with the rules in play (their score tag)."""
+    return [game.score(p) if game.phase == "over" else visible_effect_total(
+        game.players[p], game.rules, game.gambler_earned[p], poisoned=game.finisher == p,
+        opponent_layouts=[game.players[q] for q in game.opponents(p)],
+        incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)]
+
+
+def bot_reaction(room, game, before):
+    """The emote Golfbot answers an upset with, if it reacts at all.
+
+    The margin is the human's score minus Golfbot's: above zero, Golfbot is ahead
+    (lower scores win). A big swing toward Golfbot gets a laugh; one against it
+    gets shock when the lead changes hands, nerves when it is only closing in.
+    """
+    if not room.solo or before is None or room.game is not game or game.phase == "setup":
+        return None
+    if time.time() - room.reaction_at < REACTION_COOLDOWN:
+        return None
+    after = showing_scores(game)
+    margin_before, margin_after = before[0] - before[1], after[0] - after[1]
+    swing = margin_after - margin_before
+    flipped = margin_before * margin_after < 0
+    if abs(swing) < UPSET_SWING and not (flipped and abs(swing) >= UPSET_FLIP_SWING):
+        return None
+    if reaction_roll() >= REACTION_CHANCE:
+        return None
+    room.reaction_at = time.time()
+    if swing > 0:
+        return "laughing"
+    return "shocked" if flipped else "nervous"
+
+
 def public_room(room):
     return {"id": room.id, "name": room.name, "names": room.names, "status": room.status,
             "best_of": room.best_of, "first": room.first, "rules": asdict(room.rules),
@@ -383,7 +442,7 @@ def snapshot(room, token):
              "emotes": public_emotes(room),
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
-             "points": room.points,
+             "points": room.points, "timeline": room.timeline,
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [bool(room.clients.get(seat)) if seat else room.solo and p == 1 for p, seat in enumerate(room.seats)],
              "message": message(room, viewer), "game": None}
@@ -428,10 +487,7 @@ def snapshot(room, token):
         # Plain card points (matching columns cancel, no optional rules), from the cards anyone can see.
         # effect_totals minus this is what the rules in play have done to each hand.
         "base_scores": [column_score(layout, Rules(), game.phase != "over") for layout in game.players],
-        "effect_totals": [game.score(p) if game.phase == "over" else visible_effect_total(
-            game.players[p], game.rules, game.gambler_earned[p], poisoned=game.finisher == p,
-            opponent_layouts=[game.players[q] for q in game.opponents(p)],
-            incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)],
+        "effect_totals": showing_scores(game),
         "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards,
             poisoned=game.finisher == p, angel_earned=game.angel_earned[p],
             opponent_layouts=[game.players[q] for q in game.opponents(p)],
@@ -461,6 +517,7 @@ def apply_move(room, token, move):
         raise HTTPException(403, "You do not have a seat.")
     seat = room.seats.index(token)
     game = room.game
+    before = showing_scores(game) if room.solo and game is not None and room.status == "playing" and game.phase != "setup" else None
     if move.action == "ready":
         if room.status != "waiting" or seat != 1:
             raise HTTPException(409, "Only the guest can mark ready in a waiting lobby.")
@@ -528,6 +585,8 @@ def apply_move(room, token, move):
                     (game.bonus_swap if game.phase == "bonus" else game.guess_trade)(*refs)
                 else:
                     game.swap(move.index)
+    room.track_scores()
+    room.pending_reaction = bot_reaction(room, game, before)
     room.record_result()
     room.version += 1
     room.touched = time.time()
@@ -619,6 +678,22 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if room.solo and room.game and room.status == "playing" and room.game.phase != "setup" and room.game.decision_player == 1 and (room.bot_task is None or room.bot_task.done()):
             room.bot_task = asyncio.create_task(bot_loop(room))
 
+    def schedule_reaction(room):
+        """Golfbot's emote, if a move just earned one, shown a beat after the cards land."""
+        emote, room.pending_reaction = room.pending_reaction, None
+        if emote:
+            asyncio.create_task(react_later(room, emote))
+
+    async def react_later(room, emote):
+        await asyncio.sleep(REACTION_DELAY)
+        async with room.lock:
+            if room.id not in store.rooms or room.status not in ("playing", "round_over", "finished"):
+                return
+            room.emote_sequence += 1
+            room.emotes[1] = {"id": emote, "player": 1, "sequence": room.emote_sequence,
+                              "expires_at": time.time() + EMOTE_SECONDS}
+            await broadcast(room)
+
     async def bot_loop(room):
         try:
             while True:
@@ -630,6 +705,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     version = room.version
                     position = public_position(game)
                     position._root_actions = set(legal_actions(game))
+                    before = showing_scores(game)
                 try:
                     action = await bot_workers.choose(position)
                 except Exception:
@@ -651,9 +727,12 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         log.error("No legal AI move at table %s in phase %s", room.id, game.phase)
                         return
                     play_action(game, action)
+                    room.track_scores()
+                    room.pending_reaction = bot_reaction(room, game, before)
                     room.record_result()
                     room.version += 1
                     await broadcast(room)
+                    schedule_reaction(room)
         finally:
             if room.bot_task is asyncio.current_task():
                 room.bot_task = None
@@ -1096,6 +1175,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             except (ValueError, TypeError, IndexError) as error:
                 raise HTTPException(422, str(error)) from error
             await broadcast(room)
+            schedule_reaction(room)
             kick_bot(room)
             return snapshot(room, session.token)
 

@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from game import Card, GolfGame, Rules, Slot
-from server import COOKIE, Move, Room, Store, apply_move, create_app, snapshot
+import server
+from server import COOKIE, Move, Room, Store, apply_move, bot_reaction, create_app, snapshot
 
 
 class WebTests(unittest.TestCase):
@@ -229,6 +230,88 @@ class WebTests(unittest.TestCase):
         # the Poisoned Card adds 2 for finishing first: that is the whole rule effect here
         self.assertEqual(final['effect_totals'][0] - final['base_scores'][0], 2)
         self.assertIn('Poisoned Card: +2', final['effects'][0])
+
+    def test_timeline_tracks_showing_scores_each_turn_then_the_final_scores(self):
+        self.start()
+        # the opening flips are done: the graph starts from the two cards each player shows
+        timeline = self.state()['timeline']
+        self.assertEqual([point['turn'] for point in timeline], [0])
+        self.assertEqual(timeline[0]['scores'], self.state()['game']['effect_totals'])
+        for _ in range(2):
+            client = self.host if self.room.game.decision_player == 0 else self.guest
+            self.move('draw', client)
+            self.move('discard', client)
+        timeline = self.state()['timeline']
+        self.assertEqual([point['turn'] for point in timeline], [0, 1, 2])
+        self.assertFalse(any(point['final'] for point in timeline))
+        self.assertEqual(timeline[-1]['scores'], self.state()['game']['effect_totals'])
+        game = self.room.game
+        for layout in game.players:
+            for slot in layout:
+                slot.visible = True
+        game.phase = 'over'
+        self.room.track_scores()
+        self.room.track_scores()  # the final point is added once
+        self.room.record_result()
+        final = self.state()['timeline']
+        self.assertEqual(len(final), 4)
+        self.assertTrue(final[-1]['final'])
+        self.assertEqual(final[-1]['scores'], [game.score(p) for p in range(2)])
+        # a new game starts a new graph
+        self.move('next_round')
+        self.move('next_round', self.guest)
+        self.assertEqual(self.state()['timeline'], [])
+
+    def test_golfbot_reacts_to_upsets_now_and_then(self):
+        def table(solo=True):
+            room = Room('r', 'Solo', Rules(), 1, 'host', solo, ['me', None], ['Me', 'Golfbot'])
+            room.start_round()
+            room.game.phase = 'choose'
+            return room
+
+        def show(game, player, ranks):
+            # face-up ranks along the top row (separate columns, so nothing cancels)
+            game.players[player] = [Slot(Card(rank, 'S'), i < len(ranks)) for i, rank in enumerate(ranks + [9] * (6 - len(ranks)))]
+
+        def react(before, mine, bots, roll=0.0, solo=True):
+            room = table(solo)
+            show(room.game, 0, mine)
+            show(room.game, 1, bots)
+            with patch.object(server, 'reaction_roll', lambda: roll):
+                return room, bot_reaction(room, room.game, before)
+
+        # a big swing Golfbot's way gets a laugh
+        room, emote = react([5, 5], [10, 10], [5])
+        self.assertEqual(emote, 'laughing')
+        # the player overtakes: shock; the player closes in but still trails: nerves
+        self.assertEqual(react([20, 5], [13], [5])[1], 'shocked')
+        self.assertEqual(react([30, 5], [10, 5], [5])[1], 'nervous')
+        # a flip of the lead counts with a smaller swing than a plain swing needs
+        self.assertEqual(react([7, 5], [1], [5])[1], 'shocked')
+        # small moves, an unlucky roll, and multiplayer tables pass without a word
+        self.assertIsNone(react([10, 5], [10, 2], [5])[1])
+        self.assertIsNone(react([5, 5], [10, 10], [5], roll=0.9)[1])
+        self.assertIsNone(react([5, 5], [10, 10], [5], solo=False)[1])
+        # and it waits a while before reacting again
+        with patch.object(server, 'reaction_roll', lambda: 0.0):
+            self.assertIsNone(bot_reaction(room, room.game, [5, 5]))
+
+    def test_golfbot_reaction_reaches_the_table_a_beat_after_the_move(self):
+        state = self.host.post('/api/solo', json={'first': 'host'}).json()
+        self.id = state['id']
+        self.room = self.store.rooms[self.id]
+        for index in (0, 1):
+            self.move('flip', index=index)
+        with patch.object(server, 'UPSET_SWING', 0), patch.object(server, 'reaction_roll', lambda: 0.0), \
+                patch.object(server, 'REACTION_DELAY', 0.05):
+            self.move('draw')
+            self.move('discard')
+            deadline = time.time() + 2
+            while time.time() < deadline and not self.state()['emotes']:
+                time.sleep(0.05)
+        emotes = self.state()['emotes']
+        self.assertEqual([emote['player'] for emote in emotes], [1])
+        self.assertIn(emotes[0]['id'], ('laughing', 'shocked', 'nervous'))
 
     def test_drawn_card_can_replace_a_face_down_card(self):
         self.start()

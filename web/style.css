@@ -52,6 +52,8 @@
   --fw-text: #224715;
   --accent: #b5e59e;
   --ink: #333;
+  --black: #000; /* primary text */
+  --grey: #8e8e93; /* secondary text */
   --paper: #fff;
   --red: #f47979;
   --red2: #fde6e6;
@@ -101,6 +103,13 @@
   --s3: var(--p4);
   --s3b: var(--p4b);
   --s3t: var(--p4t);
+  /* text on a solid seat colour (the graph's tags): white, but dark on yellow */
+  --s0on: #fff;
+  --s1on: #fff;
+  --s2on: var(--p3t);
+  --s3on: #fff;
+  /* losing: a soft, sad purple */
+  --sad: #8b80c4;
 }
 .c-s0 {
   --c: var(--s0);
@@ -1390,11 +1399,15 @@ button.tag-rules:active > .tag-in {
   rotate: -6deg;
 }
 .b-bottom .tag-avatar {
-  margin: 0.4rem 0 -2.6rem;
+  margin: 0.4rem 0 -1.6rem;
 }
+/* the opponent sits across the table, so their avatar hangs upside down; the
+   shadow offset flips with it so it still falls down-right on screen */
 .b-top .tag-avatar {
-  margin: -1.8rem 0 0;
-  rotate: 6deg;
+  margin: -1rem 0 0;
+  rotate: 174deg;
+  --shx: -0.3rem;
+  --shy: -0.3rem;
 }
 .offline .who::after {
   content: " ⌁";
@@ -2010,8 +2023,9 @@ button.tag-rules:active > .tag-in {
   left: 50%;
   top: 50%;
   z-index: 50;
-  width: 34rem;
-  max-height: 60%;
+  width: 36rem;
+  max-width: calc(100vw - 1.6rem);
+  max-height: 92%;
   overflow: auto;
   transform: translate(-50%, -50%);
   box-shadow:
@@ -2035,23 +2049,346 @@ button.tag-rules:active > .tag-in {
   font-size: 2.4rem;
   text-align: center;
 }
-.summary .scores {
+/* a redraw (someone readies up) picks the animations up where they were */
+.summary {
+  animation-delay: var(--t, 0s);
+}
+/* "You Win!" / "You Lose": sticker letters with a mood of their own */
+.result-title {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.4rem;
-  margin: 1.2rem 0;
-  font-size: 1.6rem;
+  margin: 0.2rem 0 0.2rem;
 }
-.summary .scores div {
+.result-title .word {
+  display: flex;
+  align-items: flex-end;
+  padding-top: 0.6rem;
+  font: 700 5rem/1 var(--round);
+  letter-spacing: -0.06em;
+  --sw: 1rem;
+  --stroke: var(--paper);
+}
+.result-title .gap {
+  width: 1.4rem;
+}
+.result-title .stk {
+  margin: 0 0.02em;
+  transform-origin: 50% 100%;
+}
+.result-title.win {
+  --fill: var(--p3);
+}
+.result-title.lose {
+  --fill: var(--sad);
+}
+.result-title.draw {
+  --fill: var(--fw);
+}
+.result-title small {
+  font: 1.4rem/1.2 var(--text);
+  color: var(--ct);
+  opacity: 0.8;
+}
+/* the slumped letters sit lower, so give them room above the line under them */
+.result-title.lose small {
+  margin-top: 0.9rem;
+}
+/* winning: the letters spring in, hop a few times, then settle into the
+   gentle idle drift every other sticker has. The hops end at rest in the
+   centre; "idle-in" eases from there out to one end of the sway, and the idle
+   picks up from that end (alternate-reverse starts at its "to" pose). Each
+   hand-off happens where the letter is momentarily still, so nothing jumps. */
+.result-title.win .stk {
+  animation:
+    win-pop 0.55s var(--spring) both,
+    win-hop 0.5s ease-in-out 3,
+    idle-in calc(var(--idle-d, 5s) / 2) ease-in-out,
+    idle var(--idle-d, 5s) ease-in-out infinite alternate-reverse;
+  animation-delay:
+    calc(var(--i) * 60ms + var(--t, 0s)),
+    calc(var(--i) * 70ms + 0.55s + var(--t, 0s)),
+    calc(var(--i) * 70ms + 2.05s + var(--t, 0s)),
+    calc(var(--i) * 70ms + 2.05s + var(--idle-d, 5s) / 2 + var(--t, 0s));
+}
+@keyframes idle-in {
+  to {
+    translate: var(--ix, 0.08rem) var(--iy, 0.1rem);
+    rotate: var(--ir, 1.5deg);
+  }
+}
+@keyframes win-pop {
+  from {
+    transform: scale(0) rotate(-24deg);
+  }
+}
+@keyframes win-hop {
+  50% {
+    translate: 0 -0.4rem;
+    rotate: calc(var(--sag) * 0.6);
+    scale: 1.05;
+  }
+}
+/* losing: the letters arrive, drop and slump, then sag slowly where they fell */
+.result-title.lose .stk {
+  transform: translateY(0.5rem) rotate(var(--sag));
+  animation:
+    lose-drop 1.4s ease-in-out both,
+    lose-sag 2.8s ease-in-out infinite alternate;
+  animation-delay:
+    calc(var(--i) * 80ms + var(--t, 0s)),
+    calc(var(--i) * 150ms + 1.5s + var(--t, 0s));
+}
+@keyframes lose-drop {
+  0% {
+    transform: translateY(-1.6rem) rotate(0deg);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  55% {
+    transform: translateY(0.8rem) rotate(var(--sag));
+  }
+  72% {
+    transform: translateY(0.35rem) rotate(calc(var(--sag) * 0.6));
+  }
+  100% {
+    transform: translateY(0.5rem) rotate(var(--sag));
+  }
+}
+@keyframes lose-sag {
+  to {
+    translate: 0 0.3rem;
+    rotate: calc(var(--sag) * 0.5);
+  }
+}
+.result-title.draw .stk {
+  animation:
+    win-pop 0.55s var(--spring) both,
+    idle var(--idle-d, 5s) ease-in-out infinite alternate;
+  animation-delay:
+    calc(var(--i) * 60ms + var(--t, 0s)),
+    calc(var(--i) * 60ms + 0.6s + var(--t, 0s));
+}
+/* Results after a game: the verdict and the graph float over the dimmed table,
+   with only the player tiles and buttons on the green panel underneath */
+.summary.floating {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  padding: 0.6rem 0.8rem 1rem;
+  box-shadow: none;
+}
+/* one even dim over the whole table, behind the floating pieces */
+.summary-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  background: rgb(34 71 21 / 0.36);
+  animation: scrim-in 0.4s ease-out both;
+  animation-delay: var(--t, 0s);
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+.summary-panel {
+  box-shadow: 0.4rem 0.4rem 0 var(--shadow);
+}
+.summary-panel .ready-tiles {
+  margin-top: 0;
+}
+.summary.floating .result-title small {
+  color: var(--paper);
+  font-size: 1.6rem;
+  -webkit-text-stroke: 0.45rem var(--fw-text);
+  paint-order: stroke fill;
+  opacity: 1;
+}
+/* the post-game graph: points through the game, one line per player */
+.eval-chart {
+  margin: 0;
+  padding: 0.8rem 0.6rem 0.2rem;
+  background: var(--paper);
+  border: 0.3rem solid var(--black);
+  border-radius: 2rem;
+  color: var(--black);
+  box-shadow: 0.4rem 0.4rem 0 var(--shadow);
+}
+.eval-chart figcaption {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  align-items: baseline;
+  padding: 0 0.6rem 0.4rem;
+  font-size: 1.4rem;
 }
-.summary .scores b {
+.eval-chart figcaption small {
+  font-size: 1.1rem;
+  color: var(--grey);
+}
+.eval-plot {
+  position: relative;
+}
+.eval-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
   font-family: var(--text);
+  touch-action: none;
 }
-.summary .scores .win {
-  color: var(--p1t);
+.eval-plot .grid {
+  stroke: var(--grey);
+  stroke-width: 1;
+  opacity: 0.3;
+}
+.eval-plot .grid.zero {
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+.eval-plot .tick,
+.eval-plot .axis {
+  font-size: 10px;
+  fill: var(--grey);
+}
+.eval-plot .tick {
+  text-anchor: end;
+  dominant-baseline: middle;
+}
+.eval-plot .axis {
+  text-anchor: middle;
+}
+.eval-plot path {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.eval-plot .case {
+  stroke: var(--case);
+  stroke-width: 5;
+}
+.eval-plot .series .line {
+  stroke: var(--line);
+  stroke-width: 2.6;
+}
+.eval-plot .end {
+  fill: var(--line);
+  stroke: var(--case);
+  stroke-width: 2;
+}
+.eval-plot .line.muted {
+  stroke: var(--grey);
+  stroke-width: 1.5;
+  opacity: 0.35;
+}
+/* a tooltip-style tag at the end of each line, pointing back at it */
+.eval-plot .tag-tip path {
+  fill: var(--tip);
+  filter: drop-shadow(1px 1px 0 var(--shadow));
+}
+.eval-plot .tag-tip text {
+  font-size: 11px;
+  fill: var(--on);
+  dominant-baseline: central;
+}
+.eval-plot .tag-tip .val {
+  font: 700 11px var(--round);
+}
+.eval-plot .cross {
+  display: none;
+  stroke: var(--grey);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
+}
+.eval-plot .cross.on {
+  display: inline;
+}
+.eval-plot .hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+.eval-tip {
+  position: absolute;
+  top: 0.2rem;
+  z-index: 2;
+  padding: 0.6rem 0.9rem;
+  border: 0.2rem solid var(--grey);
+  border-radius: 1rem;
+  background: var(--paper);
+  box-shadow: 0.2rem 0.2rem 0 var(--shadow);
+  color: var(--black);
+  font-size: 1.2rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.eval-tip div {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.eval-tip i {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+}
+.eval-tip b {
+  margin-left: auto;
+  padding-left: 0.8rem;
+  font-family: var(--round);
+}
+/* one tile per player under the graph: points, series so far, ready or not */
+.ready-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.6rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.4rem 0 1.2rem;
+}
+.ready-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.7rem 0.6rem 0.8rem;
+  border: 0.3rem solid var(--c);
+  border-radius: 1.4rem;
+  background: var(--c2);
+  color: var(--ct);
+  text-align: center;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.ready-tile .who {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  font-size: 1.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ready-tile b {
+  font: 700 2rem/1 var(--round);
+}
+.ready-tile small {
+  font-size: 1.2rem;
+  opacity: 0.75;
+}
+.ready-state {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 1.2rem;
+  opacity: 0.55;
+}
+.ready-state.on {
+  opacity: 1;
 }
 .summary.mini {
   top: auto;
@@ -2557,6 +2894,9 @@ button:disabled > .haptic-switch {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .result-title .stk {
+    animation: none !important;
+  }
   .idle,
   .avatar-pick .pointer,
   .slot.selected::after,
