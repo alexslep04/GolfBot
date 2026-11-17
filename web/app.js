@@ -1150,9 +1150,20 @@ function accountPage() {
           ? `<h2>@${e(account.unique_name)}</h2><p>Your games are grouped under this unique name on the Leaderboard. Your display name at the table can change each game.</p>`
           : `<h2>Choose your unique name</h2><p>This identifies you on the Leaderboard across all your display names. Pick once; your display name can change whenever you play.</p><form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]{3,24}" autocomplete="username" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–24 letters, numbers or underscores. Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>`
         : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id && !canSignInDuringPractice() ? `<p>Leave your current table before signing in.</p>` : session.google_client_id ? `<div id="google-signin-button" aria-live="polite">Loading Google sign-in…</div>` : `<p>Google sign-in is not available on this server yet. You can keep playing as a guest.</p>`}`
-    }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div></div>`,
+    }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div>${account ? displayNameForm() : ""}</div>`,
   );
   renderGoogleSignIn();
+}
+/** Signed in: change the name other players see at the table. */
+function displayNameForm() {
+  const unique = session.account.unique_name;
+  return `<form id="display-name-form" class="panel c-p3 stack">
+    <h2>Display name</h2>
+    <p>The name other players see at the table. Change it whenever you like${unique ? `; your games stay under @${e(unique)}` : ""}.</p>
+    ${field("Display Name", `<input id="account-display-name" name="display_name" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam")}
+    ${session.room_id ? `<p class="hint dark">The table you're at keeps the name you joined with; the new one shows from your next table.</p>` : ""}
+    <button type="submit" class="btn c-p3">Save display name</button>
+  </form>`;
 }
 
 /* ---------- match history ---------- */
@@ -1949,6 +1960,16 @@ document.addEventListener("pointerdown", (event) => {
 });
 root.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (event.target.id === "display-name-form") {
+    const input = event.target.querySelector("#account-display-name");
+    const value = input.value.trim();
+    if (!value) return toast("Your display name can't be empty.");
+    if (value === session.username) return toast("That's already your display name.");
+    saveName(value);
+    input.value = value;
+    pollPresence(); // the server learns the new name with the next presence update
+    return toast(`You'll show as ${value}.`);
+  }
   if (event.target.id === "account-name-form") {
     try {
       const keep = { username: session.username, avatar: session.avatar };
