@@ -44,7 +44,9 @@ test('leaderboard defaults PVP, escapes names, formats fractional win rate',asyn
   const h=harness();await h.run('leaderboardPage()');
   const html=h.nodes.get('app').innerHTML;
   assert.match(html,/data-leader-tab="pvp" aria-pressed="true"/);
-  assert.match(html,/<th scope="col">Rank<\/th>/);assert.match(html,/<th>W-D-L<\/th>/);assert.match(html,/3-1-2/);
+  // the leader's card and a ranked row for each player, with Elo and W–D–L
+  assert.match(html,/class="panel c-p3 stat-hero leader-hero"/);assert.match(html,/class="list-item board-row c-p3"/);
+  assert.match(html,/1,210<small>Elo<\/small>/);assert.match(html,/3–1–2/);assert.match(html,/W–D–L/);
   assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
   assert.equal(h.requests[0].url,'/golf/api/leaderboards');
   await h.run('leaderboardPage("solo")');assert.match(h.nodes.get('app').innerHTML,/No Practice streaks yet/);assert.doesNotMatch(h.nodes.get('app').innerHTML,/Best reached/);
@@ -267,9 +269,8 @@ test('Solo shows best streak with W-D-L and win rate instead of current streak',
   const h=harness();h.context.fetch=async()=>({ok:true,json:async()=>({patch:'1.2.0',solo:[{label:'Alice',best_streak:8,current_streak:3,wins:6,draws:2,losses:2,win_rate:.6}]})});
   await h.run('leaderboardPage("solo")');
   const html=h.nodes.get('app').innerHTML;
-  assert.match(html,/<th>Best streak<\/th>/);
-  assert.match(html,/<th>W-D-L<\/th>/);
-  assert.match(html,/<th>Win rate<\/th>/);
-  assert.match(html,/6-2-2/);assert.match(html,/60%/);
+  assert.match(html,/best streak/);assert.match(html,/best streak 8/);
+  assert.match(html,/W–D–L/);assert.match(html,/win rate/);
+  assert.match(html,/6–2–2/);assert.match(html,/60%/);
   assert.doesNotMatch(html,/Current streak|Best reached/);
 });

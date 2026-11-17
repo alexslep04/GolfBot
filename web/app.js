@@ -1581,6 +1581,43 @@ function renderVoidOffer() {
 function leaderboardTabs(selected) {
   return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
 }
+/**
+ * Solo (Practice streaks) and PVP (Elo): the leader's card up top, then every
+ * player in a green row, styled like the Advanced stats ranking.
+ */
+function leaderboardBody(tab, result) {
+  const solo = tab === "solo",
+    rows = result[tab] || [];
+  const mine = session.account ? "account:" + session.account.id : null;
+  const intro = `<p class="hint dark">${solo ? "Ranked by best Practice streak against Golfbot" : "Ranked by Elo from rated games"} · Patch ${e(result.patch)}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
+  if (!rows.length)
+    return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "Practice streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>`;
+  const value = (row) => (solo ? row.best_streak : row.elo);
+  const record = (row) => `${statNumber(row.wins)}–${statNumber(row.draws)}–${statNumber(row.losses)}`;
+  const rate = (row) => (row.win_rate === null || row.win_rate === undefined ? "—" : statPercent(row.win_rate));
+  const who = (row) => `${row.id === mine ? youStar() : ""}${e(row.label)}`;
+  const leader = rows[0];
+  const tile = (text, label) => `<div><b>${text}</b><span>${label}</span></div>`;
+  const hero = `<section class="panel c-p3 stat-hero leader-hero">
+      <span class="leader-trophy">${tilted("trophy.fill", 48, { key: "leader-trophy" })}</span>
+      <div class="stat-rate">${solo ? icon("flame.fill", 44, { key: "leader-flame" }) : ""}${stickerText(String(value(leader)), { split: true, key: "leader-value" })}${solo ? "" : stickerText("Elo", { cls: "pts", key: "leader-elo" })}</div>
+      <p><strong>${who(leader)}</strong> ${solo ? "· best streak" : "is on top"}</p>
+      <div class="stat-tiles">${tile(record(leader), "W–D–L")}${tile(rate(leader), "win rate")}${tile(statNumber(leader.wins + leader.draws + leader.losses), "games")}</div>
+    </section>`;
+  const list = rows
+    .map((row, i) => {
+      const opens = row.id?.startsWith("account:");
+      const tag = opens ? "button" : "div";
+      const attrs = opens ? ` type="button" data-stats-player="${e(row.id)}"` : "";
+      return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} Elo`}, ${record(row)}, ${rate(row)} win rate">
+        <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "lb-first" }) : stickerText(String(i + 1), { key: `lb-rank:${i}` })}</span>
+        <div class="grow"><strong>${who(row)}</strong><small>${record(row)} · ${rate(row)} win rate</small></div>
+        <b class="rate">${solo ? icon("flame.fill", 22, { idle: false }) : ""}${statNumber(value(row))}${solo ? "" : "<small>Elo</small>"}</b>${opens ? glyph("chevron.right", 16) : ""}
+      </${tag}>`;
+    })
+    .join("");
+  return `${intro}${hero}<div class="list leader-list">${list}</div>`;
+}
 let leaderboardRequest = 0;
 async function leaderboardPage(tab = "pvp") {
   const request = ++leaderboardRequest;
@@ -1591,8 +1628,7 @@ async function leaderboardPage(tab = "pvp") {
   try {
     const result = await api("/api/leaderboards");
     if (page !== "leaderboard" || request !== leaderboardRequest) return;
-    const solo = tab === "solo", rows = result[tab] || [];
-    show("leaderboard", `<div class="page scroll">${head}<section class="panel c-p2 leaderboard-panel"><h2>${solo ? "Practice streaks" : "PVP ratings"}</h2><p class="hint">Patch ${e(result.patch)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Rank</th><th scope="col">Player</th>${solo ? "<th>Best streak</th>" : "<th>Elo</th>"}<th>W-D-L</th><th>Win rate</th></tr></thead><tbody>${rows.map((row,index) => `<tr><td>${index + 1}</td><th scope="row">${e(row.label)}</th>${solo ? `<td>${statNumber(row.best_streak)}</td>` : `<td>${statNumber(row.elo)}</td>`}<td class="leader-record">${statNumber(row.wins)}-${statNumber(row.draws)}-${statNumber(row.losses)}</td><td>${statPercent(row.win_rate)}</td></tr>`).join("")}</tbody></table></div>${rows.length ? "" : `<p>No ${solo ? "Practice streaks" : "rated results"} yet.</p>`}</section></div>`);
+    show("leaderboard", `<div class="page scroll">${head}${leaderboardBody(tab, result)}</div>`);
   } catch (error) {
     if (page === "leaderboard" && request === leaderboardRequest) show("leaderboard", `<div class="page scroll">${head}<p class="empty">${e(error.message)}</p></div>`);
   }

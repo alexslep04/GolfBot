@@ -184,7 +184,7 @@ function padScope() {
   return (
     document.querySelector(".modal-shade") ||
     (sheetRoot.hidden ? null : sheetRoot) ||
-    document.querySelector(".emote-pop") ||
+    document.querySelector(".emote-pop:not(.summary-emotes)") || // the results' emote row is part of the results
     document.querySelector(".summary") ||
     document.body
   );
