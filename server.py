@@ -22,7 +22,7 @@ from game import GolfGame, Rules, RULE_OPTIONS
 from rule_help import load_rule_help
 from match_history import MatchHistory
 from player_stats import build_stats
-from scoring import active_rule_effects, visible_effect_total
+from scoring import active_rule_effects, column_score, visible_effect_total
 from bot import fallback_action, legal_actions, play_action, public_position
 from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
@@ -425,6 +425,9 @@ def snapshot(room, token):
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),
         "held": card_view(game.held_card) if game.held_card else None,
         "scores": [game.score(p, game.phase != "over") for p in range(game.player_count)],
+        # Plain card points (matching columns cancel, no optional rules), from the cards anyone can see.
+        # effect_totals minus this is what the rules in play have done to each hand.
+        "base_scores": [column_score(layout, Rules(), game.phase != "over") for layout in game.players],
         "effect_totals": [game.score(p) if game.phase == "over" else visible_effect_total(
             game.players[p], game.rules, game.gambler_earned[p], poisoned=game.finisher == p,
             opponent_layouts=[game.players[q] for q in game.opponents(p)],

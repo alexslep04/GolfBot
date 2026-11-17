@@ -10,6 +10,20 @@
   font-weight: 700;
   font-display: swap;
 }
+/* Seurat is a Japanese face, so its ellipsis floats at mid-height. That one
+   character is taken from SF Pro Rounded instead, whose dots sit on the
+   baseline. Declared after the face above, it wins for U+2026 only, and it
+   covers both typed "…" and the ones the browser adds when text is cut off. */
+@font-face {
+  font-family: "FOT-Seurat Pro";
+  src:
+    local("SF Pro Rounded Bold"),
+    local("SFProRounded-Bold"),
+    url(fonts/sf-pro-rounded-bold.woff2) format("woff2");
+  font-weight: 700;
+  unicode-range: U+2026;
+  font-display: swap;
+}
 @font-face {
   font-family: "SF Pro Rounded";
   src:
@@ -245,14 +259,23 @@ p {
   fill: currentColor;
   stroke: none;
 }
-/* marks your own name: a symbol set like a letter in the surrounding text */
-.you-star {
+/* symbols set like letters in the surrounding text */
+.text-symbol {
   display: inline-block;
+  fill: currentColor;
+  overflow: visible;
+}
+/* marks your own name */
+.you-star {
   width: 0.86em;
   margin-right: 0.3em;
   vertical-align: -0.06em;
-  fill: currentColor;
-  overflow: visible;
+}
+/* follows a link that leaves the game */
+.out-arrow {
+  width: 0.62em;
+  margin: 0 0.12em 0 0.2em;
+  vertical-align: 0.02em;
 }
 .stk {
   display: inline-block;
@@ -315,6 +338,14 @@ p {
 }
 .page:not(.scroll) > :last-child:not(:first-child) {
   margin-top: auto;
+}
+/* the home menu sits in the middle of the space under the logo */
+.page.home > .stack {
+  margin-block: auto;
+}
+/* the credit line rests at the foot of the page, below the centred menu */
+.page.home:not(.scroll) > .credit:last-child:not(:first-child) {
+  margin-top: 0;
 }
 /* a short screen with nothing that expands (name and match type) sits centred */
 .page.centered {
@@ -480,6 +511,17 @@ p {
   text-align: center;
   padding-top: 0.6rem;
 }
+/* our names are links to our own sites, in the primary fairway green */
+.credit a {
+  color: var(--fw);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.credit a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 0.15em;
+  text-underline-offset: 0.2em;
+}
 
 /* ---------- buttons, fields, chips ---------- */
 .btn {
@@ -527,6 +569,10 @@ p {
   flex-direction: column;
   gap: 1.2rem;
   min-height: 10.8rem;
+}
+/* the paired home tiles: a touch smaller, so "Leaderboard" has room to breathe */
+.split .btn.tile {
+  font-size: 2.1rem;
 }
 .btn.round {
   width: 7.2rem;

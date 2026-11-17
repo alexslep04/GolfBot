@@ -563,9 +563,13 @@ function ruleStickers(player) {
 function activeRules(player) {
   return [...new Set(ruleStickers(player).map((sticker) => sticker.rule))];
 }
+/**
+ * What the rules in play have done to a hand: its score as it stands, against
+ * the plain points of its cards (with only matching columns cancelled).
+ */
 function ruleDelta(player) {
   const g = state.game;
-  return g.effect_totals[player] - g.scores[player];
+  return g.effect_totals[player] - (g.base_scores ?? g.scores)[player];
 }
 /** True while the table is waiting on this player (including opening flips). */
 function myTurn() {
@@ -613,7 +617,7 @@ function renderTags() {
       "aria-label",
       `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && myTurn() ? ", your turn" : ""}${side === "opp" ? ". Open their stats." : ""}`,
     );
-    const delta = g.phase === "over" ? 0 : ruleDelta(player);
+    const delta = ruleDelta(player);
     const stickers = ruleStickers(player);
     patch(
       `rules-txt-${side}`,
@@ -1532,7 +1536,7 @@ function rulesSheet(player) {
   const color = colorFor(player);
   const active = activeRules(player);
   const effects = g.effects[player] || [];
-  const visible = g.scores[player],
+  const visible = (g.base_scores ?? g.scores)[player],
     total = g.effect_totals[player];
   const enabled = catalog.filter((rule) => state.rules[rule.key]);
   const editable = g.legal.set_rules;

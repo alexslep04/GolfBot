@@ -403,20 +403,19 @@ function home() {
     [tilted(name, size), tilted(name, size, { mirror: true })];
   const friends = twin("figure.2"),
     quick = twin("sparkles"),
-    medal = twin("medal");
+    practice = twin("dumbbell.fill");
   show(
     "home",
-    `<div class="page">${topbar()}<div class="stack">
+    `<div class="page home">${topbar()}<div class="stack">
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} Resume your table</button>` : ""}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
-    <button type="button" class="btn c-p2" data-nav="stats">${medal[0]}<span>Leaderboard</span>${medal[1]}</button>
+    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>Practice</span>${practice[1]}</button>
     <div class="row split">
-      <button type="button" class="btn tile c-fw grow" data-nav="solo">${tilted("dumbbell.fill", 33)}<span>Practice</span></button>
-      <button type="button" class="btn tile c-p4 grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
+      <button type="button" class="btn tile c-p4 grow" data-nav="stats">${tilted("medal", 33)}<span>Leaderboard</span></button>
+      <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
-    <p class="credit">Handcrafted by Spencer &amp; Alex</p>
-  </div></div>`,
+  </div><p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p></div>`,
   );
   renderQueueBanner();
   pollPresence();
@@ -541,7 +540,7 @@ function setupPage() {
       }
       <div class="stack"><div class="row">
         ${selectField("Match Style", `data-draft="style" aria-label="Match style"`, [["single", "Single game", draft.style === "single"], ["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"], ["continuous", "Play until you leave", draft.style === "continuous"]], "pointer.arrow.rays", fixed ? "hug" : "")}
-        ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), "pointer.arrow.rays", "grow") : ""}
+        ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), null, "grow") : ""}
       </div><p class="hint">${e(styleHint())}</p></div>
     </div><div class="row">${backButton(draft.mode === "host" ? "friends" : "home")}${entryButton("data-setup-next", "Continue")}</div></div>`,
     );

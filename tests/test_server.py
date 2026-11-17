@@ -211,6 +211,25 @@ class WebTests(unittest.TestCase):
                 self.room.status = 'playing'
                 self.room.round_recorded = False
 
+    def test_base_scores_leave_rules_out_so_the_rule_effect_can_be_shown(self):
+        self.start(rules={'poisoned_card': True, 'holdem': True})
+        game = self.room.game
+        # Columns: 10 over 10 (cancels), queen over 2, 9 over a face-down 3.
+        game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip([10, 12, 9, 10, 2, 3], 'SHDCSH')]
+        game.players[0][5].visible = False
+        public = self.state()['game']
+        # only face-up cards count while the game is on: queen 10 + 2 as -2 + 9
+        self.assertEqual(public['base_scores'][0], 17)
+        game.players[0][5].visible = True
+        game.finisher = 0
+        game.phase = 'over'
+        self.room.record_result()
+        final = self.state()['game']
+        self.assertEqual(final['base_scores'][0], 20)
+        # the Poisoned Card adds 2 for finishing first: that is the whole rule effect here
+        self.assertEqual(final['effect_totals'][0] - final['base_scores'][0], 2)
+        self.assertIn('Poisoned Card: +2', final['effects'][0])
+
     def test_drawn_card_can_replace_a_face_down_card(self):
         self.start()
         hidden = self.room.game.players[0][2]
