@@ -207,6 +207,11 @@ class Room:
     disconnected: list = field(default_factory=lambda: [None, None])
     resume_notice: str | None = None
 
+    @property
+    def counts_streak(self):
+        """Only house-rule Practice builds the streak the Solo leaderboard ranks."""
+        return self.practice and self.house_rules
+
     def save_practice(self):
         if self.practice and self.practice_account and self.progression and self.game:
             # Saving is a convenience: a failure must never undo the move around it.
@@ -345,7 +350,7 @@ class Room:
             event_id = self.match_id + ':' + str(len(self.history))
             if self.rated:
                 self.history[-1]['elo'] = self.progression.rate_game(event_id, self.progression_players, winner, self.patch)
-            if self.practice:
+            if self.counts_streak:
                 self.progression.practice_result(event_id, self.progression_players[0], winner, self.patch)
         if self.history_store:
             self.history_store.save(self)
@@ -508,7 +513,7 @@ def snapshot(room, token):
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
              "points": room.points, "timeline": room.timeline,
-             "streak": room.streak if room.solo else None,
+             "streak": room.streak if room.solo and not room.practice else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [bool(room.clients.get(seat)) if seat else room.solo and p == 1 for p, seat in enumerate(room.seats)],
              "message": message(room, viewer), "game": None}
@@ -516,7 +521,7 @@ def snapshot(room, token):
         if room.rated:
             state['ratings'] = [room.progression.profile(identity)['elo'] for identity in room.progression_players]
             state['forfeit_elo_loss'] = room.progression.forfeit_loss(room.progression_players, viewer)
-        if room.practice:
+        if room.counts_streak:
             profile = room.progression.profile(room.progression_players[0])
             state['streak'] = {'current': profile['current_streak'], 'best': profile['best_streak'], 'draws': profile['draws_in_row']}
     state['void_offer'] = room.void_offer
@@ -1277,6 +1282,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if saved and (saved.get("schema") != practice_save.SCHEMA or saved.get("patch") != PATCH_VERSION):
                 reset_notice = "Your saved game was reset for this update. Your practice streak is preserved."
         if settings.practice:
+            choose_avatar(session, settings.avatar)
             resumed = await resume_practice(session)
             if resumed is not None:
                 return resumed
@@ -1285,7 +1291,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         if settings.practice:
-            settings = settings.model_copy(update={'best_of': None, 'first': 'random', 'house_rules': True, 'series_mode': 'wins'})
+            # Practice is one open-ended run against Golfbot. The rules are the
+            # player's choice; a request that doesn't say plays house rules.
+            house = settings.house_rules or 'house_rules' not in settings.model_fields_set
+            settings = settings.model_copy(update={'best_of': None, 'series_mode': 'wins', 'house_rules': house,
+                                                   **({'first': 'random'} if house else {})})
         session.username = clean_name(settings.username)
         choose_avatar(session, settings.avatar)
         if settings.game_type != '1v1':
@@ -1307,6 +1317,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         store.rooms[room.id] = room
         session.room_id = room.id
         return snapshot(room, session.token)
+
+    @app.get("/api/practice")
+    async def practice_info(request: Request):
+        """Whether Practice will continue a saved game, and with which rules."""
+        session = session_for(request)
+        saved = store.progression.load_practice(session.account['id']) if session.account else None
+        if not saved or saved.get('schema') != practice_save.SCHEMA or saved.get('patch') != PATCH_VERSION:
+            return {'saved': False}
+        return {'saved': True, 'house_rules': bool(saved['room'].get('house_rules')), 'rules': saved['rules']}
 
     async def resume_practice(session):
         if not session.account:
@@ -1335,6 +1354,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             room.seats[0] = session.token
             room.clients.clear()
         room.departed = [False, False]
+        # the avatar picked on the way in applies to the saved game too
+        room.avatars = [session.avatar, *list(room.avatars)[1:]] if room.avatars else [session.avatar, BOT_AVATAR]
         if room.status in ('closed', 'paused'):
             room.status = 'round_over' if room.round_recorded else 'playing'
         room.version += 1
@@ -1452,7 +1473,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             else:
                 if room.practice and room.practice_account:
                     room.save_practice()
-                elif room.practice and not room.round_recorded:
+                elif room.counts_streak and not room.round_recorded:
                     store.progression.reset_streak(room.progression_players[0], room.patch)
                 if room.rated:
                     forfeit(room, seat)
@@ -1509,7 +1530,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     if room.practice and not room.practice_account and room.status in ('playing', 'round_over'):
                         since = room.disconnected[0]
                         if since is not None and time.time() - since >= 30 and not room.clients.get(room.seats[0]):
-                            if not room.round_recorded:
+                            if room.counts_streak and not room.round_recorded:
                                 store.progression.reset_streak(room.progression_players[0], room.patch)
                             room.status = 'closed'
                             room.departed = [True, True]

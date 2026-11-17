@@ -511,15 +511,18 @@ const draft = {
 };
 const ENTRY_STYLE = {
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
+  solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice
 };
 function entryButton(attribute, label) {
   const { color, glyph: symbol } = ENTRY_STYLE[draft.mode];
   return `<button type="button" class="btn ${color} grow" ${attribute}>${tilted(symbol, 33)}<span>${padTag("y")}${label}</span>${tilted(symbol, 33, { mirror: true })}</button>`;
 }
-function startSetup(mode) {
+function startSetup(mode, saved = null) {
   Object.assign(draft, {
     mode,
-    step: 0,
+    saved: saved?.saved ? saved : null,
+    // Practice has no table or match settings, so it starts on the avatar step
+    step: mode === "solo" ? 1 : 0,
     style: "wins",
     length: 3,
     preset: "house",
@@ -560,9 +563,17 @@ function setupPage() {
     );
     return;
   }
+  const practice = draft.mode === "solo";
+  const back = practice
+    ? backButton()
+    : `<button type="button" class="btn round c-fw nav-float" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>`;
+  const rules = draft.saved
+    ? `<p class="hint dark">Your Practice game in progress continues with the rules it started with${draft.saved.house_rules ? " (House rules)" : ""}.</p>`
+    : `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
+  const go = draft.saved ? "Continue" : `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
   show(
     "setup",
-    `<div class="page">${topbar()}<div class="stack wide">${avatarPicker()}<div class="stack" data-rules-picker>${rulesPicker()}</div></div><div class="row"><button type="button" class="btn round c-fw nav-float" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>${entryButton("data-setup-go", `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`)}</div></div>`,
+    `<div class="page">${topbar()}<div class="stack wide">${avatarPicker()}${rules}</div><div class="row">${back}${entryButton("data-setup-go", go)}</div></div>`,
   );
   centerAvatar(false);
 }
@@ -725,10 +736,10 @@ function rulesPicker() {
     <div class="collapse ${draft.rulesOpen ? "open" : ""}" data-rules-open><div ${closed ? "inert" : ""}><div class="rules-body">
       <div class="chips" style="justify-content:space-around">${presets.map(([key, label, symbol]) => `<button type="button" class="rule-row" style="flex-direction:column;gap:1.4rem;color:var(--fw-text)" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 52, { tilt: key === "house" ? 6 : -6, style: draft.preset === key ? "--fill:var(--p1b);--stroke:var(--p1)" : "" })}<span>${label}${key === "house" ? " Rules" : ""}</span></button>`).join("")}</div>
       ${group("In-Play", on)}${group("Popular", off.filter((rule) => POPULAR_RULES.includes(rule.key)))}${group("Others", off.filter((rule) => !POPULAR_RULES.includes(rule.key)))}
-      ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(starter).map(([key, label]) => [key, label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
+      ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(starter).map(([key, label]) => [key, (draft.mode === "solo" && { host: "You first", guest: "Golfbot first" }[key]) || label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
       ${locked ? `<p class="hint dark">${draft.gameType === "many" ? "Turn order is shuffled each game at big tables." : "House rules always pick a random first player."}</p>` : ""}
     </div></div></div></div>
-    <div class="collapse ${closed ? "open" : ""}" data-rules-closed><div ${closed ? "" : "inert"}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(rulesSummary(draft.rules))}</p></div></div></div>`;
+    <div class="collapse ${closed ? "open" : ""}" data-rules-closed><div ${closed ? "" : "inert"}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(rulesSummary(draft.rules))}</p></div></div></div>${draft.mode === "solo" && draft.preset !== "house" ? `<p class="hint dark">Only House rules games count toward your Practice streak.</p>` : ""}`;
 }
 /** Open or close the dropdown in place so the height change can animate. */
 function toggleRulesPicker() {
@@ -776,6 +787,19 @@ function applyPreset(preset) {
 async function submitSetup() {
   const epoch = tableEpoch;
   const house = draft.preset === "house";
+  if (draft.mode === "solo") {
+    const next = await api("/api/solo", "POST", {
+      practice: true,
+      best_of: null,
+      username: session.username,
+      avatar: session.avatar,
+      house_rules: house,
+      first: house ? "random" : draft.first,
+      rules: Object.fromEntries(catalog.map((rule) => [rule.key, !!draft.rules[rule.key]])),
+    });
+    if (epoch === tableEpoch) enterRoom(next);
+    return;
+  }
   const requested = {
     username: session.username,
     avatar: session.avatar,
@@ -1703,8 +1727,10 @@ async function navigate(target) {
     return resume();
   }
   if (target === "solo") {
-    if (document.getElementById("username")) saveName(name());
-    return enterRoom(await api("/api/solo", "POST", {house_rules:true, first:"random", best_of:null, practice:true, username:session.username, avatar:session.avatar}));
+    // Practice goes straight to the avatar and rules step; a saved game keeps its own rules
+    const saved = await api("/api/practice");
+    startSetup("solo", saved);
+    return;
   }
   if (target === "host") {
     if (document.getElementById("username")) saveName(name());

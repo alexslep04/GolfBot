@@ -52,12 +52,24 @@ test('leaderboard defaults PVP, escapes names, formats fractional win rate',asyn
   await h.run('leaderboardPage("solo")');assert.match(h.nodes.get('app').innerHTML,/No Practice streaks yet/);assert.doesNotMatch(h.nodes.get('app').innerHTML,/Best reached/);
 });
 
-test('Practice starts immediately with fixed contract without abandoning saved game',async()=>{
-  const h=harness();h.run('enterRoom = next => { globalThis.entered = next; }; session.room_id="saved";');
+test('Practice opens on the avatar and rules step, then starts without abandoning saved game',async()=>{
+  const h=harness();h.run('enterRoom = next => { globalThis.entered = next; }; centerAvatar = () => {}; session.room_id="saved";');
   await h.run('navigate("solo")');
-  assert.equal(h.requests.length,1);assert.equal(h.requests[0].url,'/golf/api/solo');
-  const body=JSON.parse(h.requests[0].options.body);
+  assert.equal(h.requests.length,1);assert.equal(h.requests[0].url,'/golf/api/practice');
+  const html=h.nodes.get('app').innerHTML;
+  assert.match(html,/class="avatar-pick/);assert.match(html,/data-rules-picker/);assert.match(html,/data-setup-go/);
+  assert.doesNotMatch(html,/data-setup-back/);
+  h.run('saveAvatar("frog")');
+  await h.run('submitSetup()');
+  assert.equal(h.requests.length,2);assert.equal(h.requests[1].url,'/golf/api/solo');
+  const body=JSON.parse(h.requests[1].options.body);
   assert.equal(body.practice,true);assert.equal(body.house_rules,true);assert.equal(body.first,'random');assert.equal(body.best_of,null);
+  assert.equal(body.avatar,'frog');
+  h.run('applyPreset("vanilla"); draft.first="guest"');
+  assert.match(h.run('rulesPicker()'),/Only House rules games count toward your Practice streak/);
+  await h.run('submitSetup()');
+  const custom=JSON.parse(h.requests[2].options.body);
+  assert.equal(custom.house_rules,false);assert.equal(custom.first,'guest');
 });
 
 test('advanced defaults account vs bot and current patch even without history',async()=>{

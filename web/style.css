@@ -47,7 +47,7 @@
 :root {
   --u: min(1px, 100vw / 402);
   font-size: calc(var(--u) * 10);
-  --bg: #e6ffdc;
+  --bg: #c4efab;
   --fw: #73d542;
   --fw2: #a0e970;
   --fw3: #c3f3a4;
@@ -198,11 +198,17 @@ body {
   -webkit-user-select: none;
   user-select: none;
 }
+/* The rough is the page colour; the fairway sits centred on top of it, a
+   quarter taller than the screen so its rounded ends run off the top and
+   bottom (the fairway is 1076 of the image's 1276 units; the rest is the
+   first cut around it). On narrow phones it shrinks with the width so its
+   side edges stay in view, but its ends still just leave the screen. */
 #backdrop {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background: var(--bg) url(assets/bg.jpg) center / cover;
+  background: var(--bg) url(assets/fairway.svg) center / auto
+    min(148vh, max(122vh, 250vw)) no-repeat;
 }
 .svg-defs {
   position: absolute;

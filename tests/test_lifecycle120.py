@@ -39,6 +39,26 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(state['first'], 'random')
         self.assertEqual(state['streak']['current'], 0)
 
+    def test_practice_can_use_custom_rules_without_touching_the_streak(self):
+        response = self.client.post('/api/solo', json={'username': 'Tester', 'practice': True, 'house_rules': False,
+                                                       'first': 'host', 'rules': {}})
+        self.assertEqual(response.status_code, 200, response.text)
+        state = response.json()
+        self.assertTrue(state['practice'])
+        self.assertFalse(state['house_rules'])
+        self.assertIsNone(state['best_of'])
+        self.assertEqual(state['first'], 'host')
+        self.assertIsNone(state['streak'])
+        room = self.store.rooms[state['id']]
+        self.assertFalse(room.counts_streak)
+        room.game.phase = 'over'
+        with patch.object(self.store.progression, 'practice_result') as result:
+            room.record_result()
+        result.assert_not_called()
+
+    def test_practice_info_reports_no_saved_game_for_guests(self):
+        self.assertEqual(self.client.get('/api/practice').json(), {'saved': False})
+
     def test_guest_leave_resets_streak_and_discards_game(self):
         state = self.practice()
         room = self.store.rooms[state['id']]
