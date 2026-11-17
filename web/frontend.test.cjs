@@ -152,10 +152,12 @@ test('account unfinished Practice exit uses an in-game save explanation',async()
   assert.equal(h.requests.length,0);
 });
 
-test('rule eyes sit below the main icon, outside description copy',()=>{
+test('rule eyes sit on the right of the card, outside description copy',()=>{
   const h=harness();const html=h.run('ruleHelpCard({key:"king_queen",name:"K-Q",description:"Description"})');
-  assert.match(html, /class="rule-icon-controls"/);
-  assert.ok(html.indexOf('class="rule-eye"')<html.indexOf('class="rule-help-copy"'));
+  const copy=html.indexOf('class="rule-help-copy"'),eye=html.indexOf('class="rule-eye"');
+  assert.ok(copy>=0&&eye>copy);
+  // the eye follows the copy's closing tag, so it is not inside the description
+  assert.ok(html.slice(copy,eye).includes('class="rule-example"'));
 });
 
 test('examples reuse game card markup and front/back flip structure',()=>{

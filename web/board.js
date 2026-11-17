@@ -180,6 +180,7 @@ function mountBoard() {
   const me = state.viewer;
   const hand = (player, tilts) =>
     tilts.map((tilt, i) => slotHtml([player, i], tilt)).join("");
+  booted(); // a refresh at the table lands here first
   root.innerHTML = `<div class="board" data-board>
     <section class="b-top">
       <div class="b-main">

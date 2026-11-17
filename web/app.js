@@ -189,11 +189,18 @@ async function api(url, method = "GET", body) {
   }
   return data;
 }
+let shownFirstPage = false;
 function show(name, html) {
   page = name;
   document.documentElement.classList.remove("in-game");
   closeSheet();
   root.innerHTML = html;
+  // a load or refresh lands on its page without the slide-in (it read as a flicker)
+  if (!shownFirstPage) {
+    shownFirstPage = true;
+    root.firstElementChild?.classList.add("instant");
+    booted();
+  }
   window.scrollTo(0, 0);
 }
 function openSheet(html, player = "") {
@@ -1548,7 +1555,7 @@ function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
   } else {
     examples = (RULE_EXAMPLES[rule.key] || []).map(([caption,cards,other,otherCaption]) => `<p class="example-caption">${e(caption)}</p>${exampleHand(cards)}${other ? `<p class="example-caption">${e(otherCaption)}</p>${exampleHand(other)}` : ""}`).join("");
   }
-  return `<div class="rule-card${on ? "" : " off"}"><div class="rule-icon-controls"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",24,{idle:false})}</button></div><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div></div>`;
+  return `<div class="rule-card${on ? "" : " off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div>`;
 }
 
 let voidTimer;
@@ -1600,7 +1607,7 @@ function leaderboardBody(tab, result) {
   const tile = (text, label) => `<div><b>${text}</b><span>${label}</span></div>`;
   const hero = `<section class="panel c-p3 stat-hero leader-hero">
       <span class="leader-trophy">${tilted("trophy.fill", 48, { key: "leader-trophy" })}</span>
-      <div class="stat-rate">${solo ? icon("flame.fill", 44, { key: "leader-flame" }) : ""}${stickerText(String(value(leader)), { split: true, key: "leader-value" })}${solo ? "" : stickerText("Elo", { cls: "pts", key: "leader-elo" })}</div>
+      <div class="stat-rate${solo ? " streak-rate" : ""}">${solo ? icon("flame.fill", 44, { key: "leader-flame" }) : ""}${stickerText(String(value(leader)), { split: true, key: "leader-value" })}${solo ? "" : stickerText("Elo", { cls: "pts", key: "leader-elo" })}</div>
       <p><strong>${who(leader)}</strong> ${solo ? "· best streak" : "is on top"}</p>
       <div class="stat-tiles">${tile(record(leader), "W–D–L")}${tile(rate(leader), "win rate")}${tile(statNumber(leader.wins + leader.draws + leader.losses), "games")}</div>
     </section>`;
@@ -1612,7 +1619,7 @@ function leaderboardBody(tab, result) {
       return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} Elo`}, ${record(row)}, ${rate(row)} win rate">
         <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "lb-first" }) : stickerText(String(i + 1), { key: `lb-rank:${i}` })}</span>
         <div class="grow"><strong>${who(row)}</strong><small>${record(row)} · ${rate(row)} win rate</small></div>
-        <b class="rate">${solo ? icon("flame.fill", 22, { idle: false }) : ""}${statNumber(value(row))}${solo ? "" : "<small>Elo</small>"}</b>${opens ? glyph("chevron.right", 16) : ""}
+        <b class="rate">${solo ? `${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}<small>Elo</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
       </${tag}>`;
     })
     .join("");
@@ -2094,14 +2101,37 @@ window.addEventListener("popstate", () => {
     home();
   });
 });
+/**
+ * The faces the first page is set in. Waiting for them means the page arrives
+ * in its real type instead of flashing a fallback face first; a font that is
+ * slow or missing never holds the page up for more than a moment.
+ */
+function fontsReady() {
+  if (!document.fonts?.load) return Promise.resolve();
+  const faces = ['700 16px "FOT-Seurat Pro"', '700 16px "SF Pro Rounded"'].map((face) => document.fonts.load(face).catch(() => {}));
+  return Promise.race([Promise.all(faces), new Promise((done) => setTimeout(done, 1500))]);
+}
+function bootData() {
+  try {
+    return JSON.parse(document.getElementById("boot-data")?.textContent || "{}");
+  } catch {
+    return {};
+  }
+}
 (async () => {
+  // a slow start shows the backdrop with the loading line (style.css: .loading.boot)
+  setTimeout(booted, 800);
   try {
     let avatarInfo;
+    // The server puts what the first page needs in the page itself (boot-data),
+    // so it can be drawn straight away; anything missing is fetched as before.
+    const boot = bootData();
     [session, catalog, matchOptions, avatarInfo] = await Promise.all([
-      api("/api/session"),
-      api("/api/rules"),
-      api("/api/match-options"),
-      api("/api/avatars"),
+      boot.session || api("/api/session"),
+      boot.rules || api("/api/rules"),
+      boot.matchOptions || api("/api/match-options"),
+      boot.avatars || api("/api/avatars"),
+      fontsReady(),
     ]);
     avatars = avatarInfo.avatars;
     try {
@@ -2119,6 +2149,7 @@ window.addEventListener("popstate", () => {
       toast(error.message);
     }
   } catch (error) {
+    booted();
     root.innerHTML = `<div class="empty">${e(error.message)}<p>Refresh to reconnect to your server.</p></div>`;
   }
 })();

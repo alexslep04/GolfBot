@@ -43,6 +43,14 @@ function idleStyle(seed = "") {
  * stickers and 3px on small ones, matching the Figma strokes.
  * Colors come from the --fill / --stroke custom properties of the context.
  */
+/**
+ * The first real page is on screen: show the backdrop. Until then the document
+ * paints nothing a browser counts as content, so on a reload it keeps showing
+ * the previous page and switches straight to the new one, with no blank frame.
+ */
+function booted() {
+  document.documentElement.classList.remove("booting");
+}
 function icon(name, size = 24, opts = {}) {
   const data = ICONS[name];
   if (!data) return "";

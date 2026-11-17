@@ -36,6 +36,26 @@ class SubpathTests(unittest.TestCase):
         self.assertIn('<base href="/"', self.host.get('/').text)
         self.assertEqual(self.host.get('/health').json(), {'status': 'ok'})
 
+    def test_page_carries_its_first_render_data_so_a_refresh_needs_no_round_trips(self):
+        import json
+        fresh = TestClient(self.host.app, base_url='https://sleptsov.dev')
+        self.addCleanup(fresh.close)
+        response = fresh.get('/golf/')
+        # a first visit gets its session cookie with the page itself
+        self.assertIn('golf_session=', response.headers['set-cookie'])
+        self.assertIn('Path=/golf/', response.headers['set-cookie'])
+        boot = json.loads(re.search(r'<script id="boot-data" type="application/json">(.*?)</script>', response.text).group(1))
+        self.assertEqual(set(boot), {'session', 'rules', 'matchOptions', 'avatars'})
+        self.assertEqual(boot['session'], fresh.get('/golf/api/session').json())
+        self.assertEqual(boot['rules'], fresh.get('/golf/api/rules').json())
+        self.assertEqual(boot['avatars'], fresh.get('/golf/api/avatars').json())
+        # the same browser keeps its session on the next page load
+        self.assertEqual(json.loads(re.search(r'id="boot-data" type="application/json">(.*?)</script>', fresh.get('/golf/').text).group(1))['session']['csrf_token'],
+                         boot['session']['csrf_token'])
+        # versioned files are kept by the browser instead of re-checked on reload
+        app_js = re.search(r'"static/app\.js\?v=([0-9a-f]+)"', response.text).group(0).strip('"')
+        self.assertIn('immutable', fresh.get('/golf/' + app_js).headers['cache-control'])
+
     def test_session_cookie_is_scoped_and_api_is_not_cached(self):
         response = self.host.get('/golf/api/session')
         cookie = response.headers['set-cookie']

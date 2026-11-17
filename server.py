@@ -48,6 +48,17 @@ reaction_roll = random.random  # replaced in tests
 log = logging.getLogger(__name__)
 
 
+
+class VersionedStatic(StaticFiles):
+    """Static files. A versioned URL (?v=content hash, see page_response) never
+    changes, so the browser keeps it rather than re-checking it on every reload."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if b"v=" in scope.get("query_string", b"") and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
     emote: Literal["unamused", "shocked", "laughing", "nervous"]
@@ -836,6 +847,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     @app.get("/api/session")
     async def get_session(request: Request, response: Response):
+        return open_session(request, response)
+
+    def open_session(request, response):
+        """This browser's session (made on first visit), with its cookie set on `response`."""
         store.cleanup()
         token = request.cookies.get(COOKIE)
         if token not in store.sessions:
@@ -932,18 +947,27 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         response.delete_cookie(ACCOUNT_COOKIE, path=request.scope.get('root_path', '') + '/')
         return session_view(session)
 
-    @app.get("/api/rules")
-    async def rules_catalog():
+    def rules_data():
         descriptions = load_rule_help()
         return [{"key": key, "name": name, "title": descriptions[key][0], "description": descriptions[key][1]} for key, name in RULE_OPTIONS]
 
+    def avatars_data():
+        return {'default': DEFAULT_AVATAR, 'avatars': avatar_catalog()}
+
+    def match_options_data():
+        return {'house_rules': house_rules(), 'house_version': HOUSE_VERSION, 'first': 'random', 'patch': PATCH_VERSION}
+
+    @app.get("/api/rules")
+    async def rules_catalog():
+        return rules_data()
+
     @app.get('/api/avatars')
     async def avatars():
-        return {'default': DEFAULT_AVATAR, 'avatars': avatar_catalog()}
+        return avatars_data()
 
     @app.get('/api/match-options')
     async def match_options():
-        return {'house_rules': house_rules(), 'house_version': HOUSE_VERSION, 'first': 'random', 'patch': PATCH_VERSION}
+        return match_options_data()
 
     @app.get('/api/patch-notes')
     async def patch_notes():
@@ -1574,16 +1598,26 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     room.bot_task.cancel()
             await broadcast(room)
 
-    app.mount("/static", StaticFiles(directory=ROOT / "web"), name="static")
+    app.mount("/static", VersionedStatic(directory=ROOT / "web"), name="static")
 
-    def page_response(filename, request):
+    def page_response(filename, request, boot=False):
         base = request.scope.get("root_path", "").rstrip("/") + "/"
         html = (ROOT / "web" / filename).read_text(encoding="utf-8").replace("__GOLF_BASE__", base)
+        cookies = Response()  # collects the session cookie, if this page opens one
+        if boot:
+            # What the app needs for its first page, in the page itself: no round
+            # trips before anything can be drawn (a blank screen on a refresh).
+            data = {"session": open_session(request, cookies), "rules": rules_data(),
+                    "matchOptions": match_options_data(), "avatars": avatars_data()}
+            script = '<script id="boot-data" type="application/json">' + json.dumps(data).replace("</", "<\\/") + "</script>"
+            html = html.replace("</head>", f"    {script}\n  </head>", 1)
         # Version every script and stylesheet the page loads, so a release never mixes old and new files.
         for asset in sorted(set(re.findall(r'"static/([\w./-]+\.(?:js|css))"', html))):
             version = sha256((ROOT / "web" / asset).read_bytes()).hexdigest()[:16]
             html = html.replace(f'"static/{asset}"', f'"static/{asset}?v={version}"')
-        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        response.raw_headers.extend(item for item in cookies.raw_headers if item[0] == b"set-cookie")
+        return response
 
     @app.get('/privacy')
     async def privacy(request: Request):
@@ -1599,7 +1633,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def index(request: Request):
         # A cached script from an earlier release can leave new buttons inert.
         # Content versions also work when files change without restarting Uvicorn.
-        return page_response('index.html', request)
+        return page_response('index.html', request, boot=True)
 
     # Serve the same store at the public subpath and at localhost's existing URLs.
     # Only the outer app runs the lifespan; mounted app lifespans are not invoked.

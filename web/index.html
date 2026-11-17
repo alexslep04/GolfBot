@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
   <head>
     <meta charset="utf-8" />
     <base href="__GOLF_BASE__" />
@@ -13,7 +13,10 @@
     <link rel="icon" type="image/png" href="static/assets/icon.png" />
     <link rel="apple-touch-icon" href="static/assets/icon.png" />
     <link rel="stylesheet" href="static/style.css" />
+    <link rel="preload" as="font" type="font/woff2" href="static/fonts/seurat-pro-b.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="static/fonts/sf-pro-rounded-bold.woff2" crossorigin />
     <link rel="preload" as="image" href="static/assets/logo-club.svg" />
+    <link rel="preload" as="image" href="static/assets/bg.jpg" />
     <script src="static/icons.js" defer></script>
     <script src="static/ui.js" defer></script>
     <script src="static/motion.js" defer></script>
@@ -50,7 +53,7 @@
     </svg>
     <div id="backdrop" aria-hidden="true"></div>
     <main id="app" aria-live="polite">
-      <div class="loading">Shuffling the table…</div>
+      <div class="loading boot">Shuffling the table…</div>
     </main>
     <div id="queue-banner" class="queue-banner" hidden></div>
     <div id="sheet" class="sheet-shade" hidden></div>
