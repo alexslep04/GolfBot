@@ -2370,8 +2370,15 @@ button.tag-rules:active > .tag-in {
   max-width: 100%;
   font-size: 1.4rem;
   white-space: nowrap;
+}
+/* only the name is cut short; the crown beside it keeps its outline and shadow */
+.ready-tile .who .name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ready-tile .who > .ico {
+  flex: none;
 }
 .ready-tile b {
   font: 700 2rem/1 var(--round);
