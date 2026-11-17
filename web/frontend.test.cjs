@@ -9,7 +9,7 @@ function harness() {
   function element() {
     const children = new Map();
     return {innerHTML:'', textContent:'', dataset:{}, hidden:true, open:false, attributes:{},
-      classList:{add(){},remove(){},toggle(){}}, addEventListener(){},
+      classList:{add(){},remove(){},toggle(){}}, style:{setProperty(){}}, addEventListener(){},
       setAttribute(k,v){this.attributes[k]=v;},
       querySelector(key){if(!children.has(key)) children.set(key,element());return children.get(key);},
       showModal(){this.open=true;},close(){this.open=false;},
@@ -17,6 +17,10 @@ function harness() {
   }
   for(const id of ['app','sheet','toast','social-dialog']) nodes.set(id,element());
   const context = vm.createContext({console,URL,URLSearchParams,Intl,Date,JSON,Math,Set,Map,
+    // browser pieces the redesigned UI touches while loading
+    performance,queueMicrotask,requestAnimationFrame:()=>1,cancelAnimationFrame(){},navigator:{},
+    matchMedia:()=>({matches:false,addEventListener(){}}),getComputedStyle:()=>({}),
+    CSS:{supports:()=>false},Image:class{set src(value){}},
     document:{baseURI:'https://example.test/golf/',body:element(),documentElement:element(),
       getElementById:id=>nodes.get(id)||null,createElement:element,
       addEventListener:(type,cb)=>(listeners[type] ||= []).push(cb)},
@@ -26,7 +30,7 @@ function harness() {
     setTimeout(){return 1;},clearTimeout(){},setInterval(){},clearInterval(){},confirm:()=>true,
     fetch:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({pvp:[{label:'Alice <admin>',elo:1210,wins:3,draws:1,losses:2,win_rate:.5}],solo:[],patch:'1.2.0'})};}
   });
-  for(const file of ['icons.js','ui.js','board.js','app.js']) {
+  for(const file of ['icons.js','ui.js','board.js','gamepad.js','app.js']) {
     let source=fs.readFileSync(path.join(__dirname,file),'utf8');
     if(file==='app.js') source=source.slice(0,source.lastIndexOf('\n(async () => {'));
     vm.runInContext(source,context,{filename:file});
@@ -125,7 +129,7 @@ test('rated labels use Elo, modifier totals come from each player, Practice alon
   h.run('state.rated=false;state.practice=true;state.streak={current:7,best:9,draws:1};renderTags()');
   assert.doesNotMatch(h.run(`board.el.querySelector("[data-score-for='me']").firstElementChild.innerHTML`),/1234/);
   assert.equal(h.run('board.el.querySelector("[data-practice-streak]").hidden'),false);
-  assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="streak-count">7<\/b>/);
+  assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="digits streak-count" data-count="7"/);
 });
 
 test('void action posts corrected lobby endpoint and reply payload',async()=>{
@@ -165,7 +169,7 @@ test('examples reuse game card markup and front/back flip structure',()=>{
 
 test('streak count is an explicit badge beside flame, including zero',()=>{
   const h=harness();h.run('board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],practice:true,streak:{current:0,best:0,draws:0},connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[0,0],scores:[0,0],effects:[[],[]],turn_order:[0,1],modifier_counts:[0,0],draw_count:20}};renderTags()');
-  assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="streak-count">0/);
+  assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="digits streak-count" data-count="0"/);
 });
 
 test('successful sign-in saves and leaves without asking a second time',async()=>{

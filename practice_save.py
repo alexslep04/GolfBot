@@ -15,6 +15,10 @@ def encode(value):
         return {'$rules': asdict(value)}
     if isinstance(value, random.Random):
         return {'$rng': encode(value.getstate())}
+    # frozenset is not a subclass of set: the J-J / Q-Q bonus keeps each used
+    # pair as one, so it needs its own tag or json.dumps fails mid-game
+    if isinstance(value, frozenset):
+        return {'$frozenset': [encode(v) for v in value]}
     if isinstance(value, (set, tuple)):
         return {'$set' if isinstance(value, set) else '$tuple': [encode(v) for v in value]}
     if isinstance(value, list):
@@ -39,6 +43,8 @@ def decode(value):
         return tuple(decode(v) for v in value['$tuple'])
     if '$set' in value:
         return set(decode(v) for v in value['$set'])
+    if '$frozenset' in value:
+        return frozenset(decode(v) for v in value['$frozenset'])
     if '$rng' in value:
         rng = random.Random()
         rng.setstate(decode(value['$rng']))

@@ -160,7 +160,9 @@ function cardName(card) {
 
 /* ---------- mounting ---------- */
 // controller button shown on each action while a controller is in use
-const PAD_ACTION_KEY = { flip: "lb", swap: "rt", draw: "lt", discard: "x", end_turn: "rb" };
+const PAD_ACTION_KEY = { flip: "lb", swap: "rb", draw: "y", discard: "x" }; // End Turn has none
+const padActionKey = (action) =>
+  PAD_ACTION_KEY[action] ? `<kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd>` : "";
 // The five table actions: a bar under your panels on desktop, and on phones
 // the same buttons split to the left and right of the piles.
 const ACTIONS = [
@@ -172,7 +174,7 @@ const ACTIONS = [
 ];
 function sideAction(action) {
   const [, label, symbol] = ACTIONS.find(([key]) => key === action);
-  return `<button type="button" class="act side-act bar-act" data-action="${action}"><span class="act-ico">${icon(symbol, 24, { sw: 3.4 })}</span><span class="side-label"><kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd>${label}</span></button>`;
+  return `<button type="button" class="act side-act bar-act" data-action="${action}"><span class="act-ico">${icon(symbol, 24, { sw: 3.4 })}</span><span class="side-label">${padActionKey(action)}${label}</span></button>`;
 }
 function mountBoard() {
   const me = state.viewer;
@@ -185,8 +187,10 @@ function mountBoard() {
         <div class="hand" data-hand="opp">${hand("opp", HAND_TILT[1])}</div>
       </div>
       <div class="b-side">
-        <div class="tag tag-score" data-score-for="opp"><span class="tag-in"></span></div>
-        <div class="practice-streak" data-practice-streak hidden></div><button type="button" class="cycle" data-cycle-next hidden></button>
+        <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span></button>
+        <span class="tag-avatar" data-avatar-for="opp" aria-hidden="true"></span>
+        <div class="streak" data-streak data-practice-streak role="img" hidden></div>
+        <button type="button" class="cycle" data-cycle-next hidden></button>
       </div>
     </section>
     <section class="b-mid">
@@ -217,7 +221,7 @@ function mountBoard() {
         <div class="b-side">
           <div class="board-extra"></div>
           <div class="board-btns">
-            <button type="button" class="icon-btn" data-game-menu aria-label="Table menu">${icon("gear", 44)}</button>
+            <button type="button" class="icon-btn" data-game-menu aria-label="Table menu">${icon("gear", 44)}${padTag("start", "under")}</button>
             <button type="button" class="icon-btn" data-emotes aria-label="Quick emotes">${icon("text.bubble.fill", 44)}</button>
           </div>
           <span class="tag-avatar" data-avatar-for="me" aria-hidden="true"></span>
@@ -469,11 +473,16 @@ function syncCards(prev, view) {
 
 /** New game: the hands are dealt out of the go-fish pile. */
 function dealIn(view) {
-  const from = poseOf(board.slots.get("draw:"));
-  let order = 0;
-  for (const player of [view.opp, view.me])
-    for (let i = 0; i < 6; i++) {
-      const key = `${player}:${i}`;
+  const keys = [view.opp, view.me].flatMap((player) => [0, 1, 2, 3, 4, 5].map((i) => `${player}:${i}`));
+  // Hide the hands now, but aim the cards a frame later: the table is still being
+  // drawn (panels, the desktop action bar), and measuring now would land every
+  // card short of where its slot ends up, then snap it into place.
+  keys.forEach((key) => board.slots.get(key)?.classList.add("incoming"));
+  requestAnimationFrame(() => {
+    const pile = board.slots.get("draw:");
+    if (!pile?.isConnected) return; // the table was redrawn first; it shows the cards itself
+    const from = poseOf(pile);
+    keys.forEach((key, order) => {
       const entry = view.table[key];
       flyCard({
         html: faceHtml(entry.card),
@@ -481,11 +490,12 @@ function dealIn(view) {
         to: board.slots.get(key),
         faceFrom: false,
         faceTo: entry.key !== "X",
-        delay: order++ * 45,
+        delay: order * 45,
       });
-    }
+    });
+  });
   // a tick as each card lands
-  hapticFlurry(order, 45, 380);
+  hapticFlurry(keys.length, 45, 380);
 }
 
 function scoreDigits(value, side) {
@@ -606,20 +616,24 @@ function myTurn() {
  * like the points counter. Faded at zero; lit and glowing brighter as it grows.
  */
 function renderStreak() {
-  const holder = board.el.querySelector("[data-streak]");
-  const count = state.solo && typeof state.streak === "number" ? state.streak : null;
+  const holder = board.el.querySelector("[data-practice-streak]");
+  // Practice's saved streak (1.2.0) when there is one, else this browser's run against Golfbot
+  const saved = state.practice && state.streak && typeof state.streak === "object" ? state.streak : null;
+  const count = saved ? (saved.current ?? 0) : state.solo && typeof state.streak === "number" ? state.streak : null;
   holder.hidden = count === null;
   if (count === null) return;
-  holder.classList.toggle("hot", count > 0);
+  // a draw puts a saved streak on notice: it fades until the next win
+  holder.classList.toggle("hot", count > 0 && saved?.draws !== 1);
   holder.style.setProperty("--heat", Math.min(count, 10));
-  holder.setAttribute("aria-label", `Win streak against Golfbot: ${count}`);
+  holder.setAttribute("aria-label", saved ? `Practice streak: ${count}. Best: ${saved.best}. Draws in a row: ${saved.draws}.` : `Win streak against Golfbot: ${count}`);
+  holder.title = saved ? `Best streak: ${saved.best}` : "";
   const before = board.signatures.streak;
   const changed = patch(
     "streak",
     holder,
     `${count}`,
     () =>
-      `<span class="flame">${icon("flame.fill", 40, { key: "streak-flame" })}</span><span class="score"><span class="digits${String(count).length > 2 ? " long" : ""}">${stickerText(String(count), { split: true, key: "streak" })}</span></span>`,
+      `<span class="flame">${icon("flame.fill", 40, { key: "streak-flame" })}</span><span class="score"><span class="digits streak-count${String(count).length > 2 ? " long" : ""}" data-count="${count}">${stickerText(String(count), { split: true, key: "streak" })}</span></span>`,
   );
   // a new win pops the number, like the points counter
   if (changed && before !== undefined && count > Number(before)) holder.querySelector(".score").classList.add("bump");
@@ -627,6 +641,9 @@ function renderStreak() {
 function renderTags() {
   renderStreak();
   const g = state.game;
+  const turn = myTurn();
+  if (turn && board.signatures.turn === false) haptic("turn");
+  board.signatures.turn = turn;
   for (const [side, player] of [
     ["me", state.viewer],
     ["opp", board.view.opp],
@@ -658,7 +675,7 @@ function renderTags() {
       scoreTag.firstElementChild,
       `${player}|${label}|${score}`,
       () =>
-        `<span class="who">${e(label)}</span><span class="score">${scoreDigits(score)}</span>`,
+        `<span class="who">${e(label)}</span><span class="score">${scoreDigits(score, side)}</span>`,
     );
     if (changed && board.signatures[`seen-${side}`] === player) {
       const element = scoreTag.querySelector(".score");
@@ -691,15 +708,6 @@ function renderTags() {
       "aria-label",
       `${state.names[player]}: ${enabled} modifiers in play, ${delta} points from rules. Open details.`,
     );
-  }
-  const flame = board.el.querySelector("[data-practice-streak]");
-  flame.hidden = !state.practice;
-  if (state.practice) {
-    const streak = state.streak || {current:0,best:0,draws:0};
-    flame.classList.toggle("streak-grey", !streak.current || streak.draws === 1);
-    patch("practice-streak", flame, String(streak.current ?? 0), () => `${icon("flame.fill", 58, {idle:false})}<b class="streak-count">${streak.current ?? 0}</b>`);
-    flame.setAttribute("aria-label", `Practice streak: ${streak.current}. Best: ${streak.best}. Consecutive draws: ${streak.draws}.`);
-    flame.title = `Best streak: ${streak.best}`;
   }
   // cycle button shows the next opponent in line, in their color
   const cycle = board.el.querySelector("[data-cycle-next]");
@@ -841,7 +849,7 @@ function renderChrome() {
     ACTIONS
       .map(
         ([action, label, symbol]) =>
-          `<button type="button" class="act" data-action="${action}"${action === "end_turn" ? ' title="Enter"' : ""}><span class="act-ico">${icon(symbol, 30, { sw: 4 })}</span><span>${label}</span><kbd class="pad-key" data-key="${PAD_ACTION_KEY[action]}"></kbd></button>`,
+          `<button type="button" class="act" data-action="${action}"${action === "end_turn" ? ' title="Enter"' : ""}><span class="act-ico">${icon(symbol, 30, { sw: 4 })}${padActionKey(action)}</span><span class="act-label">${label}</span></button>`,
       )
       .join(""),
   );
@@ -867,19 +875,19 @@ function renderEmotes() {
     pop,
     `${board.emotesOpen}|${opponentEmotesMuted}|${state.status}`,
     () =>
-      board.emotesOpen
-        ? `<div class="emote-pop" role="group" aria-label="Quick emotes">${Object.entries(
-            emoteNames,
-          )
-            .map(
-              ([id, label]) =>
-                `<button type="button" data-emote="${id}" aria-label="Send ${label.toLowerCase()} emote" ${state.status === "closed" ? "disabled" : ""}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
-            )
-            .join(
-              "",
-            )}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>`
-        : "",
+      board.emotesOpen ? `<div class="emote-pop" role="group" aria-label="Quick emotes">${emoteButtons()}</div>` : "",
   );
+}
+/** The quick emotes and the mute bell: in the chat bubble's pop-up, and under the results. */
+function emoteButtons() {
+  return `${Object.entries(emoteNames)
+    .map(
+      ([id, label]) =>
+        `<button type="button" data-emote="${id}" aria-label="Send ${label.toLowerCase()} emote" ${state.status === "closed" ? "disabled" : ""}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
+    )
+    .join(
+      "",
+    )}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button>`;
 }
 function playerEmote(player) {
   if (opponentEmotesMuted && player !== state.viewer) return "";
@@ -989,7 +997,10 @@ function resultTitle(mood, sentence, sub) {
   const word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood];
   // letters keep their place in the animation when the card redraws (someone readies up)
   const key = `${state.id}|${state.round}|${state.status}`;
-  if (board.resultShown?.key !== key) board.resultShown = { key, at: performance.now() };
+  if (board.resultShown?.key !== key) {
+    board.resultShown = { key, at: performance.now() };
+    haptic({ win: "win", lose: "lose", draw: "tie" }[mood]);
+  }
   const elapsed = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
   const letters = [...word]
     .map((char, i) => {
@@ -1035,6 +1046,19 @@ function evalHover(event) {
   tip.style.left = `${left ? px + 8 : px - 8 - tip.offsetWidth}px`;
 }
 
+/**
+ * The game is over: any card still lifted off the table (a staged swap, a drag,
+ * a card carried with the controller) is set back down in its place, so none is
+ * left hovering over the results.
+ */
+function settleLifted() {
+  if (board.staged) board.staged = null;
+  if (board.carry) cancelCarry();
+  for (const slot of board.el.querySelectorAll(".slot.dragging, .slot.returning")) {
+    slot.classList.remove("dragging", "returning");
+    motionFor(slot).to({ x: 0, y: 0, lean: 0, scale: 1, lift: 0, rx: 0, ry: 0 });
+  }
+}
 function renderSummary() {
   const holder = board.el.querySelector("[data-summary]");
   const over = ["round_over", "finished", "closed"].includes(state.status);
@@ -1043,6 +1067,7 @@ function renderSummary() {
     patch("summary", holder, "", "");
     return;
   }
+  settleLifted();
   const viewer = state.viewer;
   const result = state.history.at(-1);
   const finished = state.status === "finished";
@@ -1067,6 +1092,7 @@ function renderSummary() {
     board.summaryHidden,
     state.history.length,
     (state.timeline || []).length,
+    opponentEmotesMuted,
   ].join("|");
   patch("summary", holder, signature, () => {
     if (board.summaryHidden)
@@ -1093,14 +1119,14 @@ function renderSummary() {
     // Quit is a plain sticker icon with its label underneath, left of the main button
     const quit = `<button type="button" class="close-btn c-fw" data-leave>${icon("rectangle.portrait.and.arrow.right", 30)}<span>Quit</span></button>`;
     const action = between
-      ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${tilted("checkmark.circle.fill", 26)} ${state.ready[viewer] ? "Waiting…" : "Ready"}</button></div>`
+      ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${tilted("checkmark.circle.fill", 26)} <span>${padTag("y")}${state.ready[viewer] ? "Waiting…" : "Ready"}</span></button></div>`
       : viewer === 0
-        ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 26)} Play again</button></div>`
+        ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 26)} <span>${padTag("y")}Play again</span></button></div>`
         : `<div class="row">${quit}<p class="hint dark grow">The host can start a rematch.</p></div>`;
     const heading = resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     // the verdict and the graph float over the table; the green panel holds the rest
-    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button></div></div></section>`;
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button></div></div><div class="emote-pop summary-emotes" role="group" aria-label="Quick emotes">${emoteButtons()}</div></section>`;
   });
 }
 
@@ -1771,7 +1797,7 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
+    <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}

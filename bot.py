@@ -240,6 +240,10 @@ class Search:
 
 
 def choose_action(game):
+    # nothing to think about with a single legal move: play it straight away
+    actions = getattr(game, "_root_actions", None)
+    if actions is not None and len(actions) == 1:
+        return next(iter(actions))
     return Search(max_seconds=1.0).choose(game)
 
 

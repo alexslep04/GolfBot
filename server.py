@@ -25,7 +25,7 @@ from match_history import MatchHistory
 from progression import Progression
 import practice_save
 from player_stats import build_stats
-from scoring import active_rule_effects, visible_effect_total, modifier_data, rule_preview_data
+from scoring import active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data
 from bot import fallback_action, legal_actions, play_action, public_position
 from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
@@ -198,7 +198,14 @@ class Room:
 
     def save_practice(self):
         if self.practice and self.practice_account and self.progression and self.game:
-            self.progression.save_practice(self.practice_account, practice_save.save(self))
+            # Saving is a convenience: a failure must never undo the move around it.
+            # It runs after the move has changed the table, so raising here used to
+            # skip the broadcast and the bot's wake-up, leaving the player a stale
+            # table ("The table changed") and Golfbot idle.
+            try:
+                self.progression.save_practice(self.practice_account, practice_save.save(self))
+            except Exception:
+                log.exception("Could not save practice game for table %s", self.id)
 
     def expire_offer(self):
         if self.void_offer and self.void_offer['expires_at'] <= time.time():
