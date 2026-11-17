@@ -346,14 +346,19 @@ class Room:
             self.series_complete = True
         else:
             self.status = "round_over"
-        if self.progression:
-            event_id = self.match_id + ':' + str(len(self.history))
-            if self.rated:
-                self.history[-1]['elo'] = self.progression.rate_game(event_id, self.progression_players, winner, self.patch)
-            if self.counts_streak:
-                self.progression.practice_result(event_id, self.progression_players[0], winner, self.patch)
-        if self.history_store:
-            self.history_store.save(self)
+        # The game is already over at the table: a storage failure here must not
+        # stop the move's broadcast, or the players never see the final cards.
+        try:
+            if self.progression:
+                event_id = self.match_id + ':' + str(len(self.history))
+                if self.rated:
+                    self.history[-1]['elo'] = self.progression.rate_game(event_id, self.progression_players, winner, self.patch)
+                if self.counts_streak:
+                    self.progression.practice_result(event_id, self.progression_players[0], winner, self.patch)
+            if self.history_store:
+                self.history_store.save(self)
+        except Exception:
+            log.exception("Could not record the result of table %s", self.id)
         self.save_practice()
 
 
@@ -843,6 +848,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     room.save_practice()
                     await broadcast(room)
                     schedule_reaction(room)
+        except Exception:
+            log.exception("Golfbot stopped unexpectedly at table %s", room.id)
         finally:
             if room.bot_task is asyncio.current_task():
                 room.bot_task = None
@@ -1472,19 +1479,27 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     room.participants[1] = None
                     room.avatars[1] = DEFAULT_AVATAR
             else:
-                if room.practice and room.practice_account:
-                    room.save_practice()
-                elif room.counts_streak and not room.round_recorded:
-                    store.progression.reset_streak(room.progression_players[0], room.patch)
-                if room.rated:
-                    forfeit(room, seat)
+                # Leaving must always succeed: storage trouble is logged, never
+                # returned as a server error that keeps the player at the table.
+                try:
+                    if room.practice and room.practice_account:
+                        room.save_practice()
+                    elif room.counts_streak and not room.round_recorded:
+                        store.progression.reset_streak(room.progression_players[0], room.patch)
+                    if room.rated:
+                        forfeit(room, seat)
+                except Exception:
+                    log.exception("Could not record the departure from table %s", room.id)
                 room.status = "closed"
                 room.departed[seat] = True
                 if room.solo:
                     room.departed[1] = True
-                if not (room.practice and room.practice_account):
-                    room.finish_continuous()
-                store.history.save(room, abandoned=True)
+                try:
+                    if not (room.practice and room.practice_account):
+                        room.finish_continuous()
+                    store.history.save(room, abandoned=True)
+                except Exception:
+                    log.exception("Could not save the history of table %s", room.id)
                 if room.bot_task:
                     room.bot_task.cancel()
             room.version += 1
@@ -1606,6 +1621,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     return
                 store.session(token)
                 room.touched = time.time()
+                # The heartbeat doubles as a watchdog: if Golfbot's task ever
+                # died mid-turn, the next ping wakes it instead of a page reload.
+                kick_bot(room)
                 await ws.send_json(snapshot(room, token))
         except WebSocketDisconnect:
             pass
