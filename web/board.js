@@ -521,17 +521,21 @@ function groupStickers(pairs) {
  * sticker sits small on the bottom-right corner of the main one.
  */
 function ruleStickerHtml(sticker, size, opts = {}) {
-  const main =
-    opts.tilt === undefined
-      ? icon(sticker.icon, size, { idle: false })
-      : tilted(sticker.icon, size, { tilt: opts.tilt });
+  // On the table the pair drifts as one piece: the idle motion lives on the
+  // wrapper, so the variant moves exactly as if stuck to the main sticker.
+  const drifting = opts.tilt !== undefined;
+  const main = drifting
+    ? tilted(sticker.icon, size, { tilt: opts.tilt, idle: false })
+    : icon(sticker.icon, size, { idle: false });
   const subs = sticker.subs
     .map(
       (name, i) =>
         `<span class="rule-sub" style="--n:${i}">${icon(name, Math.round(size * 0.5), { idle: false, sw: 2.4 })}</span>`,
     )
     .join("");
-  return `<span class="rule-stk">${main}${subs}</span>`;
+  return drifting
+    ? `<span class="rule-stk idle" style="${idleStyle(`rule:${sticker.rule}`)}">${main}${subs}</span>`
+    : `<span class="rule-stk">${main}${subs}</span>`;
 }
 /**
  * The stickers a hand has earned: one per rule that is affecting that player
@@ -862,7 +866,7 @@ function renderSummary() {
         ? state.names
             .map(
               (name, p) =>
-                `<div class="${result.winner === p ? "win" : ""}"><span>${e(name)}${p === viewer ? " (you)" : ""}</span><b>${result.scores[p]} pts${state.names.length > 2 || state.best_of !== 1 ? ` · ${state.series_mode === "points" ? state.points[p] + " total" : state.wins[p] + (state.wins[p] === 1 ? " win" : " wins")}` : ""}</b></div>`,
+                `<div class="${result.winner === p ? "win" : ""}"><span>${p === viewer ? youStar() : ""}${e(name)}</span><b>${result.scores[p]} pts${state.names.length > 2 || state.best_of !== 1 ? ` · ${state.series_mode === "points" ? state.points[p] + " total" : state.wins[p] + (state.wins[p] === 1 ? " win" : " wins")}` : ""}</b></div>`,
             )
             .join("")
         : "";
@@ -975,10 +979,21 @@ function showTargets(moves) {
     slot.querySelector(".move-label").textContent = item.label;
   }
 }
+/**
+ * After a flip, the card just turned over is the only one in play: it has to
+ * be swapped, or left where it is. It stays selected until that is settled.
+ */
+function pinnedCard() {
+  const g = state?.game;
+  if (!g || !myTurn() || !["revealed", "drawn_revealed"].includes(g.phase)) return null;
+  return g.legal.swap.length === 1 ? [state.viewer, g.legal.swap[0]] : null;
+}
 function paintSelection() {
   if (!board.el) return;
   // nothing can be picked up when it is not your turn, so nothing stays outlined
   board.selected = myTurn() ? board.selected.filter((ref) => slotFor(ref)) : [];
+  const pinned = pinnedCard();
+  if (pinned && !board.staged && !board.carry && !board.drag?.active) board.selected = [pinned];
   board.slots.forEach((slot) => {
     const ref = JSON.parse(slot.dataset.ref);
     slot.classList.toggle("selected", hasRef(board.selected, ref));
@@ -1458,6 +1473,21 @@ function tapSlot(ref, slot) {
   }
   board.lastTap = canFlip(ref) ? { ref, time: now, version: state.version } : null;
   if (!myTurn()) return popSlot(slot, 0.3); // not your turn: a nudge, no selection
+  const pinned = pinnedCard();
+  if (pinned) {
+    // the flipped card keeps the selection: other cards can only receive it
+    const item = same(ref, pinned) ? null : movesFrom(pinned).find((m) => same(m.ref, ref));
+    if (item && !busy) {
+      board.selected = [];
+      paintSelection();
+      playMove(item.action, item.extra, { from: pinned, to: ref, label: item.label });
+      return;
+    }
+    popSlot(slot, same(ref, pinned) ? 0.45 : 0.3);
+    board.selected = [pinned];
+    paintSelection();
+    return;
+  }
   if (board.selected.length === 1 && !same(board.selected[0], ref)) {
     const item = movesFrom(board.selected[0]).find((m) => same(m.ref, ref));
     if (item && !busy) {
@@ -1510,7 +1540,7 @@ function rulesSheet(player) {
     `<div class="rule-card ${on ? "" : "off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill", 30, { idle: false })}</span><div><strong>${e(rule.name)}${active.includes(rule.key) ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}</div></div>`;
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${e(state.names[player])}${player === state.viewer ? " (you)" : ""}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
+    <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span><span>${e(effect)}</span></div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}

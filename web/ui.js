@@ -67,6 +67,20 @@ function glyph(name, size = 20) {
 }
 
 /**
+ * The star that marks your own name. It is the SF Symbol drawn like a letter:
+ * sized in ems and filled with the text colour, so it matches whatever type it
+ * sits beside.
+ */
+function youStar() {
+  const data = ICONS["star.fill"];
+  const [x, y, w, h] = data.b;
+  const paths = (data.l || [[0, data.d]])
+    .map(([cut, d]) => (cut ? "" : `<path d="${d}"/>`))
+    .join("");
+  return `<svg class="you-star" viewBox="${x} ${y} ${w} ${h}" role="img" aria-label="you" style="aspect-ratio:${w}/${h}"><title>You</title>${paths}</svg>`;
+}
+
+/**
  * Light always comes from the top-left, so every sticker's shadow falls down
  * and to the right on screen. A sticker that is rotated or mirrored gets its
  * shadow offset counter-transformed to keep it pointing that way.

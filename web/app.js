@@ -532,7 +532,7 @@ function setupPage() {
     const fixed = ["wins", "points"].includes(draft.style);
     show(
       "setup",
-      `<div class="page">${topbar()}<div class="stack wide">
+      `<div class="page centered">${topbar()}<div class="stack wide">
       ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
       ${
         draft.mode === "host"
@@ -541,7 +541,7 @@ function setupPage() {
       }
       <div class="stack"><div class="row">
         ${selectField("Match Style", `data-draft="style" aria-label="Match style"`, [["single", "Single game", draft.style === "single"], ["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"], ["continuous", "Play until you leave", draft.style === "continuous"]], "pointer.arrow.rays", fixed ? "hug" : "")}
-        ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), null, "grow") : ""}
+        ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), "pointer.arrow.rays", "grow") : ""}
       </div><p class="hint">${e(styleHint())}</p></div>
     </div><div class="row">${backButton(draft.mode === "host" ? "friends" : "home")}${entryButton("data-setup-next", "Continue")}</div></div>`,
     );
@@ -849,7 +849,7 @@ function waitingRoom() {
     `<div class="page">${topbar()}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(state.name)}</h1><div class="meta"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${houseBadge(state)}</div></div>
     <div class="share">${field("Invite Link", `<input readonly aria-label="Lobby invite link" value="${e(url)}">`, "link")}<button type="button" class="btn c-p1" style="flex:none;min-height:5.6rem;font-size:1.8rem;padding:0 1.6rem" data-copy="${e(url)}">Copy</button></div>
-    <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${e(seatName)}${seat === state.viewer ? " (you)" : ""}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
+    <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${seat === state.viewer ? youStar() : ""}${e(seatName)}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
     <p class="hint">${e(rulesSummary(state.rules))}</p>
     <p class="hint dark">${many ? "The host starts once at least three players have joined." : "The game starts automatically when a friend joins."}</p>
     </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>Invite a Player</span></button>` : ""}<div class="row"><button type="button" class="btn round c-p2" data-leave aria-label="Leave table">${glyph("xmark", 20)}</button>${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
@@ -940,7 +940,7 @@ async function playerStatsSheet(player) {
   openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
     <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
     <div data-player-stats><div class="loading">Loading stats…</div></div>
-    <button type="button" class="btn small ${color}" style="margin-top:1.2rem;width:100%" data-nav="stats">${tilted("medal", 22)} Open the leaderboard</button>
+    <div class="row" style="margin-top:1.2rem">${id ? `<button type="button" class="btn small ${color} grow" data-stats-player="${e(id)}">Full stats</button>` : ""}<button type="button" class="btn small ${color} grow" data-nav="stats">${tilted("medal", 22)} Leaderboard</button></div>
   </section>`);
   const holder = sheetRoot.querySelector("[data-player-stats]");
   let body;
@@ -1126,7 +1126,7 @@ async function historyPage(more = false) {
               match.last_game_ended_at ||
               Math.max(...match.rounds.map((game) => game.ended_at || 0)) ||
               match.updated_at;
-            return `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2><div class="meta"><span class="pill">${e(new Date(ended * 1000).toLocaleDateString())}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div><p style="margin-top:1rem">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })} Overall winner: ${e(winner)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col">${e(name)}${match.viewer === p ? " (you)" : ""}</th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total pts</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope="row">Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
+            return `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2><div class="meta"><span class="pill">${e(new Date(ended * 1000).toLocaleDateString())}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div><p style="margin-top:1rem">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })} Overall winner: ${e(winner)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col">${match.viewer === p ? youStar() : ""}${e(name)}</th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total pts</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope="row">Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
           })
           .join("") ||
         `<p class="hint">No completed games yet. Finish a game against a player or Golfbot to see it here.</p>`
@@ -1151,7 +1151,8 @@ let statsSelection = {
     house_rules: true,
     patch: "",
   },
-  statsRequest = 0;
+  statsRequest = 0,
+  statsFiltersOpen = false;
 const statNumber = (value) =>
   value === null
     ? "—"
@@ -1165,26 +1166,141 @@ const statPercent = (value) =>
         style: "percent",
         maximumFractionDigits: 1,
       }).format(value);
-function readStatsForm() {
-  const form = document.getElementById("stats-form");
-  if (!form) return;
-  const data = new FormData(form);
-  statsSelection = {
-    player: data.get("player") || "",
-    opponent: data.get("opponent") || "",
-    enabled: [],
-    disabled: [],
-    house_rules: data.has("house_rules"),
-    patch: data.get("patch") || "",
-  };
-  if (statsSelection.player === statsSelection.opponent)
-    statsSelection.opponent = "";
-  for (const rule of catalog) {
-    if (statsSelection.house_rules) break;
-    const value = data.get("filter-" + rule.key);
-    if (value === "on") statsSelection.enabled.push(rule.key);
-    if (value === "off") statsSelection.disabled.push(rule.key);
+/* ---------- leaderboard & player stats ---------- */
+// Filters work like the rule picker before a game: House (official stats) or
+// any rules, and with House off each rule can be required or excluded.
+const statsRuleState = (key) =>
+  statsSelection.house_rules
+    ? matchOptions.house_rules[key]
+      ? "on"
+      : "any"
+    : statsSelection.enabled.includes(key)
+      ? "on"
+      : statsSelection.disabled.includes(key)
+        ? "off"
+        : "any";
+function statsQuery(withPlayers = true) {
+  const query = new URLSearchParams();
+  if (!statsSelection.house_rules) query.set("house_rules", "false");
+  else {
+    statsSelection.enabled = [];
+    statsSelection.disabled = [];
   }
+  if (statsSelection.patch) query.set("patch", statsSelection.patch);
+  if (withPlayers && statsSelection.player) {
+    query.set("player", statsSelection.player);
+    if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
+  }
+  for (const key of statsSelection.enabled) query.append("enabled", key);
+  for (const key of statsSelection.disabled) query.append("disabled", key);
+  return query;
+}
+function statsFilterSummary() {
+  const names = (keys) =>
+    catalog
+      .filter((rule) => keys.includes(rule.key))
+      .map((rule) => RULE_SHORT[rule.key] || rule.name)
+      .join(", ");
+  const { enabled, disabled, house_rules, patch } = statsSelection;
+  const parts = [];
+  if (house_rules) parts.push("Official stats: games played with the saved House rules.");
+  else if (!enabled.length && !disabled.length) parts.push("Every saved game, whatever rules were on.");
+  else {
+    if (enabled.length) parts.push(`With ${names(enabled)}.`);
+    if (disabled.length) parts.push(`Without ${names(disabled)}.`);
+  }
+  if (patch) parts.push(patch === "legacy" ? "Earlier patches only." : `Patch ${patch} only.`);
+  return parts.join(" ");
+}
+function statsFiltersHtml(patches) {
+  const { enabled, disabled, house_rules, patch } = statsSelection;
+  const custom = enabled.length + disabled.length;
+  const preset = house_rules ? "house" : custom ? "custom" : "any";
+  const presets = [
+    ["house", "House", "house.fill"],
+    ["any", "Any rules", "infinity"],
+  ];
+  const open = statsFiltersOpen;
+  const title = house_rules
+    ? "House rules"
+    : custom
+      ? `${custom} rule filter${custom === 1 ? "" : "s"}`
+      : "Any rules";
+  const words = { on: "required", off: "excluded", any: "either way" };
+  const row = (rule) => {
+    const value = statsRuleState(rule.key);
+    return `<button type="button" class="rule-row filter-row ${value}" data-stats-rule="${e(rule.key)}" aria-label="${e(rule.name)}: ${words[value]}" title="${e(rule.description)}" ${house_rules ? "disabled" : ""}>${tilted(value === "on" ? "checkmark.circle.fill" : value === "off" ? "xmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5, cls: value === "any" ? "bare" : "" })}<span>${e(rule.name)}</span></button>`;
+  };
+  const patchField = selectField(
+    "Patch",
+    `data-stats-patch aria-label="Patch"`,
+    [["", "All time", !patch], ...patches.map((name) => [name, name === "legacy" ? "Earlier patches" : name, patch === name])],
+    null,
+    "compact",
+  );
+  return `<div class="rules-box ${open ? "open" : ""}"><span class="label">Filters</span>
+    <button type="button" class="rules-head" data-stats-filters-toggle aria-expanded="${open}"><span>${tilted("checklist", 24)} ${title}</span><span class="chev">${glyph("chevron.right", 20)}</span></button>
+    <div class="collapse ${open ? "open" : ""}" data-rules-open><div ${open ? "" : "inert"}><div class="rules-body">
+      <div class="chips" style="justify-content:space-around">${presets.map(([key, label, symbol]) => `<button type="button" class="rule-row" style="flex-direction:column;gap:1.4rem;color:var(--fw-text)" data-stats-preset="${key}" aria-pressed="${preset === key}">${tilted(symbol, 52, { tilt: key === "house" ? 6 : -6, style: preset === key ? "--fill:var(--p1b);--stroke:var(--p1)" : "" })}<span>${label}${key === "house" ? " Rules" : ""}</span></button>`).join("")}</div>
+      <div class="rule-group"><h4>Rules</h4>${catalog.map(row).join("")}</div>
+      <p class="hint dark">${house_rules ? "House rules count only games played with the saved preset. Choose Any rules to pick your own." : "Tap a rule to require it. Tap again to leave out games that used it."}</p>
+      ${patchField}
+    </div></div></div></div>
+    <div class="collapse ${open ? "" : "open"}" data-rules-closed><div ${open ? "inert" : ""}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-stats-preset="${key}" aria-pressed="${preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(statsFilterSummary())}</p></div></div></div>`;
+}
+/** Open or close the filter box in place so the height change can animate. */
+function toggleStatsFilters() {
+  statsFiltersOpen = !statsFiltersOpen;
+  const holder = root.querySelector("[data-stats-filters]");
+  const box = holder?.querySelector(".rules-box");
+  if (!box) return;
+  box.classList.toggle("open", statsFiltersOpen);
+  box.querySelector("[data-stats-filters-toggle]").setAttribute("aria-expanded", statsFiltersOpen);
+  for (const [name, open] of [
+    ["[data-rules-open]", statsFiltersOpen],
+    ["[data-rules-closed]", !statsFiltersOpen],
+  ]) {
+    const part = holder.querySelector(name);
+    part.classList.toggle("open", open);
+    part.firstElementChild.toggleAttribute("inert", !open);
+  }
+  if (statsFiltersOpen) {
+    box.querySelectorAll(".rule-row").forEach((row, i) => row.style.setProperty("--i", i));
+    box.classList.add("opening");
+    setTimeout(() => box.classList.remove("opening"), 900);
+  }
+}
+/** The ranking: everyone with a matching game, best game win rate first. */
+function leaderboardHtml(result) {
+  const rows = result.leaderboard.filter((row) => row.rounds > 0);
+  if (!rows.length) return `<p class="empty">No games match these filters yet.</p>`;
+  return `<p class="hint dark">Ranked by game win rate. Tap a player for their full record.</p><div class="list">${rows
+    .map((row, i) => {
+      const games = `${row.rounds} game${row.rounds === 1 ? "" : "s"}`;
+      return `<button type="button" class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}" data-stats-player="${e(row.profile.id)}" aria-label="${i + 1}. ${e(row.profile.label)}, ${statPercent(row.round_win_rate)} win rate, ${games}">
+        <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "rank:first" }) : stickerText(String(i + 1), { key: `rank:${i}` })}</span>
+        <div class="grow"><strong>${e(row.profile.label)}</strong><small>${row.round_wins}–${row.round_losses}–${row.round_draws} · ${games}</small></div>
+        <b class="rate">${statPercent(row.round_win_rate)}</b>${glyph("chevron.right", 16)}
+      </button>`;
+    })
+    .join("")}</div>`;
+}
+/** One player's record: the headline numbers, then the full tables. */
+function playerStatsHtml(result) {
+  const entry = result.player,
+    stats = entry.overall;
+  const place = result.leaderboard.filter((row) => row.rounds > 0).findIndex((row) => row.profile.id === entry.profile.id);
+  const others = result.players.filter((player) => player.id !== entry.profile.id);
+  const tile = (value, label) => `<div><b>${value}</b><span>${label}</span></div>`;
+  return `<section class="panel c-p3 stat-hero">
+      <div class="stat-rate">${stickerText(stats.round_win_rate === null ? "—" : String(Math.round(stats.round_win_rate * 100)), { split: true, key: "stat-rate" })}${stats.round_win_rate === null ? "" : stickerText("%", { cls: "pts", key: "stat-pct" })}</div>
+      <p>game win rate${place >= 0 ? ` · ranked #${place + 1}` : ""}</p>
+      <div class="stat-tiles">${tile(`${stats.round_wins}–${stats.round_losses}–${stats.round_draws}`, "W–L–D")}${tile(statNumber(stats.rounds), "games")}${tile(statNumber(stats.average_points), "avg points")}</div>
+    </section>
+    ${selectField("Compare With", `data-stats-opponent aria-label="Compare with"`, [["", "Nobody: overall only", !statsSelection.opponent], ...others.map((player) => [player.id, player.label, player.id === statsSelection.opponent])], "person.2.fill")}
+    ${statsTable([entry, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}
+    ${result.comparison ? statsTable([entry, result.comparison], "head_to_head", "Head to head", "c-p1") : ""}
+    <details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details>`;
 }
 function ruleActivationsHtml(entry, scope) {
   const stats = entry[scope];
@@ -1238,75 +1354,50 @@ async function statsPage(fromUrl = false) {
     };
   }
   const request = ++statsRequest;
-  const focused = document.activeElement?.id;
-  const rulesOpen = document.getElementById("stats-rules")?.open;
-  const wasStats = page === "stats";
-  const scroll = window.scrollY;
+  // the ranking, or (once a player is picked) that player's own page
+  const view = statsSelection.player ? "player:" + statsSelection.player : "board";
+  const same = page === "stats" && root.querySelector("[data-stats-view]")?.dataset.statsView === view;
+  const query = statsQuery();
   document.title = "Leaderboard · Golf";
-  const query = new URLSearchParams();
-  if (!statsSelection.house_rules) query.set("house_rules", "false");
-  else {
-    statsSelection.enabled = [];
-    statsSelection.disabled = [];
-  }
-  if (statsSelection.patch) query.set("patch", statsSelection.patch);
-  if (statsSelection.player) query.set("player", statsSelection.player);
-  if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
-  for (const key of statsSelection.enabled) query.append("enabled", key);
-  for (const key of statsSelection.disabled) query.append("disabled", key);
-  history.replaceState(
-    {},
-    "",
-    appPath("/stats") + (query.toString() ? "?" + query : ""),
-  );
-  const head = subHeader("Leaderboard");
-  if (!wasStats)
+  history.replaceState({}, "", appPath("/stats") + (query.toString() ? "?" + query : ""));
+  const head = (title) => subHeader(title, statsSelection.player ? "stats" : undefined);
+  if (!same)
     show(
       "stats",
-      `<div class="page scroll">${head}<div class="loading">Loading player stats…</div></div>`,
+      `<div class="page scroll">${head(statsSelection.player ? "Player stats" : "Leaderboard")}<div class="loading">Loading player stats…</div></div>`,
     );
   try {
     const result = await api("/api/stats?" + query);
     if (page !== "stats" || request !== statsRequest) return;
-    statsSelection.player = result.player?.profile.id || "";
     statsSelection.opponent = result.comparison?.profile.id || "";
     if (!result.players.length) {
       show(
         "stats",
-        `<div class="page scroll">${head}<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p></div>`,
+        `<div class="page scroll">${head("Leaderboard")}<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p></div>`,
       );
       return;
     }
-    const options = (selected, exclude = "") =>
-      result.players
-        .filter((player) => player.id !== exclude)
-        .map(
-          (player) =>
-            `<option value="${e(player.id)}" ${player.id === selected ? "selected" : ""}>${e(player.label)}</option>`,
-        )
-        .join("");
-    const active =
-      statsSelection.enabled.length + statsSelection.disabled.length;
+    const filters = statsFiltersHtml(result.patches);
+    const content = statsSelection.player ? playerStatsHtml(result) : leaderboardHtml(result);
+    const holder = root.querySelector("[data-stats-view]");
+    if (same && holder) {
+      // a filter changed: redraw in place, keeping the scroll position
+      holder.querySelector("[data-stats-filters]").innerHTML = filters;
+      holder.querySelector("#stats-content").innerHTML = content;
+      return;
+    }
     show(
       "stats",
-      `<div class="page scroll">${head}<p class="hint dark">Pick a player to see their record, or compare two head to head. ${session.room_id ? "Your table is still open." : ""}</p>
-      <form id="stats-form" class="panel c-p2"><div class="form-grid">
-        ${field("Player", `<select aria-label="Player" id="stats-player" name="player" data-stats-select>${options(statsSelection.player)}</select>`, null, "compact")}
-        ${field("Compare With", `<select aria-label="Compare with" id="stats-opponent" name="opponent" data-stats-select><option value="">Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select>`, null, "compact")}
-        ${field("Patch", `<select id="stats-patch" name="patch" aria-label="Patch" data-stats-select><option value="">All time</option>${result.patches.map((patch) => `<option value="${e(patch)}" ${statsSelection.patch === patch ? "selected" : ""}>${e(patch === "legacy" ? "Earlier patches" : patch)}</option>`).join("")}</select>`, null, "compact")}
-      </div>
-      <label class="check" style="margin-top:1.4rem"><input type="checkbox" aria-label="House rules" name="house_rules" data-stats-house ${statsSelection.house_rules ? "checked" : ""}><span>House rules only <small style="display:block;opacity:.7;font-size:1.3rem">Official stats · saved house-rule games</small></span></label>
-      <details id="stats-rules" style="margin-top:1rem" ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${statsSelection.house_rules ? "House rules" : active ? active + " selected" : "any rules"}</summary><fieldset ${statsSelection.house_rules ? "disabled" : ""}><p>Any allows either setting. On requires the rule; Off excludes it.</p><div class="row" style="margin:1rem 0"><button type="button" class="btn small" data-stats-all="on">All on</button><button type="button" class="btn small" data-stats-all="off">All off</button></div><div class="form-grid">${catalog.map((rule) => field(rule.name, `<select name="filter-${e(rule.key)}" aria-label="${e(rule.name)} filter"><option value="any">Any</option><option value="on" ${(statsSelection.house_rules ? matchOptions.house_rules[rule.key] : statsSelection.enabled.includes(rule.key)) ? "selected" : ""}>On</option><option value="off" ${(statsSelection.house_rules ? !matchOptions.house_rules[rule.key] : statsSelection.disabled.includes(rule.key)) ? "selected" : ""}>Off</option></select>`, null, "compact")).join("")}</div></fieldset></details>
-      <div class="row" style="margin-top:1.4rem"><button class="btn small grow" type="submit">Apply filters</button><button class="btn small" type="button" data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form>
-      <div id="stats-content" class="stack wide">${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head", "c-p1") : `<p class="hint">Choose a comparison player above for head-to-head results.</p>`}<details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></div>`,
+      `<div class="page scroll" data-stats-view="${e(view)}">${head(statsSelection.player ? result.player.profile.label : "Leaderboard")}
+        <div data-stats-filters>${filters}</div>
+        <div id="stats-content" class="stack wide">${content}</div>
+      </div>`,
     );
-    if (wasStats) window.scrollTo(0, scroll);
-    if (focused) document.getElementById(focused)?.focus();
   } catch (error) {
     if (page === "stats" && request === statsRequest)
       show(
         "stats",
-        `<div class="page scroll">${head}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button></div>`,
+        `<div class="page scroll">${head("Leaderboard")}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button></div>`,
       );
   }
 }
@@ -1360,7 +1451,12 @@ function rulesPage() {
 async function navigate(target) {
   if (target === "home") return home();
   if (target === "history") return historyPage();
-  if (target === "stats") return statsPage();
+  if (target === "stats") {
+    // always lands on the ranking; a player's page is opened from there
+    statsSelection.player = "";
+    statsSelection.opponent = "";
+    return statsPage();
+  }
   if (target === "patches") return patchesPage();
   if (target === "account") return accountPage();
   if (target === "rules") return rulesPage();
@@ -1555,24 +1651,30 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (data.nav) return await navigate(data.nav);
-    if (
-      "statsAll" in data ||
-      "statsReset" in data ||
-      "statsResetAll" in data
-    ) {
-      readStatsForm();
+    if ("statsFiltersToggle" in data) return toggleStatsFilters();
+    if (data.statsPlayer) {
+      statsSelection.player = data.statsPlayer;
+      statsSelection.opponent = "";
+      return await statsPage();
+    }
+    if (data.statsPreset) {
+      statsSelection.house_rules = data.statsPreset === "house";
       statsSelection.enabled = [];
       statsSelection.disabled = [];
-      if (data.statsAll) {
-        const keys = catalog.map((rule) => rule.key);
-        if (data.statsAll === "on") statsSelection.enabled = keys;
-        else statsSelection.disabled = keys;
-      }
-      if ("statsResetAll" in data) {
-        statsSelection.player = "";
-        statsSelection.opponent = "";
-        statsSelection.patch = "";
-      }
+      return await statsPage();
+    }
+    if (data.statsRule) {
+      // each tap moves a rule on: either way → required → excluded → either way
+      const key = data.statsRule;
+      const value = statsRuleState(key);
+      statsSelection.enabled = statsSelection.enabled.filter((item) => item !== key);
+      statsSelection.disabled = statsSelection.disabled.filter((item) => item !== key);
+      if (value === "any") statsSelection.enabled.push(key);
+      else if (value === "on") statsSelection.disabled.push(key);
+      return await statsPage();
+    }
+    if ("statsResetAll" in data) {
+      statsSelection = { player: "", opponent: "", enabled: [], disabled: [], house_rules: true, patch: "" };
       return await statsPage();
     }
     if ("historyMore" in data) return await historyPage(true);
@@ -1651,10 +1753,6 @@ root.addEventListener("submit", async (event) => {
     }
     return;
   }
-  if (event.target.id === "stats-form") {
-    readStatsForm();
-    await statsPage();
-  }
 });
 root.addEventListener("change", async (event) => {
   const target = event.target;
@@ -1671,11 +1769,9 @@ root.addEventListener("change", async (event) => {
     if (key === "gameType") refreshRulesPicker();
     return;
   }
-  if (
-    target.hasAttribute("data-stats-house") ||
-    target.hasAttribute("data-stats-select")
-  ) {
-    readStatsForm();
+  if (target.hasAttribute("data-stats-patch") || target.hasAttribute("data-stats-opponent")) {
+    if (target.hasAttribute("data-stats-patch")) statsSelection.patch = target.value;
+    else statsSelection.opponent = target.value;
     await statsPage();
     return;
   }
