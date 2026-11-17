@@ -132,17 +132,18 @@ class GolfTests(unittest.TestCase):
             self.assertIsNone(game.held_card)
             self.assert_conservation(game)
 
-    def test_draw_first_hidden_target_requires_reveal(self):
+    def test_draw_first_can_replace_a_hidden_card_without_revealing_it(self):
         game = self.start()
+        hidden = game.players[0][5].card
+        self.assertFalse(game.players[0][5].visible)
         game.draw()
         drawn = game.held_card
-        with self.assertRaises(ValueError):
-            game.swap(5)
-        self.assertEqual(game.phase, "drawn")
-        self.assertEqual(game.held_card, drawn)
-        game.reveal(5)
+        self.assertEqual(game.targets(), [0, 1, 2, 3, 4, 5])
         game.swap(5)
         self.assertEqual(game.players[0][5], Slot(drawn, True))
+        self.assertEqual(game.discard_pile[-1], hidden)
+        self.assertIsNone(game.held_card)
+        self.assertEqual(game.current, 1)
         self.assert_conservation(game)
 
     def test_draw_then_flip_keep_or_discard(self):

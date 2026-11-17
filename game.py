@@ -395,7 +395,8 @@ class GolfGame:
         if self.phase == "choose":
             indexes = range(6)
         elif self.phase == "drawn":
-            indexes = [i for i, slot in enumerate(self.players[self.current]) if slot.visible]
+            # A go-fish draw may replace any of your cards, face up or face down.
+            indexes = range(6)
         elif self.phase in ("revealed", "drawn_revealed"):
             indexes = [self.flipped]
         else:

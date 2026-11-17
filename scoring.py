@@ -160,6 +160,139 @@ def scoring_rule_keys(layout, rules):
     return keys
 
 
+def modifier_instance_counts(layout, rules, gambler_earned=False, locked_cards=(), poisoned=False,
+                             angel_earned=False, *, visible_only=True):
+    """Count optional modifier instances caused by this player's current layout.
+
+    Incoming effects and ordinary column cancellations are not optional modifiers.
+    Rows and King-Queen columns stack; V patterns, Hold 'em, earned multipliers,
+    color, locks and poison each apply once. Earned 777/999 effects survive swaps.
+    Hidden cards are ignored unless the caller explicitly requests final scoring.
+    """
+    counts = Counter()
+    for name, _ in v_pattern_effects(layout, rules, visible_only):
+        counts['v10' if name == 'V10 engine' else 'roman_fives'] = 1
+    cards = [slot.card for slot in layout if slot.visible or not visible_only]
+    if rules.holdem and holdem_categories(cards) & {'flush', 'straight', 'full_house', 'four_kind'}:
+        counts['holdem'] = 1
+    counts['tricky_straights'] = sum(1 for _ in straight_rows(layout, rules, visible_only))
+    counts['suited_rows'] = sum(1 for _ in suited_rows(layout, rules, visible_only))
+    if all_color(layout, rules, visible_only) is not None:
+        counts['all_in_color'] = 1
+    if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, visible_only)):
+        counts['ripped_five'] = 1
+    if rules.king_queen:
+        counts['king_queen'] = sum(
+            (not visible_only or layout[i].visible and layout[i + 3].visible) and
+            {layout[i].card.rank, layout[i + 3].card.rank} == {12, 13} for i in range(3))
+    if rules.devils_row and any(card in locked_cards for card in cards):
+        counts['devils_row'] = 1
+    if rules.gamblers_row and gambler_earned:
+        counts['gamblers_row'] = 1
+    if rules.angels_row and angel_earned:
+        counts['angels_row'] = 1
+    if rules.poisoned_card and poisoned:
+        counts['poisoned_card'] = 1
+    return {key: count for key, count in counts.items() if count}
+
+
+def modifier_data(game, *, visible_only=True):
+    """Return seat-ordered, source-owned modifier counts and activation keys.
+
+    Public state uses the visible-only default. At round end record both payload
+    keys with visible_only=False: modifier_counts is a final snapshot, activations
+    retains the game's cumulative action/trigger tracker. Neither includes cards.
+    Action-only rules (royal_pairs, beggars, four_kind) have no lasting modifier.
+    """
+    counts = [modifier_instance_counts(
+        layout, game.rules, game.gambler_earned[player], game.locked_cards,
+        poisoned=game.finisher == player, angel_earned=game.angel_earned[player],
+        visible_only=visible_only) for player, layout in enumerate(game.players)]
+    return {'modifier_counts': counts,
+            'activations': [sorted(set(keys) | set(counts[player]))
+                            for player, keys in enumerate(game.activated_rules)]}
+
+
+
+def rule_preview_data(game):
+    """Seat-ordered public contributors: rule key -> indices and optional note.
+
+    Modifier activity belongs to its source, never recipients or activation
+    history. Only visible slots participate, including for the owning viewer.
+    Action rules are previews, not additional scoring modifier instances.
+    """
+    result = []
+    rules = game.rules
+    for player, layout in enumerate(game.players):
+        active = modifier_instance_counts(
+            layout, rules, game.gambler_earned[player], game.locked_cards,
+            poisoned=game.finisher == player, angel_earned=game.angel_earned[player])
+        visible = [i for i, slot in enumerate(layout) if slot.visible]
+        entries = {}
+        for key in active:
+            indices = []
+            note = None
+            if key == 'king_queen':
+                indices = [i for col in range(3)
+                           if layout[col].visible and layout[col + 3].visible
+                           and {layout[col].card.rank, layout[col + 3].card.rank} == {12, 13}
+                           for i in (col, col + 3)]
+            elif key in ('roman_fives', 'v10'):
+                indices = next(list(pattern) for pattern in V_PATTERNS
+                               if all(layout[i].visible for i in pattern)
+                               and (sum(layout[i].card.base_points for i in pattern) == 10
+                                    if key == 'roman_fives' else
+                                    {layout[i].card.rank for i in pattern} == {10, 11, 12}))
+            elif key in ('tricky_straights', 'suited_rows'):
+                rows = straight_rows if key == 'tricky_straights' else suited_rows
+                indices = [i for row, _, _ in rows(layout, rules, True)
+                           for i in range((row - 1) * 3, row * 3)]
+            elif key == 'ripped_five':
+                indices = [i for pair, source in cancellation_pairs(layout, rules, True)
+                           if source == 'ripped' for i in pair]
+            elif key == 'holdem':
+                indices = next(list(hand) for hand in combinations(visible, 5)
+                               if holdem_categories([layout[i].card for i in hand])
+                               & {'flush', 'straight', 'full_house', 'four_kind'})
+            elif key == 'all_in_color':
+                indices = visible
+            elif key == 'devils_row':
+                indices = [i for i in visible if layout[i].card in game.locked_cards]
+            elif key in ('gamblers_row', 'angels_row'):
+                rank = 7 if key == 'gamblers_row' else 9
+                indices = [i for row in (range(3), range(3, 6))
+                           if all(layout[j].visible and layout[j].card.rank == rank for j in row)
+                           for i in row]
+                if not indices:
+                    note = 'Earned earlier; still applies.'
+            elif key == 'poisoned_card':
+                indices = visible
+                note = 'Finisher penalty retained, including while cards are hidden.'
+            entries[key] = {'indices': sorted(set(indices))}
+            if note:
+                entries[key]['note'] = note
+        if rules.royal_pairs:
+            indices = [i for col in range(3)
+                       if layout[col].visible and layout[col + 3].visible
+                       and layout[col].card.rank == layout[col + 3].card.rank
+                       and layout[col].card.rank in (11, 12)
+                       for i in (col, col + 3)]
+            if indices:
+                entries['royal_pairs'] = {'indices': sorted(indices)}
+        pending = game.arrange_pending
+        if rules.four_kind and game.phase == 'arrange' and pending and pending['player'] == player:
+            indices = [i for i in visible if layout[i].card.rank == pending['rank']]
+            if len(indices) >= 4:
+                entries['four_kind'] = {'indices': indices}
+        pending = game.guess_pending
+        if rules.beggars and game.phase in ('guess', 'guess_trade') and pending and pending['player'] == player:
+            highest = max((layout[i].card.base_points for i in visible), default=None)
+            indices = [i for i in visible if layout[i].card.base_points == highest]
+            entries['beggars'] = {'indices': indices}
+        result.append(entries)
+    return result
+
+
 def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), opponent_layout=None, poisoned=False,
                         angel_earned=False, opponent_angel_earned=False, *, opponent_layouts=None, incoming_angels=None):
     """Report effects proven by visible cards, without exposing hidden cards."""

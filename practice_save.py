@@ -1,0 +1,64 @@
+"""Private, versioned JSON snapshots for signed-in practice games."""
+import random
+from dataclasses import asdict
+from game import GolfGame, Card, Slot, Rules
+
+SCHEMA = 1
+
+
+def encode(value):
+    if isinstance(value, Card):
+        return {'$card': [value.rank, value.suit, value.deck]}
+    if isinstance(value, Slot):
+        return {'$slot': [encode(value.card), value.visible]}
+    if isinstance(value, Rules):
+        return {'$rules': asdict(value)}
+    if isinstance(value, random.Random):
+        return {'$rng': encode(value.getstate())}
+    if isinstance(value, (set, tuple)):
+        return {'$set' if isinstance(value, set) else '$tuple': [encode(v) for v in value]}
+    if isinstance(value, list):
+        return [encode(v) for v in value]
+    if isinstance(value, dict):
+        return {k: encode(v) for k, v in value.items()}
+    return value
+
+
+def decode(value):
+    if isinstance(value, list):
+        return [decode(v) for v in value]
+    if not isinstance(value, dict):
+        return value
+    if '$card' in value:
+        return Card(*value['$card'])
+    if '$slot' in value:
+        return Slot(decode(value['$slot'][0]), value['$slot'][1])
+    if '$rules' in value:
+        return Rules(**value['$rules'])
+    if '$tuple' in value:
+        return tuple(decode(v) for v in value['$tuple'])
+    if '$set' in value:
+        return set(decode(v) for v in value['$set'])
+    if '$rng' in value:
+        rng = random.Random()
+        rng.setstate(decode(value['$rng']))
+        return rng
+    return {k: decode(v) for k, v in value.items()}
+
+
+ROOM_FIELDS = ('id', 'name', 'best_of', 'first', 'names', 'status', 'ready', 'wins',
+               'history', 'version', 'round_recorded', 'last_winner', 'champion',
+               'match_id', 'started_at', 'participants', 'house_rules', 'house_version',
+               'series_mode', 'game_type', 'patch', 'series_complete', 'avatars')
+
+
+def save(room):
+    return {'schema': SCHEMA, 'patch': room.patch,
+            'room': {key: getattr(room, key) for key in ROOM_FIELDS},
+            'rules': asdict(room.rules), 'game': encode(vars(room.game))}
+
+
+def restore_game(payload):
+    game = GolfGame.__new__(GolfGame)
+    game.__dict__.update(decode(payload))
+    return game

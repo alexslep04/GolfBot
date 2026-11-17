@@ -3,53 +3,60 @@
   <head>
     <meta charset="utf-8" />
     <base href="__GOLF_BASE__" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#102b23" />
-    <title>Golf · Your table</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 60'%3E%3Crect width='60' height='60' rx='15' fill='%23102b23'/%3E%3Ctext x='30' y='43' text-anchor='middle' font-size='40' fill='%23dfbf76'%3EG%3C/text%3E%3C/svg%3E"
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
+    <meta name="theme-color" content="#e6ffdc" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Golf</title>
+    <link rel="icon" type="image/png" href="static/assets/icon.png" />
+    <link rel="apple-touch-icon" href="static/assets/icon.png" />
     <link rel="stylesheet" href="static/style.css" />
+    <script src="static/icons.js" defer></script>
+    <script src="static/ui.js" defer></script>
+    <script src="static/motion.js" defer></script>
+    <script src="static/board.js" defer></script>
     <script src="static/app.js" defer></script>
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="." aria-label="Golf home"
-        ><span class="brand-mark">G</span> Golf
-        <small>Six cards. Your rules.</small></a
+    <!-- Figma "texture" effect (noise size 2, radius 0.5) for vector stickers. -->
+    <svg class="svg-defs" width="0" height="0" aria-hidden="true">
+      <filter
+        id="texture"
+        x="-20%"
+        y="-20%"
+        width="140%"
+        height="140%"
+        color-interpolation-filters="sRGB"
       >
-      <nav class="main-tabs" aria-label="Main navigation">
-        <button id="play-tab" class="button secondary" type="button">
-          Play</button
-        ><button id="history-tab" class="button secondary" type="button">
-          Match history</button
-        ><button id="stats-tab" class="button secondary" type="button">
-          Player stats
-        </button>
-        <button id="patches-tab" class="button secondary" type="button">
-          Patch notes
-        </button>
-        <span id="account-control"
-          ><button class="button secondary" type="button" data-account>
-            Sign in with Google
-          </button></span
-        >
-      </nav>
-      <span id="connection" class="connection">Connecting</span>
-    </header>
-    <div id="queue-banner" class="queue-banner" hidden></div>
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency="0.5"
+          numOctaves="1"
+          seed="4"
+          result="noise"
+        />
+        <feDisplacementMap
+          in="SourceGraphic"
+          in2="noise"
+          scale="1.6"
+          xChannelSelector="R"
+          yChannelSelector="G"
+        />
+      </filter>
+    </svg>
+    <div id="backdrop" aria-hidden="true"></div>
     <main id="app" aria-live="polite">
       <div class="loading">Shuffling the table…</div>
     </main>
+    <div id="queue-banner" class="queue-banner" hidden></div>
+    <div id="sheet" class="sheet-shade" hidden></div>
     <div id="toast" role="status" class="toast" hidden></div>
     <dialog
       id="social-dialog"
       class="social-dialog"
       aria-label="Lobby invitations"
     ></dialog>
-    <footer>
-      Two rows. Three columns. Lowest score wins. <a href="privacy">Privacy</a>
-    </footer>
   </body>
 </html>
