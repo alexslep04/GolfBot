@@ -168,7 +168,7 @@ function mountBoard() {
       </div>
       <div class="b-side">
         <div class="tag tag-score" data-score-for="opp"><span class="tag-in"></span></div>
-        <button type="button" class="cycle" data-cycle-next hidden></button>
+        <div class="practice-streak" data-practice-streak hidden></div><button type="button" class="cycle" data-cycle-next hidden></button>
       </div>
     </section>
     <section class="b-mid">
@@ -491,6 +491,7 @@ function ruleStickers(player) {
   return stickers;
 }
 function activeRules(player) {
+  if (state.game.rule_previews) return Object.keys(state.game.rule_previews[player] || {});
   return [...new Set(ruleStickers(player).map((sticker) => sticker.rule))];
 }
 function ruleDelta(player) {
@@ -499,11 +500,12 @@ function ruleDelta(player) {
 }
 function renderTags() {
   const g = state.game;
-  const enabled = catalog.filter((rule) => state.rules[rule.key]).length;
   for (const [side, player] of [
     ["me", state.viewer],
     ["opp", board.view.opp],
   ]) {
+    const enabled = (g.modifier_counts || state.modifier_counts || [])[player] ?? 0;
+    const label = state.names[player] + (state.rated ? ` (${state.ratings[player]})` : "");
     const color = colorFor(player);
     const scoreTag = board.el.querySelector(`[data-score-for='${side}']`);
     const rulesTag = board.el.querySelector(`[data-rules-for='${side}']`);
@@ -517,9 +519,9 @@ function renderTags() {
     const changed = patch(
       `score-${side}`,
       scoreTag.firstElementChild,
-      `${player}|${state.names[player]}|${score}`,
+      `${player}|${label}|${score}`,
       () =>
-        `<span class="who">${e(state.names[player])}</span><span class="score">${scoreDigits(score)}</span>`,
+        `<span class="who">${e(label)}</span><span class="score">${scoreDigits(score)}</span>`,
     );
     if (changed && board.signatures[`seen-${side}`] === player) {
       const element = scoreTag.querySelector(".score");
@@ -536,7 +538,7 @@ function renderTags() {
       `rules-txt-${side}`,
       rulesTag.querySelector(".txt"),
       `${enabled}|${delta}`,
-      `${enabled} Rule${enabled === 1 ? "" : "s"} in<br>play (${delta > 0 ? "+" : ""}${delta}pts)`,
+      `${enabled} Modifier${enabled === 1 ? "" : "s"} in<br>play (${delta > 0 ? "+" : ""}${delta}pts)`,
     );
     patch(
       `rules-ico-${side}`,
@@ -552,8 +554,17 @@ function renderTags() {
     );
     rulesTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${enabled} rules in play, ${delta} points from rules. Open details.`,
+      `${state.names[player]}: ${enabled} modifiers in play, ${delta} points from rules. Open details.`,
     );
+  }
+  const flame = board.el.querySelector("[data-practice-streak]");
+  flame.hidden = !state.practice;
+  if (state.practice) {
+    const streak = state.streak || {current:0,best:0,draws:0};
+    flame.classList.toggle("streak-grey", !streak.current || streak.draws === 1);
+    patch("practice-streak", flame, String(streak.current ?? 0), () => `${icon("flame.fill", 58, {idle:false})}<b class="streak-count">${streak.current ?? 0}</b>`);
+    flame.setAttribute("aria-label", `Practice streak: ${streak.current}. Best: ${streak.best}. Consecutive draws: ${streak.draws}.`);
+    flame.title = `Best streak: ${streak.best}`;
   }
   // cycle button shows the next opponent in line, in their color
   const cycle = board.el.querySelector("[data-cycle-next]");
@@ -633,7 +644,7 @@ function placeCallout() {
 }
 function actionAllowed(action) {
   const g = state.game;
-  if (!g || busy || state.status !== "playing") return false;
+  if (!g || busy || state.void_offer || state.status !== "playing") return false;
   const legal = g.legal,
     picked = board.selected;
   const own = picked.length === 1 && picked[0][0] === state.viewer;
@@ -837,7 +848,7 @@ function renderModal() {
 /** Every legal destination for a card, with the label shown while dragging. */
 function movesFrom(source) {
   const g = state?.game;
-  if (!g || state.status !== "playing") return [];
+  if (!g || state.void_offer || state.status !== "playing") return [];
   const legal = g.legal,
     me = state.viewer;
   const moves = [];
@@ -871,7 +882,7 @@ function movesFrom(source) {
 }
 function canFlip(ref) {
   const legal = state?.game?.legal;
-  if (!legal || state.status !== "playing") return false;
+  if (!legal || state.void_offer || state.status !== "playing") return false;
   return (
     (ref[0] === "draw" && legal.draw) ||
     (ref[0] === state.viewer && legal.flip.includes(ref[1]))
@@ -1104,7 +1115,7 @@ function onBoardPointerCancel(event) {
 
 /** A tap selects; tapping a highlighted destination plays the move; a double-tap flips. */
 function tapSlot(ref, slot) {
-  if (!state?.game || state.status !== "playing") return;
+  if (!state?.game || state.void_offer || state.status !== "playing") return;
   if (ref[0] === "under") return;
   const now = performance.now();
   const last = board.lastTap;
@@ -1170,8 +1181,9 @@ function rulesSheet(player) {
     total = g.effect_totals[player];
   const enabled = catalog.filter((rule) => state.rules[rule.key]);
   const editable = g.legal.set_rules;
-  const ruleCard = (rule, on) =>
-    `<div class="rule-card ${on ? "" : "off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill", 30, { idle: false })}</span><div><strong>${e(rule.name)}${active.includes(rule.key) ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}</div></div>`;
+  const ordered = [...(editable ? catalog : enabled)].sort((a,b) =>
+    Number(active.includes(b.key)) - Number(active.includes(a.key)) ||
+    Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
     <div class="sheet-head"><h2>${e(state.names[player])}${player === state.viewer ? " (you)" : ""}</h2><button type="button" class="close-btn" data-sheet-close aria-label="Close">${icon("xmark.circle.fill", 36, { idle: false })}</button></div>
@@ -1182,9 +1194,9 @@ function rulesSheet(player) {
     </div>
     <p class="hint dark" style="margin-top:.8rem">Face-down cards are not counted until the game ends.</p>
     ${state.names.length > 2 ? `<div class="meta" style="margin-top:1rem">${others.map((p) => `<button type="button" class="btn small ${colorFor(p)}" data-sheet-player="${p}">${e(state.names[p])}</button>`).join("")}</div>` : ""}
-    <h3>${enabled.length} rule${enabled.length === 1 ? "" : "s"} in play${state.house_rules ? " · House rules" : ""}</h3>
+    <h3>${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} modifiers in play${state.house_rules ? " · House rules" : ""}</h3>
     ${editable ? `<p class="hint dark">You can change rules until your second opening flip.</p>` : ""}
-    <div>${(editable ? catalog : enabled).map((rule) => ruleCard(rule, state.rules[rule.key])).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>
+    <div>${ordered.map((rule) => ruleHelpCard(rule, {player, on:!!state.rules[rule.key], editable})).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>
     <h3>Match</h3>
     <div class="tally">
       <div><span>Game ${state.round} · ${e(matchLength(state))}</span></div>

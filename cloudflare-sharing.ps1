@@ -44,7 +44,7 @@ function Write-CloudflareConfig([string]$Root, [int]$Port) {
         "credentials-file: $(ConvertTo-Json -InputObject $credentials -Compress)",
         'ingress:',
         '  - hostname: sleptsov.dev',
-        "    path: '^/Golfgame(/.*)?$'",
+        "    path: '^/(golf|Golfgame)(/.*)?$'",
         "    service: http://127.0.0.1:$Port",
         '  - service: http_status:404'
     ) | Set-Content -LiteralPath $configuration -Encoding UTF8
@@ -73,8 +73,8 @@ function Initialize-CloudflareSharing([string]$Root, [string]$Executable, [int]$
     # No --overwrite-dns: never replace a pre-existing website's DNS record.
     & $Executable tunnel --origincert $certificate route dns $tunnelId 'sleptsov.dev'
     if ($LASTEXITCODE -ne 0) { throw 'Could not add the DNS route. Review any existing sleptsov.dev DNS record in Cloudflare; it was not overwritten.' }
-    Write-Host 'Setup complete. Start play.bat and share.bat, then open https://sleptsov.dev/Golfgame/'
-    Write-Host 'Only /Golfgame and /Golfgame/... are routed to the game. Other paths currently return 404.'
+    Write-Host 'Setup complete. Start play.bat and share.bat, then open https://sleptsov.dev/golf/'
+    Write-Host 'Only /golf and legacy /Golfgame paths reach the game; the server redirects legacy URLs. Other paths return 404.'
 }
 
 function Start-CloudflareProcess([string]$Executable, [string]$ConfigPath, [string]$Directory) {
@@ -149,7 +149,7 @@ function Start-GolfSharing([string]$Root, [int]$Port = 8000, [switch]$Setup) {
             throw 'Run setup-cloudflare.bat once to authorize sleptsov.dev and create its persistent tunnel.'
         }
         $configuration = Write-CloudflareConfig $Root $Port
-        Write-Host 'Game address: https://sleptsov.dev/Golfgame/'
+        Write-Host 'Game address: https://sleptsov.dev/golf/'
         Write-Host "Run play.bat too (game server port $Port). Keep both windows open."
         Write-Host 'After restarting your computer, run both files again; the address stays the same.'
         Write-Host 'Cloudflare reconnects network outages. This window also retries exited helpers. Ctrl+C stops sharing.'

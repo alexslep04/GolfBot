@@ -211,11 +211,11 @@ class WebTests(unittest.TestCase):
                 self.room.status = 'playing'
                 self.room.round_recorded = False
 
-    def test_draw_discard_and_visible_swap_paths(self):
+    def test_draw_discard_and_visible_or_hidden_swap_paths(self):
         self.start()
         old_hand = self.state()['game']['players'][0]
         self.move('draw')
-        self.move('swap', index=2, status=422)
+        self.move('swap', index=6, status=422)
         self.move('discard')
         self.assertEqual(self.state()['game']['players'][0], old_hand)
         self.assertEqual(self.room.game.current, 1)
@@ -227,6 +227,11 @@ class WebTests(unittest.TestCase):
         self.move('flip', index=2)
         self.move('swap', index=1, status=422)
         self.move('swap', index=2)
+        self.move('draw', self.guest)
+        held = self.room.game.held_card
+        self.move('swap', self.guest, index=3)
+        self.assertEqual(self.room.game.players[1][3].card, held)
+        self.assertTrue(self.room.game.players[1][3].visible)
 
     def test_stale_and_malformed_moves_do_not_change_game(self):
         self.start()

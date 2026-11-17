@@ -1988,3 +1988,34 @@ button.tag-rules:active > .tag-in {
     animation-duration: 0.01s;
   }
 }
+
+/* Patch 1.2: keep the paper-and-sticker palette. */
+.leader-tabs { display:flex; gap:.7rem; margin-bottom:1.5rem; flex-wrap:wrap; }
+.leader-tabs .btn { flex:1; white-space:nowrap; }
+.practice-streak { display:flex; align-items:center; justify-content:center; gap:.5rem; width:100%; margin-top:1rem; --fill:var(--p2); --stroke:#111; }
+.practice-streak[hidden] { display:none; }
+.practice-streak .ico { flex:none; width:3.6rem !important; height:4.5rem !important; margin:0 !important; }
+.practice-streak .streak-count { flex:none; min-width:2.7rem; padding:.4rem .5rem; border:.2rem solid var(--ink); border-radius:1rem; background:var(--paper); color:var(--ink); text-align:center; font:700 2.2rem/1 var(--round); }
+.practice-streak.streak-grey .ico { filter:grayscale(1); }
+.rule-icon-controls { width:4rem; flex:none; display:flex; flex-direction:column; align-items:center; gap:.8rem; }
+.rule-help-copy { min-width:0; flex:1; }
+.rule-eye { background:#ddd; color:#555; padding:.4rem; min-width:3.8rem; border:1px solid #111; border-radius:1rem; cursor:pointer; }
+.rule-eye.c-p3 { background:var(--p3); color:#111; }
+.rule-example { margin-top:1rem; }
+.example-hand { display:grid; grid-template-columns:repeat(3,4.411rem); gap:.6rem; margin:.8rem 0; }
+.example-card { position:relative; display:block; width:4.411rem; height:6.15rem; perspective:60rem; }
+.example-card > .card { width:8.822rem; height:12.3rem; inset:0 auto auto 0; transform:scale(.5); transform-origin:top left; }
+.example-caption { font-size:1.35rem; }
+.leave-dialog .dialog-actions { flex-wrap:wrap; }
+
+.leaderboard-panel table { width:100%; table-layout:fixed; font-size:1.35rem; }
+.leaderboard-panel th, .leaderboard-panel td { padding:.65rem .35rem; overflow-wrap:anywhere; }
+.leaderboard-panel th:first-child, .leaderboard-panel td:first-child { width:4.6rem; white-space:nowrap; overflow-wrap:normal; }
+.leaderboard-panel th:nth-child(2) { width:30%; }
+.leaderboard-panel .leader-record { white-space:nowrap; overflow-wrap:normal; }
+.leaderboard-panel .table-wrap { min-width:0; }
+
+.rule-eye { --fill:#888; --stroke:#fff; }
+.rule-eye.c-p3 { --fill:var(--p3); --stroke:#111; }
+.leaderboard-panel th, .leaderboard-panel td { white-space:normal; }
+.leaderboard-panel .leader-record { white-space:nowrap; }

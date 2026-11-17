@@ -1,8 +1,19 @@
 """Release labels stored with results; older unlabelled games stay unlabelled."""
-PATCH_VERSION = "1.1.2"
+PATCH_VERSION = "1.2.0"
 
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
+    "rules": {"revisions": [], "additions": []},
+    "changes": [
+        "Elo updates after each completed Quickplay game.",
+        "Leaderboards include PVP, Solo, and Advanced views.",
+        "Practice supports saving and resuming games and tracking streaks.",
+        "Voiding a game ends its series.",
+        "Modifier counts and rule examples make scoring easier to follow.",
+        "The public game address is sleptsov.dev/golf; legacy /Golfgame links redirect to /golf.",
+    ],
+}, {
+    "version": "1.1.2",
     "rules": {
         "revisions": [
             "V10 engine requires one 10, one Jack, and one Queen in either V, in any order. Repeated ranks no longer qualify.",

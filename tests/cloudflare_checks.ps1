@@ -57,7 +57,14 @@ switch ($Case) {
         $config = Get-Content $path -Raw
         Assert ($config -match 'tunnel: 11111111-2222-3333-4444-555555555555') 'Tunnel identity changed.'
         Assert ($config -match 'hostname: sleptsov.dev' -and $config -match 'http://127.0.0.1:8002') 'Wrong domain or local port.'
-        Assert ($config -match [regex]::Escape("path: '^/Golfgame(/.*)?$'")) 'Public game path is not isolated.'
+        Assert ($config -match [regex]::Escape("path: '^/(golf|Golfgame)(/.*)?$'")) 'Public game path is not isolated.'
+        $ingressPath = [regex]::Match($config, "path: '([^']+)'").Groups[1].Value
+        foreach ($path in @('/golf', '/golf/', '/golf/lobby/invite', '/Golfgame', '/Golfgame/lobby/invite')) {
+            Assert ($path -cmatch $ingressPath) 'Game path was excluded.'
+        }
+        foreach ($path in @('/', '/golfing', '/Golfgame-other', '/other/golf')) {
+            Assert ($path -cnotmatch $ingressPath) 'Unrelated path was included.'
+        }
         Assert ($config -match 'http_status:404') 'Other paths are not reserved for a future website.'
         Assert ($config -notmatch 'test-only-secret') 'Credential leaked into configuration.'
         Assert-Throws { Write-CloudflareConfig $Directory 0 }
