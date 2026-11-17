@@ -584,6 +584,10 @@ p {
 .split .btn.tile {
   font-size: 2.1rem;
 }
+/* room for the controller glyph beside "Leaderboard" */
+:root.pad-on .split .btn.tile {
+  font-size: 1.85rem;
+}
 .btn.round {
   width: 7.2rem;
   height: 7.2rem;
@@ -1903,16 +1907,7 @@ button.tag-rules:active > .tag-in {
   gap: 0.4rem;
 }
 .act.side-act .pad-key {
-  position: static;
-  display: none;
-  min-width: 1.9rem;
-  height: 1.9rem;
-  padding: 0 0.5rem;
-  font-size: 1.1rem;
-  box-shadow: none;
-}
-:root.pad .act.side-act .pad-key {
-  display: inline-grid;
+  height: 2rem;
 }
 .board-btns {
   display: flex;
@@ -1961,17 +1956,98 @@ button.tag-rules:active > .tag-in {
 :root.pad * {
   cursor: none;
 }
+/* A controller button, drawn as its SF Symbol in the labels of the controller
+   in hand (A/B/X/Y, cross/circle/square/triangle, or Nintendo's B/A/Y/X).
+   Shown only while a controller is connected. */
 .pad-key {
-  display: inline-grid;
-  place-items: center;
-  min-width: 2.2rem;
-  height: 2.2rem;
-  padding: 0 0.6rem;
-  border-radius: 99rem;
-  background: var(--ink);
-  color: var(--paper);
-  font: 800 1.2rem/1 var(--round), system-ui;
-  white-space: nowrap;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 2.6rem;
+  font: inherit;
+  --fill: var(--ink);
+  --stroke: var(--paper);
+}
+:root.pad-on .pad-key {
+  display: inline-flex;
+}
+.pad-key .ico.pad-ico {
+  width: auto !important;
+  height: 100% !important;
+  margin: 0 !important;
+}
+/* a quick action: the button that presses this control, just left of its words */
+.pad-tag {
+  height: 1.15em;
+  margin-right: 0.45em;
+  vertical-align: -0.2em;
+  pointer-events: none;
+}
+/* a button that is only an icon: the glyph hangs off the bottom of the icon, on top */
+.pad-tag.under {
+  position: absolute;
+  left: 50%;
+  bottom: -1rem;
+  z-index: 2;
+  height: 2.8rem;
+  margin: 0;
+  translate: -50% 0;
+}
+.icon-btn {
+  position: relative;
+}
+.icon-btn .pad-tag.under {
+  bottom: -0.2rem;
+}
+/* With a controller, Back stays on screen instead of scrolling away with the page */
+:root.pad-on .page {
+  /* the entrance animation must not linger: a held transform would pin the button inside the page */
+  animation-fill-mode: backwards;
+  --page-w: 48rem;
+}
+:root.pad-on .page.scroll {
+  --page-w: 76rem;
+}
+:root.pad-on .nav-float {
+  position: fixed;
+  z-index: 60;
+  /* where it sat in the page's own column, measured from the window */
+  left: calc(max(0px, (100% - var(--page-w)) / 2) + 1.6rem);
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+:root.pad-on .topbar > .nav-float {
+  top: calc(max(1.6rem, env(safe-area-inset-top)) + 0.65rem);
+}
+:root.pad-on .topbar:has(> .nav-float) {
+  padding-left: 5.2rem;
+}
+:root.pad-on .row > .nav-float {
+  bottom: max(1.6rem, env(safe-area-inset-bottom));
+}
+:root.pad-on .row:has(> .nav-float) {
+  padding-left: 8rem;
+}
+/* Sheets keep just their Close button in reach while they scroll; the title
+   scrolls away with everything else. The head steps aside (display: contents)
+   so the button can stick against the whole sheet, not only the head. */
+:root.pad-on .sheet-head {
+  display: contents;
+}
+:root.pad-on .sheet-head > h2 {
+  float: left;
+  max-width: calc(100% - 9rem);
+  margin-bottom: 1.4rem;
+}
+:root.pad-on .sheet-head > .close-btn {
+  float: right;
+  position: sticky;
+  top: 0; /* measured inside the sheet's padding: it stays where it already sits */
+  z-index: 5;
+  margin: 0 0 1.4rem 1rem;
+}
+:root.pad-on .sheet-head + * {
+  clear: both;
 }
 .pad-help {
   display: grid;
@@ -2019,7 +2095,8 @@ button.tag-rules:active > .tag-in {
 }
 .player-emote {
   position: absolute;
-  z-index: 45;
+  /* reactions show over the results too */
+  z-index: 87;
   display: grid;
   justify-items: center;
   pointer-events: none;
@@ -2072,7 +2149,7 @@ button.tag-rules:active > .tag-in {
   position: absolute;
   left: 50%;
   top: 50%;
-  z-index: 50;
+  z-index: 86;
   width: 36rem;
   max-width: calc(100vw - 1.6rem);
   max-height: 92%;
@@ -2249,7 +2326,8 @@ button.tag-rules:active > .tag-in {
 .summary-scrim {
   position: fixed;
   inset: 0;
-  z-index: 49;
+  /* above everything on the table, lifted (60) and flying (80) cards included */
+  z-index: 85;
   background: rgb(34 71 21 / 0.36);
   animation: scrim-in 0.4s ease-out both;
   animation-delay: var(--t, 0s);
@@ -2261,6 +2339,16 @@ button.tag-rules:active > .tag-in {
 }
 .summary-panel {
   box-shadow: 0.4rem 0.4rem 0 var(--shadow);
+}
+/* the quick emotes, always out under the results */
+.emote-pop.summary-emotes {
+  position: static;
+  align-self: center;
+  justify-content: center;
+  transform-origin: 50% 0;
+  /* --t keeps it from popping in again when the results redraw */
+  animation: pop 0.4s var(--spring) both;
+  animation-delay: calc(var(--t, 0s) + 0.3s);
 }
 .summary-panel .ready-tiles {
   margin-top: 0;
@@ -2940,19 +3028,17 @@ button:disabled > .haptic-switch {
   .act {
     position: relative;
   }
-  .act .pad-key {
-    position: absolute;
-    top: -0.2rem;
-    right: -1.4rem;
-    display: none;
-    min-width: 1.9rem;
-    height: 1.9rem;
-    padding: 0 0.5rem;
-    font-size: 1.1rem;
-    box-shadow: 0 0 0 0.25rem var(--p1b);
+  /* the controller button hangs off the bottom of the action's icon, on top */
+  .act-ico {
+    position: relative;
   }
-  :root.pad .act .pad-key {
-    display: inline-grid;
+  .act-ico .pad-key {
+    position: absolute;
+    left: 50%;
+    bottom: -0.6rem;
+    z-index: 1;
+    height: 2.6rem;
+    translate: -50% 0;
   }
   /* the table actions live in the action bar here */
   .pile-side .bar-act {
@@ -3007,14 +3093,86 @@ button:disabled > .haptic-switch {
   }
 }
 
+/* ---------- leaderboard & player stats ---------- */
+.board-row .rank {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 4.4rem;
+  font: 700 3rem/1 var(--round);
+  --sw: 0.6rem;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.board-row .rate {
+  flex: none;
+  font: 700 2.4rem/1 var(--round);
+  letter-spacing: -0.04rem;
+}
+/* a rule filter left out on purpose */
+.filter-row.off {
+  color: var(--fw-text);
+  --fill: var(--p2b);
+  --stroke: var(--p2);
+}
+.filter-row.on {
+  color: var(--fw-text);
+  --fill: var(--p1b);
+  --stroke: var(--p1);
+}
+.rules-body .rule-row[aria-pressed="true"] {
+  color: var(--fw-text);
+}
+.stat-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  text-align: center;
+}
+.stat-rate {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.2rem;
+  height: 6rem;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.stat-rate .stk {
+  font: 700 6.4rem/1 var(--round);
+  --sw: 0.9rem;
+  margin-right: -0.1rem;
+}
+.stat-rate .stk.pts {
+  font-size: 3.2rem;
+  margin: 0 0 0.6rem 0.2rem;
+}
+.stat-tiles {
+  display: flex;
+  justify-content: center;
+  gap: 0.8rem;
+  width: 100%;
+}
+.stat-tiles > div {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.8rem 0.4rem;
+  border-radius: 1.6rem;
+  background: rgb(255 255 255 / 0.55);
+}
+.stat-tiles b {
+  display: block;
+  font: 700 2rem/1.2 var(--round);
+}
+.stat-tiles span {
+  display: block;
+  font-size: 1.3rem;
+  opacity: 0.75;
+}
 /* Patch 1.2: keep the paper-and-sticker palette. */
 .leader-tabs { display:flex; gap:.7rem; margin-bottom:1.5rem; flex-wrap:wrap; }
 .leader-tabs .btn { flex:1; white-space:nowrap; }
-.practice-streak { display:flex; align-items:center; justify-content:center; gap:.5rem; width:100%; margin-top:1rem; --fill:var(--p2); --stroke:#111; }
-.practice-streak[hidden] { display:none; }
-.practice-streak .ico { flex:none; width:3.6rem !important; height:4.5rem !important; margin:0 !important; }
-.practice-streak .streak-count { flex:none; min-width:2.7rem; padding:.4rem .5rem; border:.2rem solid var(--ink); border-radius:1rem; background:var(--paper); color:var(--ink); text-align:center; font:700 2.2rem/1 var(--round); }
-.practice-streak.streak-grey .ico { filter:grayscale(1); }
 .rule-icon-controls { width:4rem; flex:none; display:flex; flex-direction:column; align-items:center; gap:.8rem; }
 .rule-help-copy { min-width:0; flex:1; }
 .rule-eye { background:#ddd; color:#555; padding:.4rem; min-width:3.8rem; border:1px solid #111; border-radius:1rem; cursor:pointer; }

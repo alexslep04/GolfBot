@@ -207,10 +207,10 @@ function closeSheet() {
   sheetRoot.innerHTML = "";
 }
 function topbar() {
-  return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}</button>${logoHtml()}</header>`;
+  return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}${padTag("start", "under")}</button>${logoHtml()}</header>`;
 }
 function subHeader(title, back = session?.room_id ? "resume" : "home") {
-  return `<header class="topbar"><button type="button" class="btn round c-fw" style="width:5.2rem;height:5.2rem" data-nav="${back}" aria-label="Back">${glyph("chevron.left", 20)}</button><h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1></header>`;
+  return `<header class="topbar"><button type="button" class="btn round c-fw nav-float" style="width:5.2rem;height:5.2rem" data-nav="${back}" aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button><h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1></header>`;
 }
 function field(label, body, iconName, extra = "") {
   return `<label class="field ${extra}"><span class="label">${e(label)}</span>${iconName ? tilted(iconName, 24) : ""}${body}</label>`;
@@ -226,7 +226,7 @@ function selectField(label, attrs, options, iconName, extra = "") {
   );
 }
 function backButton(target = "home") {
-  return `<button type="button" class="btn round c-fw" data-nav="${target}" aria-label="Back">${glyph("chevron.left", 20)}</button>`;
+  return `<button type="button" class="btn round c-fw nav-float" data-nav="${target}" aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>`;
 }
 
 /* ---------- presence, invitations, quickplay queue ---------- */
@@ -321,7 +321,7 @@ function renderSocial() {
     const signature = JSON.stringify(offer);
     if (signature !== socialSignature) {
       socialSignature = signature;
-      dialog.innerHTML = `<h2>${tilted("sparkles", 30)} Classic match</h2><p>Your opponent: <strong>${e(offer.opponent)}</strong></p><div class="meta" style="margin:1rem 0"><span class="pill c-p1">5 games · total pts</span>${houseBadge(offer.lobby)}</div><p class="hint">Both players must accept within 60 seconds. An unfinished practice game won't count.</p><details><summary>Rules in play</summary><p>${e(rulesSummary(offer.lobby.rules))}</p></details><div class="dialog-actions"><button type="button" class="btn c-p3" data-queue-reply="accept" ${offer.accepted ? "disabled" : ""}>${offer.accepted ? "Waiting…" : "Accept"}</button><button type="button" class="btn c-p2" data-queue-reply="decline">Decline</button>${offer.accepted ? `<button type="button" class="btn c-fw" data-queue-hide>Keep playing</button>` : ""}</div>`;
+      dialog.innerHTML = `<h2>${tilted("sparkles", 30)} Classic match</h2><p>Your opponent: <strong>${e(offer.opponent)}</strong></p><div class="meta" style="margin:1rem 0"><span class="pill c-p1">5 games · total pts</span>${houseBadge(offer.lobby)}</div><p class="hint">Both players must accept within 60 seconds. An unfinished practice game won't count.</p><details><summary>Rules in play</summary><p>${e(rulesSummary(offer.lobby.rules))}</p></details><div class="dialog-actions"><button type="button" class="btn c-p3" data-queue-reply="accept" ${offer.accepted ? "disabled" : ""}>${padTag("y")}${offer.accepted ? "Waiting…" : "Accept"}</button><button type="button" class="btn c-p2" data-queue-reply="decline">${padTag("x")}Decline</button>${offer.accepted ? `<button type="button" class="btn c-fw" data-queue-hide>${padTag("b")}Keep playing</button>` : ""}</div>`;
     }
     if (!dialog.open) dialog.showModal();
     return;
@@ -345,8 +345,8 @@ function renderSocial() {
   socialSignature = signature;
   dialog.innerHTML =
     socialMode === "players"
-      ? `<h2>Invite a player</h2><p class="hint">Players online right now who aren't at a table.</p><div class="list" style="margin-top:1.2rem">${presenceState.players.map((player) => `<div class="list-item c-p1">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}</small></div><button type="button" class="btn small c-p1" data-invite-player="${e(player.id)}" ${presenceState.invited.includes(player.id) ? "disabled" : ""}>${presenceState.invited.includes(player.id) ? "Invited" : "Invite"}</button></div>`).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div><div class="dialog-actions"><button type="button" class="btn c-fw" data-social-close>Close</button></div>`
-      : `<h2>${tilted("figure.2", 30)} You're invited</h2><p><strong>${e(invitation.host)}</strong> invited you to <strong>${e(invitation.lobby.name)}</strong>.</p><div class="meta" style="margin:1rem 0"><span class="pill c-p1">${e(matchLength(invitation.lobby))}</span>${houseBadge(invitation.lobby)}</div><details><summary>More info</summary><p>First player: ${e(starter[invitation.lobby.first])}</p><p>${e(rulesSummary(invitation.lobby.rules))}</p></details><div class="dialog-actions"><button type="button" class="btn c-p1" data-invite-reply="accept" data-invitation="${e(invitation.id)}">Accept</button><button type="button" class="btn c-p2" data-invite-reply="decline" data-invitation="${e(invitation.id)}">Decline</button></div>`;
+      ? `<h2>Invite a player</h2><p class="hint">Players online right now who aren't at a table.</p><div class="list" style="margin-top:1.2rem">${presenceState.players.map((player) => `<div class="list-item c-p1">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}</small></div><button type="button" class="btn small c-p1" data-invite-player="${e(player.id)}" ${presenceState.invited.includes(player.id) ? "disabled" : ""}>${presenceState.invited.includes(player.id) ? "Invited" : "Invite"}</button></div>`).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div><div class="dialog-actions"><button type="button" class="btn c-fw" data-social-close>${padTag("b")}Close</button></div>`
+      : `<h2>${tilted("figure.2", 30)} You're invited</h2><p><strong>${e(invitation.host)}</strong> invited you to <strong>${e(invitation.lobby.name)}</strong>.</p><div class="meta" style="margin:1rem 0"><span class="pill c-p1">${e(matchLength(invitation.lobby))}</span>${houseBadge(invitation.lobby)}</div><details><summary>More info</summary><p>First player: ${e(starter[invitation.lobby.first])}</p><p>${e(rulesSummary(invitation.lobby.rules))}</p></details><div class="dialog-actions"><button type="button" class="btn c-p1" data-invite-reply="accept" data-invitation="${e(invitation.id)}">${padTag("y")}Accept</button><button type="button" class="btn c-p2" data-invite-reply="decline" data-invitation="${e(invitation.id)}">${padTag("x")}Decline</button></div>`;
   if (!dialog.open) dialog.showModal();
 }
 async function pollPresence() {
@@ -408,16 +408,15 @@ function home() {
   show(
     "home",
     `<div class="page home">${topbar()}<div class="stack">
-    ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} Resume your table</button>` : ""}
-    <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
-    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
-    <button type="button" class="btn c-p2" data-nav="leaderboard">${medal[0]}<span>Leaderboard</span>${medal[1]}</button>
+    ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} <span>${padTag("select")}Resume your table</span></button>` : ""}
+    <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
+    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
+    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Practice</span>${practice[1]}</button>
     <div class="row split">
-      <button type="button" class="btn tile c-p4 grow" data-nav="stats">${tilted("medal", 33)}<span>Leaderboard</span></button>
+      <button type="button" class="btn tile c-p4 grow" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span></button>
       <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
-    <p class="credit">handcrafted by spencer &amp; alex</p>
-  </div></div>`,
+  </div><p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p></div>`,
   );
   renderQueueBanner();
   pollPresence();
@@ -453,7 +452,7 @@ function togglePref(key) {
 function settingsSheet() {
   const account = session.account;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Settings">
-    <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
+    <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="menu-list">
       ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
       <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} ${account ? e(account.unique_name ? "@" + account.unique_name : "Choose unique name") : "Sign in with Google"}</button>
@@ -475,7 +474,7 @@ function voidOfferButton() {
 function gameMenuSheet() {
   const link = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Table menu">
-    <div class="sheet-head"><h2>${e(state.name)}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
+    <div class="sheet-head"><h2>${e(state.name)}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <p class="hint dark" style="margin-bottom:1.2rem">Game ${state.round} · ${e(matchLength(state))}</p>
     <div class="menu-list">
       <button type="button" class="btn c-p1" data-rules-for="me">${tilted("checklist", 26)} Rules &amp; scores</button>
@@ -508,7 +507,7 @@ const ENTRY_STYLE = {
 };
 function entryButton(attribute, label) {
   const { color, glyph: symbol } = ENTRY_STYLE[draft.mode];
-  return `<button type="button" class="btn ${color} grow" ${attribute}>${tilted(symbol, 33)}<span>${label}</span>${tilted(symbol, 33, { mirror: true })}</button>`;
+  return `<button type="button" class="btn ${color} grow" ${attribute}>${tilted(symbol, 33)}<span>${padTag("y")}${label}</span>${tilted(symbol, 33, { mirror: true })}</button>`;
 }
 function startSetup(mode) {
   Object.assign(draft, {
@@ -556,7 +555,7 @@ function setupPage() {
   }
   show(
     "setup",
-    `<div class="page">${topbar()}<div class="stack wide">${avatarPicker()}<div class="stack" data-rules-picker>${rulesPicker()}</div></div><div class="row"><button type="button" class="btn round c-fw" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}</button>${entryButton("data-setup-go", `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`)}</div></div>`,
+    `<div class="page">${topbar()}<div class="stack wide">${avatarPicker()}<div class="stack" data-rules-picker>${rulesPicker()}</div></div><div class="row"><button type="button" class="btn round c-fw nav-float" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>${entryButton("data-setup-go", `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`)}</div></div>`,
   );
   centerAvatar(false);
 }
@@ -827,7 +826,7 @@ function leavePrompt(leaving) {
       : leaving.rated
         ? "This ends the series early. Completed games and their Elo changes are kept."
         : "Your game and streak will be saved to your account so you can resume later.";
-  dialog.innerHTML = `<h2 id="leave-title">${title}</h2><p id="leave-description">${description}</p><div class="dialog-actions">${guestPractice ? `<button type="button" class="btn c-p3" data-leave-choice="signin">Sign in</button>` : ""}<button type="button" class="btn ${guestPractice ? "c-p2" : "c-p3"}" data-leave-choice="leave">${guestPractice ? "No, leave" : "Leave table"}</button><button type="button" class="btn c-fw" data-leave-choice="stay">Keep playing</button></div>`;
+  dialog.innerHTML = `<h2 id="leave-title">${title}</h2><p id="leave-description">${description}</p><div class="dialog-actions">${guestPractice ? `<button type="button" class="btn c-p3" data-leave-choice="signin">${padTag("y")}Sign in</button>` : ""}<button type="button" class="btn ${guestPractice ? "c-p2" : "c-p3"}" data-leave-choice="leave">${padTag("x")}${guestPractice ? "No, leave" : "Leave table"}</button><button type="button" class="btn c-fw" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
   closeSheet();
   const response = new Promise(resolve => { pendingLeaveResolve = resolve; });
   dialog.showModal();
@@ -876,7 +875,7 @@ async function friendsPage() {
   show(
     "friends",
     `<div class="page">${topbar()}<div class="stack wide"><div class="stack">
-    <div class="row" style="align-items:center"><h1 class="page-title">Open tables</h1><button type="button" class="btn small c-fw" data-nav="friends">${glyph("arrow.clockwise", 18)} Refresh</button></div>
+    <div class="row" style="align-items:center"><h1 class="page-title">Open tables</h1><button type="button" class="btn small c-fw" data-nav="friends">${glyph("arrow.clockwise", 18)} ${padTag("x")}Refresh</button></div>
     <div class="list">${
       lobbies
         .map((lobby) => {
@@ -886,7 +885,7 @@ async function friendsPage() {
         .join("") ||
       `<p class="hint">No open tables yet. Host one and invite a friend!</p>`
     }</div></div></div>
-    <div class="row">${backButton()}<button type="button" class="btn c-p1 grow" data-nav="host">${twin[0]}<span>Host a Table</span>${twin[1]}</button></div></div>`,
+    <div class="row">${backButton()}<button type="button" class="btn c-p1 grow" data-nav="host">${twin[0]}<span>${padTag("y")}Host a Table</span>${twin[1]}</button></div></div>`,
   );
 }
 async function publicLobby(id) {
@@ -906,7 +905,7 @@ async function publicLobby(id) {
     ${avatarPicker(info.players)}
     ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
-    </div><div class="row">${backButton("friends")}<button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>Join Table</span>${twin[1]}</button></div></div>`,
+    </div><div class="row">${backButton("friends")}<button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>${padTag("y")}Join Table</span>${twin[1]}</button></div></div>`,
   );
   centerAvatar(false);
 }
@@ -922,7 +921,7 @@ function waitingRoom() {
     <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${seat === state.viewer ? youStar() : ""}${e(seatName)}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
     <p class="hint">${e(rulesSummary(state.rules))}</p>
     <p class="hint dark">${many ? "The host starts once at least three players have joined." : "The game starts automatically when a friend joins."}</p>
-    </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>Invite a Player</span></button>` : ""}<div class="row"><button type="button" class="btn round c-p2" data-leave aria-label="Leave table">${glyph("xmark", 20)}</button>${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
+    </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>${padTag("x")}Invite a Player</span></button>` : ""}<div class="row"><button type="button" class="btn round c-p2" data-leave aria-label="Leave table">${glyph("xmark", 20)}</button>${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>${padTag("y")}Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
   );
 }
 
@@ -1011,7 +1010,7 @@ async function playerStatsSheet(player) {
   const mine = state.player_ids?.[state.viewer];
   const color = colorFor(player);
   openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
-    <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>Close</span></button></div>
+    <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div data-player-stats><div class="loading">Loading stats…</div></div>
     <div class="row" style="margin-top:1.2rem">${id ? `<button type="button" class="btn small ${color} grow" data-stats-player="${e(id)}">Full stats</button>` : ""}<button type="button" class="btn small ${color} grow" data-nav="stats">${tilted("medal", 22)} Leaderboard</button></div>
   </section>`);
@@ -1245,18 +1244,70 @@ const statPercent = (value) =>
         style: "percent",
         maximumFractionDigits: 1,
       }).format(value);
-function readStatsForm() {
-  const form = document.getElementById("stats-form");
-  if (!form) return;
-  const data = new FormData(form);
-  statsSelection = {
-    player: data.get("player") || "",
-    opponent: data.get("opponent") || "",
-    enabled: [],
-    disabled: [],
-    initialized: true,
-    house_rules: data.has("house_rules"),
-    patch: data.get("patch") || "",
+/* ---------- leaderboard & player stats ---------- */
+// Filters work like the rule picker before a game: House (official stats) or
+// any rules, and with House off each rule can be required or excluded.
+const statsRuleState = (key) =>
+  statsSelection.house_rules
+    ? matchOptions.house_rules[key]
+      ? "on"
+      : "any"
+    : statsSelection.enabled.includes(key)
+      ? "on"
+      : statsSelection.disabled.includes(key)
+        ? "off"
+        : "any";
+function statsQuery(withPlayers = true) {
+  const query = new URLSearchParams();
+  if (!statsSelection.house_rules) query.set("house_rules", "false");
+  else {
+    statsSelection.enabled = [];
+    statsSelection.disabled = [];
+  }
+  if (statsSelection.patch) query.set("patch", statsSelection.patch);
+  if (withPlayers && statsSelection.player) {
+    query.set("player", statsSelection.player);
+    if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
+  }
+  for (const key of statsSelection.enabled) query.append("enabled", key);
+  for (const key of statsSelection.disabled) query.append("disabled", key);
+  return query;
+}
+function statsFilterSummary() {
+  const names = (keys) =>
+    catalog
+      .filter((rule) => keys.includes(rule.key))
+      .map((rule) => RULE_SHORT[rule.key] || rule.name)
+      .join(", ");
+  const { enabled, disabled, house_rules, patch } = statsSelection;
+  const parts = [];
+  if (house_rules) parts.push("Official stats: games played with the saved House rules.");
+  else if (!enabled.length && !disabled.length) parts.push("Every saved game, whatever rules were on.");
+  else {
+    if (enabled.length) parts.push(`With ${names(enabled)}.`);
+    if (disabled.length) parts.push(`Without ${names(disabled)}.`);
+  }
+  if (patch) parts.push(patch === "legacy" ? "Earlier patches only." : `Patch ${patch} only.`);
+  return parts.join(" ");
+}
+function statsFiltersHtml(patches) {
+  const { enabled, disabled, house_rules, patch } = statsSelection;
+  const custom = enabled.length + disabled.length;
+  const preset = house_rules ? "house" : custom ? "custom" : "any";
+  const presets = [
+    ["house", "House", "house.fill"],
+    ["any", "Any rules", "infinity"],
+  ];
+  const open = statsFiltersOpen;
+  const title = house_rules
+    ? "House rules"
+    : custom
+      ? `${custom} rule filter${custom === 1 ? "" : "s"}`
+      : "Any rules";
+  const words = { on: "required", off: "excluded", any: "either way" };
+  const row = (rule) => {
+    const value = statsRuleState(rule.key);
+    return `<button type="button" class="rule-row filter-row ${value}" data-stats-rule="${e(rule.key)}" aria-label="${e(rule.name)}: ${words[value]}" title="${e(rule.description)}" ${house_rules ? "disabled" : ""}>${tilted(value === "on" ? "checkmark.circle.fill" : value === "off" ? "xmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5, cls: value === "any" ? "bare" : "" })}<span>${e(rule.name)}</span></button>`;
   };
   const patchField = selectField(
     "Patch",
@@ -1381,6 +1432,7 @@ async function statsPage(fromUrl = false) {
       patch: query.has("patch") ? query.get("patch") : (session.patch || matchOptions.patch),
     };
   }
+  // the Advanced tab opens on your own record against Golfbot, this patch
   if (!statsSelection.initialized) {
     statsSelection.player ||= session.account ? "account:" + session.account.id : "player:" + session.username;
     statsSelection.opponent ||= "bot:golfbot";
@@ -1393,24 +1445,9 @@ async function statsPage(fromUrl = false) {
   const same = page === "stats" && root.querySelector("[data-stats-view]")?.dataset.statsView === view;
   const query = statsQuery();
   document.title = "Leaderboard · Golf";
-  const query = new URLSearchParams();
-  if (!statsSelection.house_rules) query.set("house_rules", "false");
-  else {
-    statsSelection.enabled = [];
-    statsSelection.disabled = [];
-  }
-  query.set("patch", statsSelection.patch || "");
-  if (statsSelection.player) query.set("player", statsSelection.player);
-  query.set("opponent", statsSelection.opponent || "");
-  for (const key of statsSelection.enabled) query.append("enabled", key);
-  for (const key of statsSelection.disabled) query.append("disabled", key);
-  history.replaceState(
-    {},
-    "",
-    appPath("/stats") + (query.toString() ? "?" + query : ""),
-  );
-  const head = subHeader("Leaderboard") + leaderboardTabs("advanced");
-  if (!wasStats)
+  history.replaceState({}, "", appPath("/stats") + (query.toString() ? "?" + query : ""));
+  const head = (title) => subHeader(title) + leaderboardTabs("advanced");
+  if (!same)
     show(
       "stats",
       `<div class="page scroll">${head(statsSelection.player ? "Player stats" : "Leaderboard")}<div class="loading">Loading player stats…</div></div>`,
@@ -1437,16 +1474,10 @@ async function statsPage(fromUrl = false) {
     }
     show(
       "stats",
-      `<div class="page scroll">${head}<p class="hint dark">Pick a player to see their record, or compare two head to head. ${session.room_id ? "Your table is still open." : ""}</p>
-      <form id="stats-form" class="panel c-p2"><div class="form-grid">
-        ${field("Player", `<select aria-label="Player" id="stats-player" name="player" data-stats-select>${options(statsSelection.player)}</select>`, null, "compact")}
-        ${field("Compare With", `<select aria-label="Compare with" id="stats-opponent" name="opponent" data-stats-select><option value="">Overall only</option>${options(statsSelection.opponent, statsSelection.player)}</select>`, null, "compact")}
-        ${field("Patch", `<select id="stats-patch" name="patch" aria-label="Patch" data-stats-select><option value="">All time</option>${result.patches.map((patch) => `<option value="${e(patch)}" ${statsSelection.patch === patch ? "selected" : ""}>${e(patch === "legacy" ? "Earlier patches" : patch)}</option>`).join("")}</select>`, null, "compact")}
-      </div>
-      <label class="check" style="margin-top:1.4rem"><input type="checkbox" aria-label="House rules" name="house_rules" data-stats-house ${statsSelection.house_rules ? "checked" : ""}><span>House rules only <small style="display:block;opacity:.7;font-size:1.3rem">Official stats · saved house-rule games</small></span></label>
-      <details id="stats-rules" style="margin-top:1rem" ${(rulesOpen ?? active > 0) ? "open" : ""}><summary>Rule filters · ${statsSelection.house_rules ? "House rules" : active ? active + " selected" : "any rules"}</summary><fieldset ${statsSelection.house_rules ? "disabled" : ""}><p>Any allows either setting. On requires the rule; Off excludes it.</p><div class="row" style="margin:1rem 0"><button type="button" class="btn small" data-stats-all="on">All on</button><button type="button" class="btn small" data-stats-all="off">All off</button></div><div class="form-grid">${catalog.map((rule) => field(rule.name, `<select name="filter-${e(rule.key)}" aria-label="${e(rule.name)} filter"><option value="any">Any</option><option value="on" ${(statsSelection.house_rules ? matchOptions.house_rules[rule.key] : statsSelection.enabled.includes(rule.key)) ? "selected" : ""}>On</option><option value="off" ${(statsSelection.house_rules ? !matchOptions.house_rules[rule.key] : statsSelection.disabled.includes(rule.key)) ? "selected" : ""}>Off</option></select>`, null, "compact")).join("")}</div></fieldset></details>
-      <div class="row" style="margin-top:1.4rem"><button class="btn small grow" type="submit">Apply filters</button><button class="btn small" type="button" data-stats-reset ${statsSelection.house_rules ? "disabled" : ""}>Reset rules</button></div></form>
-      <div id="stats-content" class="stack wide">${statsTable([result.player, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}${result.comparison ? statsTable([result.player, result.comparison], "head_to_head", "Head to head", "c-p1") : `<p class="hint">Choose a comparison player above for head-to-head results.</p>`}<details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Modifiers in play counts the scoring modifiers affecting that player's hand, including separate variants of a rule. The average excludes older games without modifier records. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details></div></div>`,
+      `<div class="page scroll" data-stats-view="${e(view)}">${head(statsSelection.player ? result.player.profile.label : "Leaderboard")}
+        <div data-stats-filters>${filters}</div>
+        <div id="stats-content" class="stack wide">${content}</div>
+      </div>`,
     );
   } catch (error) {
     if (page === "stats" && request === statsRequest)
@@ -1456,6 +1487,7 @@ async function statsPage(fromUrl = false) {
       );
   }
 }
+
 
 const RULE_EXAMPLES = {
   royal_pairs: [["Queen pair earns one bonus swap", ["QH",null,null,"QS",null,null]], ["Jack pair earns one bonus swap", ["JH",null,null,"JS",null,null]]],
@@ -1528,7 +1560,7 @@ function renderVoidOffer() {
   const signature = `${state.id}|${offer.by}|${offer.expires_at}`;
   if (dialog.dataset.offer !== signature) {
     dialog.dataset.offer = signature;
-    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO ELO CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own ? "" : `<div class="dialog-actions"><button type="button" class="btn c-p3" data-void-reply="accept">Accept</button><button type="button" class="btn c-p2" data-void-reply="decline">Decline</button></div>`}`;
+    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO ELO CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own ? "" : `<div class="dialog-actions"><button type="button" class="btn c-p3" data-void-reply="accept">${padTag("y")}Accept</button><button type="button" class="btn c-p2" data-void-reply="decline">${padTag("x")}Decline</button></div>`}`;
   }
   dialog.querySelector("[data-void-seconds]").textContent = Number.isFinite(seconds) ? seconds : 30;
   if (!dialog.open) dialog.showModal();

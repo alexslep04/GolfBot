@@ -211,6 +211,9 @@ const HAPTIC_PATTERNS = {
   drop: 14,
   flip: 10,
   turn: [18, 70, 18],
+  win: [14, 50, 14, 50, 30],
+  lose: [40],
+  tie: [16, 90, 16],
 };
 const touchDevice = matchMedia("(pointer: coarse)").matches;
 const canVibrate = typeof navigator.vibrate === "function";
@@ -226,7 +229,10 @@ const hapticsAvailable = (canVibrate && touchDevice) || switchHaptics;
 let hapticProbe = null;
 /** Play a short tick for something that happened (a card picked up, a drop, your turn). */
 function haptic(kind = "tap") {
-  if (!prefs.haptics || !hapticsAvailable) return;
+  if (!prefs.haptics) return;
+  // a connected controller gets its own rumble for the same moment (gamepad.js)
+  if (typeof padHaptic === "function") padHaptic(kind);
+  if (!hapticsAvailable) return;
   if (canVibrate) {
     try {
       navigator.vibrate(HAPTIC_PATTERNS[kind] || HAPTIC_PATTERNS.tap);
@@ -250,7 +256,9 @@ function probeTick() {
 }
 /** A run of quick ticks, one per card, for the deal. */
 function hapticFlurry(count, gap, delay = 0) {
-  if (!prefs.haptics || !hapticsAvailable) return;
+  if (!prefs.haptics) return;
+  if (typeof padDealRumble === "function") padDealRumble(count, gap, delay);
+  if (!hapticsAvailable) return;
   setTimeout(() => {
     if (canVibrate) {
       const pattern = [];

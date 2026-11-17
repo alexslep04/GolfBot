@@ -9,7 +9,8 @@
 //   bottom button (A)   press / pick up / place / confirm
 //   right button  (B)   back, close, undo
 // Quick actions at the table, one button each, always the same:
-//   X discard · Y next opponent · LB flip the card · RB end turn · LT draw
+//   X discard · Y draw · LB flip the card · RB swap · LT next opponent
+//   (End Turn has no button of its own: move to it and press A)
 //   RT carry a card (hold, or press to toggle): it moves freely with the
 //   stick or D-pad and snaps near places it can go
 //   View rules & scores · Menu table menu
@@ -31,7 +32,6 @@ const PAD = {
   buttons: {},
   repeat: {},
   family: "xbox",
-  myTurn: false,
   held: false,
   frame: 0,
   placed: "",
@@ -45,6 +45,46 @@ const PAD_GLYPHS = {
   // Nintendo pads report by position too, so the bottom button is their "B"
   nintendo: { a: "B", b: "A", x: "Y", y: "X", lb: "L", rb: "R", lt: "ZL", rt: "ZR", select: "−", start: "+" },
 };
+// The SF Symbol for each button, drawn as the controller in hand labels it.
+const PAD_SYMBOLS = {
+  xbox: {
+    a: "a.circle.fill",
+    b: "b.circle.fill",
+    x: "x.circle.fill",
+    y: "y.circle.fill",
+    lb: "lb.rectangle.roundedbottom.fill",
+    rb: "rb.rectangle.roundedbottom.fill",
+    lt: "lt.rectangle.roundedtop.fill",
+    rt: "rt.rectangle.roundedtop.fill",
+    select: "rectangle.fill.on.rectangle.fill.circle",
+    start: "line.3.horizontal.circle.fill",
+  },
+  playstation: {
+    a: "xmark.circle.fill",
+    b: "circle.circle.fill",
+    x: "square.circle.fill",
+    y: "triangle.circle.fill",
+    lb: "l1.rectangle.roundedbottom.fill",
+    rb: "r1.rectangle.roundedbottom.fill",
+    lt: "l2.rectangle.roundedtop.fill",
+    rt: "r2.rectangle.roundedtop.fill",
+    select: "capsule.portrait.fill",
+    start: "line.3.horizontal.circle.fill",
+  },
+  nintendo: {
+    a: "b.circle.fill",
+    b: "a.circle.fill",
+    x: "y.circle.fill",
+    y: "x.circle.fill",
+    lb: "l.rectangle.roundedbottom.fill",
+    rb: "r.rectangle.roundedbottom.fill",
+    lt: "zl.rectangle.roundedtop.fill",
+    rt: "zr.rectangle.roundedtop.fill",
+    select: "minus.circle.fill",
+    start: "plus.circle.fill",
+  },
+};
+const PAD_SHARED = { dpad: ["dpad.fill", "D-pad"], rstick: ["r.joystick.fill", "Right stick"] };
 const PAD_FOCUSABLE = "button, a[href], input:not([type=hidden]), select, summary";
 const PAD_FIRST_REPEAT = 360,
   PAD_REPEAT = 130;
@@ -53,19 +93,40 @@ const padCursor = document.createElement("div");
 padCursor.id = "pad-cursor";
 padCursor.setAttribute("aria-hidden", "true");
 
-const padGlyph = (key) => PAD_GLYPHS[PAD.family][key] || key;
+const padGlyph = (key) => PAD_SHARED[key]?.[1] || PAD_GLYPHS[PAD.family][key] || key;
+const padSymbol = (key) => PAD_SHARED[key]?.[0] || PAD_SYMBOLS[PAD.family][key];
 function padFamily(id) {
   const name = id.toLowerCase();
   if (/054c|dualsense|dualshock|playstation|ps[345]/.test(name)) return "playstation";
   if (/057e|nintendo|switch|joy-con/.test(name)) return "nintendo";
   return "xbox";
 }
-/** Fill in button badges (action bar, help) for the controller in use. */
+/**
+ * A quick action: the controller button that presses this control, shown as a
+ * just left of the button's words while a controller is connected; on a button
+ * that is only an icon ("under") it hangs off the bottom of the icon.
+ */
+function padTag(key, place = "") {
+  return `<kbd class="pad-key pad-tag${place ? " " + place : ""}" data-key="${key}" aria-hidden="true"></kbd>`;
+}
+/** Draw every button badge (quick actions, the table's actions, help) for the controller in use. */
 function padLabelKeys() {
   document.querySelectorAll(".pad-key[data-key]").forEach((badge) => {
-    const text = padGlyph(badge.dataset.key);
-    if (badge.textContent !== text) badge.textContent = text;
+    const key = badge.dataset.key;
+    const drawn = `${PAD.family}:${key}`;
+    if (badge.dataset.drawn === drawn) return;
+    badge.dataset.drawn = drawn;
+    badge.innerHTML = icon(padSymbol(key), 30, { idle: false, sw: 3, cls: "pad-ico" });
+    badge.title = padGlyph(key);
   });
+}
+/** The control a quick-action button presses on this layer, if there is one. */
+function padShortcut(scope, key) {
+  for (const tag of scope.querySelectorAll(`.pad-tag[data-key="${key}"]`)) {
+    const control = tag.closest(PAD_FOCUSABLE);
+    if (padUsable(control)) return control;
+  }
+  return null;
 }
 
 /* ---------- what can be focused ---------- */
@@ -117,8 +178,9 @@ function padUsable(el) {
 }
 /** The top-most layer; the cursor stays inside it. */
 function padScope() {
-  const dialog = document.getElementById("social-dialog");
-  if (dialog?.open) return dialog;
+  // invitations, the leave prompt and void offers are all <dialog>s
+  const dialog = document.querySelector("dialog[open]");
+  if (dialog) return dialog;
   return (
     document.querySelector(".modal-shade") ||
     (sheetRoot.hidden ? null : sheetRoot) ||
@@ -294,6 +356,25 @@ function padTrigger(pressed) {
 }
 
 /* ---------- buttons ---------- */
+/**
+ * RB: Swap, as the Swap button would with what's selected. With nothing that
+ * can swap selected, the card under the cursor takes part: the drawn card goes
+ * into it, or it trades with the discard pile.
+ */
+function padSwap() {
+  if (actionAllowed("swap")) return barAction("swap");
+  const el = PAD.focus;
+  const ref = el?.matches(".slot") ? JSON.parse(el.dataset.ref) : null;
+  if (!ref || ref[0] !== state.viewer) return el?.matches(".slot") ? popSlot(el, 0.3) : null;
+  const before = board.selected;
+  board.selected = before.length === 1 && !same(before[0], ref) ? [before[0], ref] : [ref];
+  if (actionAllowed("swap")) {
+    paintSelection();
+    return barAction("swap");
+  }
+  board.selected = before;
+  popSlot(el, 0.3);
+}
 function padCycleSelect(select, step) {
   const count = select.options.length;
   if (!count) return;
@@ -308,8 +389,8 @@ function padActivate(el) {
 }
 function padBack() {
   const scope = PAD.scope;
-  if (scope?.id === "social-dialog")
-    return (scope.querySelector("[data-social-close], [data-queue-hide]") || { click() {} }).click();
+  if (scope?.matches?.("dialog"))
+    return (padShortcut(scope, "b") || scope.querySelector("[data-social-close], [data-queue-hide]") || { click() {} }).click();
   if (scope?.matches?.(".modal-shade")) return; // a choice the game is waiting on
   if (!sheetRoot.hidden) return closeSheet();
   if (padOnTable() && board.emotesOpen) {
@@ -325,7 +406,7 @@ function padBack() {
     }
     return;
   }
-  root.querySelector("[aria-label='Back'], [data-setup-back]")?.click();
+  (padShortcut(scope || document.body, "b") || root.querySelector("[aria-label='Back'], [data-setup-back]"))?.click();
 }
 function padPress(name) {
   const el = PAD.focus;
@@ -337,6 +418,15 @@ function padPress(name) {
   if (pending && !["a", "b", "rt"].includes(name)) return;
   // a staged move is still playing out: nothing to press yet
   if (table && board.staged && !board.staged.ready && name !== "b") return;
+  // menus, dialogs and the results: a button wearing this one's sticker is pressed
+  // (B keeps its own rules in padBack; a focused option still steps with LB/RB)
+  if (!table && name !== "a" && name !== "b" && !(el?.matches("select") && (name === "lb" || name === "rb"))) {
+    const shortcut = padShortcut(PAD.scope || padScope(), name);
+    if (shortcut) {
+      padSetFocus(shortcut);
+      return padActivate(shortcut);
+    }
+  }
   switch (name) {
     case "a":
       if (table && board.carry) padDrop();
@@ -353,10 +443,10 @@ function padPress(name) {
         playMove("discard", {}, { from: ["held", null], to: ["discard", null], label: "discard" });
       break;
     case "y":
-      if (table) cycleOpponent(1);
+      if (legal.draw && !busy) move("draw");
       break;
     case "lt":
-      if (legal.draw && !busy) move("draw");
+      if (table) cycleOpponent(1);
       break;
     case "lb":
     case "rb":
@@ -370,7 +460,7 @@ function padPress(name) {
           flipMove(ref);
         } else popSlot(el, 0.3);
       } else if (table) {
-        if (legal.end_turn && !busy) move("end_turn");
+        if (!busy) padSwap();
       } else if (el?.matches("select")) padCycleSelect(el, step);
       else {
         const chosen = root.querySelector(".avatar[aria-checked='true']");
@@ -410,16 +500,55 @@ function padLeave() {
   PAD.placed = "";
   padCursor.classList.remove("on");
 }
-function padRumble(gamepads) {
-  for (const pad of gamepads) {
-    try {
-      pad.vibrationActuator?.playEffect?.("dual-rumble", {
-        duration: 110,
-        weakMagnitude: 0.5,
-        strongMagnitude: 0.2,
-      });
-    } catch {}
-  }
+/* ---------- rumble ---------- */
+// Each moment of play as pulses: [start ms, length ms, heavy motor, light motor].
+// The heavy (low) motor reads as weight, a thud; the light (high) one as a click.
+const PAD_RUMBLE = {
+  tap: [[0, 22, 0, 0.22]], // a button: a dry click
+  grab: [[0, 45, 0.12, 0.45]], // a card lifts off the felt
+  snap: [[0, 16, 0, 0.32]], // the carried card notches onto a place it can go
+  drop: [[0, 70, 0.5, 0.2]], // set down: a soft, heavy thud
+  flip: [[0, 30, 0.08, 0.55], [65, 40, 0.3, 0.15]], // the flick, then the card slaps down
+  turn: [[0, 90, 0.35, 0.45], [170, 90, 0.35, 0.45]], // your turn: two firm knocks
+  win: [[0, 80, 0.2, 0.6], [140, 80, 0.3, 0.75], [280, 260, 0.55, 1]], // rising, then a long cheer
+  lose: [[0, 420, 0.6, 0]], // one long, low slump
+  tie: [[0, 90, 0.3, 0.3], [200, 90, 0.3, 0.3]],
+};
+/** The connected controllers that can rumble. */
+function padMotors() {
+  return [...(navigator.getGamepads?.() || [])].filter((pad) => pad?.connected && pad.vibrationActuator?.playEffect);
+}
+function padPulses(pulses, delay = 0) {
+  const pads = padMotors();
+  if (!pads.length) return;
+  // one effect at a time: each pulse is its own short effect, started on time
+  for (const [start, duration, strong, weak] of pulses)
+    setTimeout(() => {
+      for (const pad of pads)
+        try {
+          pad.vibrationActuator.playEffect("dual-rumble", { duration, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+        } catch {}
+    }, delay + start);
+}
+/**
+ * Rumble a controller for a moment of play (called by haptic() in ui.js). Feel
+ * for your own hands (tap, grab, snap, drop, flip) only comes while the
+ * controller is what you're playing with; news (your turn, the result) comes
+ * whenever one is connected.
+ */
+function padHaptic(kind) {
+  if (!PAD.connected) return;
+  const news = kind === "turn" || kind === "win" || kind === "lose" || kind === "tie";
+  if (!news && !PAD.active) return;
+  padPulses(PAD_RUMBLE[kind] || PAD_RUMBLE.tap);
+}
+/** The deal: a light tick as each card lands, building, then the deck settles. */
+function padDealRumble(count, gap, delay = 0) {
+  if (!PAD.connected) return;
+  const pulses = [];
+  for (let i = 0; i < count; i++) pulses.push([i * gap, 18, 0.05 + (0.25 * i) / count, 0.3 + (0.3 * i) / count]);
+  pulses.push([count * gap + 60, 110, 0.45, 0.25]);
+  padPulses(pulses, delay);
 }
 /** Keep the cursor on a live control and draw it there. */
 function padTrack(gamepads) {
@@ -447,9 +576,6 @@ function padTrack(gamepads) {
     if (padUsable(back)) padSetFocus(back);
   }
   if (!padUsable(PAD.focus)) padSetFocus(padRecover(scope));
-  const turn = padOnTable() && myTurn();
-  if (turn && !PAD.myTurn) padRumble(gamepads);
-  PAD.myTurn = turn;
   // a card you just drew is already "in hand": move to a card and press to place it
   const held = table && !!state.game.held;
   if (!held) PAD.held = false;
@@ -469,7 +595,7 @@ function padTrack(gamepads) {
     return;
   }
   // a <dialog> sits in the top layer, so the cursor has to live inside it
-  const host = scope.id === "social-dialog" ? scope : document.body;
+  const host = scope.matches?.("dialog") ? scope : document.body;
   if (padCursor.parentNode !== host) host.appendChild(padCursor);
   PAD.rect = padRect(el);
   const gap = PAD.gap || 5;
@@ -493,7 +619,7 @@ function padPoll(now) {
   const gamepads = [...(navigator.getGamepads?.() || [])].filter((pad) => pad?.connected);
   if (!gamepads.length) {
     PAD.frame = 0;
-    PAD.connected = false;
+    padConnected(false);
     return padLeave();
   }
   PAD.frame = requestAnimationFrame(padPoll);
@@ -556,7 +682,7 @@ function padPoll(now) {
     const scroller =
       PAD.scope === sheetRoot
         ? sheetRoot.querySelector(".sheet")
-        : PAD.scope?.id === "social-dialog"
+        : PAD.scope?.matches?.("dialog")
           ? PAD.scope
           : padOnTable()
             ? document.querySelector(".summary")
@@ -565,8 +691,14 @@ function padPoll(now) {
   }
   padTrack(gamepads);
 }
+/** Quick-action stickers and floating Back buttons show while any controller is connected. */
+function padConnected(on) {
+  PAD.connected = on;
+  document.documentElement.classList.toggle("pad-on", on);
+  if (on) padLabelKeys();
+}
 function padStart() {
-  PAD.connected = true;
+  padConnected(true);
   if (!PAD.frame) PAD.frame = requestAnimationFrame(padPoll);
 }
 window.addEventListener("gamepadconnected", (event) => {
@@ -576,7 +708,7 @@ window.addEventListener("gamepadconnected", (event) => {
 });
 window.addEventListener("gamepaddisconnected", () => {
   if (![...(navigator.getGamepads?.() || [])].some((pad) => pad?.connected)) {
-    PAD.connected = false;
+    padConnected(false);
     padLeave();
   }
 });
@@ -594,27 +726,31 @@ document.addEventListener(
 /** The controls list shown in the settings and table menus while a controller is connected. */
 function padHelpHtml() {
   if (!PAD.connected) return "";
-  const key = (name) => `<kbd class="pad-key" data-key="${name}">${padGlyph(name)}</kbd>`;
+  // drawn as SF Symbols by padLabelKeys; the name stays for screen readers
+  const key = (name) => `<kbd class="pad-key" data-key="${name}" aria-label="${e(padGlyph(name))}"></kbd>`;
   const rows = padOnTable()
     ? [
-        [`<kbd class="pad-key">D-pad</kbd>`, "Move between cards"],
+        [key("dpad"), "Move between cards"],
         [key("a"), prefs.confirm ? "Pick up, place, and confirm" : "Pick up a card, then place it"],
         [key("b"), "Undo / put the card down / close"],
         [key("rt"), prefs.padDrag === "toggle" ? "Grab a card and steer it; press again to drop" : "Hold and steer a card; let go to drop it"],
-        [key("lt"), "Draw"],
+        [key("y"), "Draw"],
+        [key("rb"), "Swap the card under the cursor"],
         [key("x"), "Discard"],
         [key("lb"), "Flip the card or the go-fish pile"],
-        [key("rb"), "End turn"],
-        [key("y"), "Next opponent"],
+        [key("lt"), "Next opponent"],
         [key("select"), "Rules & scores"],
       ]
     : [
-        [`<kbd class="pad-key">D-pad</kbd>`, "Move"],
+        [key("dpad"), "Move"],
         [key("a"), "Select"],
         [key("b"), "Back"],
         [key("lb") + key("rb"), "Change avatar or option"],
-        [`<kbd class="pad-key">R stick</kbd>`, "Scroll"],
+        [key("rstick"), "Scroll"],
+        [key("x") + key("y"), "Quick actions: the buttons wearing a sticker"],
         [key("start"), "Settings"],
       ];
-  return `<div data-pad-help><h3>Controller</h3><div class="pad-help">${rows.map(([keys, text]) => `<span class="keys">${keys}</span><span>${e(text)}</span>`).join("")}</div></div>`;
+  const html = `<div data-pad-help><h3>Controller</h3><div class="pad-help">${rows.map(([keys, text]) => `<span class="keys">${keys}</span><span>${e(text)}</span>`).join("")}</div></div>`;
+  queueMicrotask(padLabelKeys); // once the sheet is on the page
+  return html;
 }
