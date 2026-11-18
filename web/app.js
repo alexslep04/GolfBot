@@ -433,7 +433,9 @@ function prefsHtml() {
   const row = (key, symbol, label, value, on, lit = on) =>
     `<button type="button" class="btn c-fw pref" role="switch" aria-checked="${on}" data-pref="${key}">${tilted(symbol, 26)}<span class="grow">${label}</span><b class="pref-value${lit ? " on" : ""}">${value}</b></button>`;
   const onOff = (on) => (on ? "On" : "Off");
+  const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
   const rows = [
+    row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
     row("hideTips", "text.bubble.fill", "Hide tooltips", onOff(prefs.hideTips), prefs.hideTips),
   ];
@@ -448,7 +450,10 @@ function prefsHtml() {
 }
 function togglePref(key) {
   if (key === "padDrag") setPref(key, prefs.padDrag === "toggle" ? "hold" : "toggle");
-  else setPref(key, !prefs[key]);
+  else if (key === "theme") {
+    const at = THEMES.findIndex(([name]) => name === prefs.theme);
+    setPref(key, THEMES[(at + 1) % THEMES.length][0]);
+  } else setPref(key, !prefs[key]);
   if (key === "confirm" && !prefs.confirm) cancelStaged();
   const holder = sheetRoot.querySelector("[data-prefs]");
   if (holder) holder.outerHTML = prefsHtml().replace(/^<h3>.*?<\/h3>/, "");
@@ -1070,31 +1075,44 @@ async function playerStatsSheet(player) {
   }
   if (holder.isConnected) holder.innerHTML = `<div class="stack">${body}</div>`;
 }
-/** Send one table action. Resolves true when the server accepted it. */
-async function move(action, extra = {}) {
+/**
+ * Send one table action. Resolves true when the server accepted it.
+ * The server refuses an action aimed at a table that has since changed. With
+ * opts.stillLegal, such a refusal is not the end of it: the table is read
+ * again and, while that check still passes, the action is sent once more.
+ */
+async function move(action, extra = {}, opts = {}) {
   if (busy || !state || state.void_offer) return false;
   const roomId = state.id;
   let ok = false;
   busy = true;
   try {
-    const next = await api(`/api/lobbies/${roomId}/action`, "POST", {
-      action,
-      version: state.version,
-      ...extra,
-    });
-    if (session.room_id !== roomId) return false;
-    ok = true;
-    board.selected = [];
-    accept(next);
-    // after a flip the only card that can move is the one just revealed
-    if (action === "flip" && next.game?.legal.swap.length === 1)
-      board.selected = [[next.viewer, next.game.legal.swap[0]]];
-  } catch (error) {
-    toast(error.message);
-    if (error.status === 409 && state) {
+    for (let attempt = 0; !ok; attempt++) {
       try {
-        accept(await api(`/api/lobbies/${state.id}/state`));
-      } catch {}
+        const next = await api(`/api/lobbies/${roomId}/action`, "POST", {
+          action,
+          version: state.version,
+          ...extra,
+        });
+        if (session.room_id !== roomId) return false;
+        ok = true;
+        board.selected = [];
+        accept(next);
+        // after a flip the only card that can move is the one just revealed
+        if (action === "flip" && next.game?.legal.swap.length === 1)
+          board.selected = [[next.viewer, next.game.legal.swap[0]]];
+      } catch (error) {
+        let again = false;
+        if (error.status === 409 && state) {
+          try {
+            accept(await api(`/api/lobbies/${state.id}/state`));
+            again = attempt < 2 && session.room_id === roomId && !!opts.stillLegal?.();
+          } catch {}
+        }
+        if (again) continue;
+        toast(error.message);
+        break;
+      }
     }
   } finally {
     busy = false;

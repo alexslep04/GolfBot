@@ -132,7 +132,14 @@ const prefs = {
   padDrag: "hold", // controller: hold the trigger to carry a card, or "toggle"
   haptics: true,
   hideTips: false,
+  theme: "golf", // the look of the whole game: see THEMES
 };
+// Each theme is a set of colour tokens in style.css, under :root[data-theme].
+// "golf" is the original sticker look and needs no attribute.
+const THEMES = [
+  ["golf", "Golf", "#c4efab"],
+  ["poker", "Poker", "#0d3525"],
+];
 try {
   Object.assign(prefs, JSON.parse(localStorage.getItem("golf-prefs") || "{}"));
 } catch {}
@@ -140,6 +147,11 @@ function applyPrefs() {
   const html = document.documentElement.classList;
   html.toggle("no-haptics", !prefs.haptics);
   html.toggle("no-tips", prefs.hideTips);
+  const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
+  if (theme === THEMES[0]) delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme[0];
+  // the browser's own chrome (status bar, overscroll) takes the table's colour
+  document.querySelector("meta[name='theme-color']")?.setAttribute("content", theme[2]);
 }
 function setPref(key, value) {
   prefs[key] = value;

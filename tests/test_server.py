@@ -54,6 +54,55 @@ class WebTests(unittest.TestCase):
             for index in (0, 1):
                 self.move('flip', client, index=index)
 
+    def preview(self, action, client, status=200, **extra):
+        response = client.post(f'/api/lobbies/{self.id}/preview', json={'action': action, 'version': self.room.version, **extra})
+        self.assertEqual(response.status_code, status, response.text)
+        return response.json()
+
+    def test_preview_scores_a_staged_swap_without_playing_it_or_using_hidden_cards(self):
+        self.start(rules={'gamblers_row': True})
+        game = self.room.game
+        seat = game.decision_player
+        mine, theirs = (self.host, self.guest) if seat == 0 else (self.guest, self.host)
+        hidden = Card(13, 'C')
+        game.players[seat] = [Slot(Card(7, 'S'), True), Slot(Card(7, 'H'), True), Slot(Card(4, 'D')),
+                              Slot(Card(9, 'S'), True), Slot(hidden), Slot(Card(2, 'C'))]
+        game.discard_pile[-1] = Card(7, 'D')
+        before, version = self.state(mine), self.room.version
+        self.assertEqual(before['game']['effect_totals'][seat], 23)
+        # the discard's 7 onto the face-down third card: a row of 7s, so 777 divides (7+7+7+9 = 30, /7 -> 5)
+        after = self.preview('swap', mine, index=2)
+        self.assertEqual(after['effect_totals'][seat], 5)
+        self.assertEqual(after['face_values'][seat], 30)
+        self.assertEqual(after['modifier_counts'][seat], 1)
+        self.assertIn('Gamblers 777 /7', after['effects'][seat])
+        self.assertEqual(after['effect_totals'][1 - seat], before['game']['effect_totals'][1 - seat])
+        # nothing was played: the table, its version and what the rules have earned are untouched
+        self.assertEqual((self.room.version, game.gambler_earned, game.phase), (version, [False, False], 'choose'))
+        self.assertEqual(self.state(mine)['game'], before['game'])
+        # the card going out face down plays no part in it
+        game.players[seat][2] = Slot(Card(1, 'H'))
+        self.assertEqual(self.preview('swap', mine, index=2), after)
+        # onto the 9 under the first 7 instead: that column pairs off, leaving the other 7
+        paired = self.preview('swap', mine, index=3)
+        self.assertEqual((paired['effect_totals'][seat], paired['face_values'][seat], paired['modifier_counts'][seat]), (7, 21, 0))
+        # and playing the move gives exactly what the preview said
+        self.assertEqual(self.move('swap', mine, index=2)['game']['effect_totals'][seat], 5)
+
+    def test_preview_is_only_for_the_deciding_player_and_the_table_as_it_stands(self):
+        self.start()
+        game = self.room.game
+        mine, theirs = (self.host, self.guest) if game.decision_player == 0 else (self.guest, self.host)
+        self.preview('swap', theirs, status=403, index=0)
+        self.preview('swap', self.outsider, status=403, index=0)
+        self.preview('flip', mine, status=422, index=2)
+        self.preview('discard', mine, status=422)  # nothing drawn yet
+        response = mine.post(f'/api/lobbies/{self.id}/preview', json={'action': 'swap', 'version': self.room.version - 1, 'index': 0})
+        self.assertEqual(response.status_code, 409)
+        self.move('draw', mine)
+        discarded = self.preview('discard', mine)
+        self.assertEqual(discarded['effect_totals'], self.state(mine)['game']['effect_totals'])
+
     def test_menu_assets_and_rule_catalog(self):
         for path in ('/', '/lobby/invite', '/static/app.js', '/static/style.css', '/health'):
             self.assertEqual(self.host.get(path).status_code, 200)

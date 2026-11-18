@@ -441,6 +441,18 @@ def showing_scores(game):
         incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)]
 
 
+def score_view(game):
+    """Every score tag and the rules behind it, read off the cards anyone can see."""
+    return {
+        "effect_totals": showing_scores(game),
+        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards,
+            poisoned=game.finisher == p, angel_earned=game.angel_earned[p],
+            opponent_layouts=[game.players[q] for q in game.opponents(p)],
+            incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)],
+        "modifier_counts": [sum(counts.values()) for counts in modifier_data(game)["modifier_counts"]],
+    }
+
+
 def bot_reaction(room, game, before):
     """The emote Golfbot answers an upset with, if it reacts at all.
 
@@ -574,12 +586,7 @@ def snapshot(room, token):
         # Plain card points (matching columns cancel, no optional rules), from the cards anyone can see.
         # effect_totals minus this is what the rules in play have done to each hand.
         "base_scores": [column_score(layout, Rules(), game.phase != "over") for layout in game.players],
-        "effect_totals": showing_scores(game),
-        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards,
-            poisoned=game.finisher == p, angel_earned=game.angel_earned[p],
-            opponent_layouts=[game.players[q] for q in game.opponents(p)],
-            incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)],
-        "modifier_counts": [sum(counts.values()) for counts in modifier_data(game)["modifier_counts"]],
+        **score_view(game),
         "rule_previews": rule_preview_data(game),
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
@@ -685,6 +692,33 @@ def apply_move(room, token, move):
     room.version += 1
     room.touched = time.time()
     room.save_practice()
+
+
+def preview_move(room, token, move):
+    """The score tags as they would read once the viewer's swap or discard is played.
+
+    Nothing is played and nothing hidden is used: the move is tried on a copy of
+    the table, which is then scored from its face-up cards like any other.
+    """
+    if token not in room.seats:
+        raise HTTPException(403, "You do not have a seat.")
+    game = room.game
+    if game is None or room.status != "playing" or room.void_offer or move.version != room.version:
+        raise HTTPException(409, "The table changed.")
+    if game.decision_player != room.seats.index(token):
+        raise HTTPException(403, "It is not your decision.")
+    if move.action == "discard" and game.phase in ("drawn", "drawn_revealed"):
+        after = game.preview()
+    elif move.action == "swap" and game.phase in ("bonus", "guess_trade"):
+        if len(move.refs) != 2:
+            raise HTTPException(422, "Select two different cards.")
+        after = game.preview(refs=[parse_ref(ref) for ref in move.refs])
+    elif move.action == "swap" and move.index is not None:
+        after = game.preview(index=move.index)
+    else:
+        raise HTTPException(422, "Only a swap or a discard can be previewed.")
+    return {"version": room.version, **score_view(after),
+            "face_values": [sum(slot.card.base_points for slot in layout if slot.visible) for layout in after.players]}
 
 
 def create_app(store=None, google_client_id=None, bot_workers=None):
@@ -1419,6 +1453,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         result = snapshot(room, session.token)
         kick_bot(room)
         return result
+
+    @app.post("/api/lobbies/{room_id}/preview")
+    async def preview(room_id: str, move: Move, request: Request):
+        session = session_for(request)
+        room = find_room(room_id)
+        try:
+            return preview_move(room, session.token, move)
+        except (ValueError, TypeError, IndexError) as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.post("/api/lobbies/{room_id}/action")
     async def action(room_id: str, move: Move, request: Request):

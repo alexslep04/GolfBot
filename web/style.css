@@ -82,6 +82,9 @@
   --c: var(--fw);
   --c2: var(--fw3);
   --ct: var(--fw-text);
+  /* text that sits straight on the table, not on a panel */
+  --on-bg: var(--fw-text);
+  --on-bg2: var(--fw);
 }
 :root.in-game {
   --u: min(100vw / 402, 100dvh / 880, 1.5px);
@@ -113,6 +116,46 @@
   --s3on: #fff;
   /* losing: a soft, sad purple */
   --sad: #8b80c4;
+}
+/* ---------- themes ----------
+   A theme is, almost entirely, a set of these tokens: every surface, sticker
+   and line of text takes its colour from them. "Golf" is the set above.
+   "Poker" is a felt table: deep greens underneath, ivory instead of white,
+   seat colours that are darker and quieter, and a little antique gold where
+   Golf uses pale green. The few rules a theme needs beyond its tokens (its
+   backdrop, its card back) sit beside the rule they replace, marked "Poker:". */
+:root[data-theme="poker"] {
+  --bg: #0d3525;
+  --felt: #17573b; /* the lit middle of the table */
+  --gold: #c9a961;
+  --fw: #2b7a55;
+  --fw2: #4f9674;
+  --fw3: #dde6d3;
+  --fw-text: #143526;
+  --accent: #b89b5e;
+  --ink: #2b2a28;
+  --grey: #88846f;
+  --flame: #d67a34;
+  --paper: #f8f2e2;
+  --red: #b5433f;
+  --red2: #efdcd3;
+  --p1: #3d6c96;
+  --p1b: #d3dee6;
+  --p1t: #16314a;
+  --p2: #a3423d;
+  --p2b: #ead5cd;
+  --p2t: #4d1b17;
+  --p3: #bf9537;
+  --p3b: #ebe0c2;
+  --p3t: #4b3a12;
+  --p4: #77508f;
+  --p4b: #dfd3e3;
+  --p4t: #33203d;
+  --s2on: #fff;
+  --on-bg: #efe7cf;
+  --on-bg2: var(--gold);
+  --sad: #6c6893;
+  --shadow: rgb(0 0 0 / 0.4);
 }
 .c-s0 {
   --c: var(--s0);
@@ -183,7 +226,7 @@ html {
 }
 body {
   font: 700 1.6rem/1.4 var(--text);
-  color: var(--fw-text);
+  color: var(--on-bg);
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
@@ -209,6 +252,21 @@ body {
   z-index: -1;
   background: var(--bg) url(assets/fairway.svg) center / auto
     min(148vh, max(122vh, 250vw)) no-repeat;
+}
+/* Poker: no fairway. The table is felt, lit from above the middle and falling
+   away to a dark rail, with a fine grain and one thin gold line set in from
+   the edge, like the betting line on a card table. */
+:root[data-theme="poker"] #backdrop {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 90% 70% at 50% 42%, var(--felt) 0%, #124a32 58%, var(--bg) 100%);
+}
+:root[data-theme="poker"] #backdrop::after {
+  content: "";
+  position: absolute;
+  inset: max(1.2rem, env(safe-area-inset-top)) 1.2rem max(1.2rem, env(safe-area-inset-bottom));
+  border: 0.15rem solid color-mix(in srgb, var(--gold) 34%, transparent);
+  border-radius: 3.2rem;
 }
 .svg-defs {
   position: absolute;
@@ -336,7 +394,7 @@ p {
 .empty {
   padding: 4rem 1.6rem;
   text-align: center;
-  color: var(--fw);
+  color: var(--on-bg2);
 }
 /* While the app starts, the loading line only shows if the start is slow: a
    quick refresh goes straight to the page instead of flashing it. */
@@ -471,7 +529,7 @@ p {
 }
 .page-title {
   font: 700 2.4rem/1.1 var(--text);
-  color: var(--fw-text);
+  color: var(--on-bg);
   flex: 1;
   min-width: 0;
 }
@@ -501,12 +559,13 @@ p {
   line-height: 1.4;
 }
 .hint.dark {
-  color: var(--fw);
+  color: var(--on-bg2);
 }
 /* inside a themed surface, notes take that surface's primary colour */
 .sheet .hint,
 .summary .hint,
 .modal .hint,
+.panel .hint.dark,
 .sheet .empty,
 .sheet .loading {
   color: var(--c);
@@ -551,7 +610,7 @@ p {
 }
 /* our names are links to our own sites, in the primary fairway green */
 .credit a {
-  color: var(--fw);
+  color: var(--on-bg2);
   text-decoration: none;
   white-space: nowrap;
 }
@@ -827,7 +886,7 @@ p {
   padding: 2.4rem 0;
 }
 .avatar-pick .pointer {
-  color: var(--fw);
+  color: var(--on-bg2);
   animation: bob 1.4s ease-in-out infinite alternate;
 }
 @keyframes bob {
@@ -1231,7 +1290,11 @@ fieldset {
 body > header.topbar .brand {
   font-size: 3.2rem;
   text-decoration: none;
-  color: var(--fw);
+  color: var(--on-bg2);
+}
+/* Poker: a link on the bare table needs a light colour, not the seat's dark one */
+:root[data-theme="poker"] body > header.topbar a:not(.brand) {
+  color: var(--on-bg);
 }
 body > header.topbar {
   padding: 0 1.6rem;
@@ -1724,6 +1787,10 @@ button.tag-rules:active > .tag-in {
   background-image: url(assets/card-back.png);
   transform: rotateY(180deg);
 }
+/* Poker: the same textured back, in oxblood instead of fairway green */
+:root[data-theme="poker"] .face.back {
+  background-image: url(assets/card-back-poker.png);
+}
 .face.front {
   background-image: url(assets/card-face-black.png);
   color: var(--ink);
@@ -2012,6 +2079,15 @@ button.tag-rules:active > .tag-in {
   --stroke: var(--paper);
   transition: transform 0.28s var(--spring);
   animation: pop 0.4s var(--spring);
+}
+/* (on felt the labels are read against a dark table, not a pale fairway) */
+:root[data-theme="poker"] .side-act {
+  color: var(--on-bg);
+}
+/* Confirm and Undo are wanted the instant a move is staged */
+.side-act[data-confirm],
+.side-act[data-undo] {
+  animation-duration: 0.16s;
 }
 .side-act .act-ico {
   display: grid;

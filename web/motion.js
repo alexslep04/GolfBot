@@ -13,7 +13,7 @@ const MOTION_SPEC = {
   lift: ["--lift", "", 0, 300, 30, 0.01],
   rx: ["--rx", "deg", 0, 260, 20, 0.05],
   ry: ["--ry", "deg", 0, 260, 20, 0.05],
-  face: ["--face", "deg", null, 150, 13.5, 0.4],
+  face: ["--face", "deg", null, 230, 16.5, 0.4],
 };
 const motions = new Map();
 let motionFrame = 0,
@@ -184,10 +184,13 @@ function poseOf(slot) {
   };
 }
 
-/** Balatro-style flip: the card pops off the table, spins over, and settles. */
-function flipSlot(slot, faceUp, delay = 0) {
+/**
+ * Balatro-style flip: the card pops off the table, spins over, and settles.
+ * A card that had already begun to turn (see primeFlip) carries on from the
+ * angle it had reached.
+ */
+function flipSlot(slot, faceUp, delay = 0, from = faceUp ? 180 : 0) {
   const motion = motionFor(slot);
-  const from = faceUp ? 180 : 0;
   motion.jump({ face: from });
   slot.classList.toggle("is-face", faceUp);
   const run = () => {

@@ -81,7 +81,9 @@ const HAND_TILT = [
   [-0.4, 0.6, -0.4, -0.8, -0.4, 0.5],
 ];
 const DRAG_START = 7; // px of travel before a press becomes a drag
-const DOUBLE_TAP_MS = 400;
+const DOUBLE_TAP_MS = 400; // from one tap's lift to the next one's press
+const TAP_SLOP = 30; // px a quick tap may slide and still count as a tap…
+const TAP_SLOP_MS = 280; // …if it was over this soon
 
 const board = {
   el: null,
@@ -92,6 +94,8 @@ const board = {
   drag: null,
   hover: null,
   lastTap: null,
+  primed: new Map(), // cards already turning while the server is asked to flip them
+  queuedFlip: null, // a flip asked for while another move was still on its way
   pendingDrop: null,
   staged: null, // a move waiting for the Confirm button
   carry: null, // a card being carried with the controller trigger
@@ -366,6 +370,8 @@ function mountBoard() {
   board.selected = [];
   board.drag = null;
   board.pendingDrop = null;
+  board.primed = new Map();
+  board.queuedFlip = null;
   board.staged = null;
   board.carry = null;
   board.emotesOpen = false;
@@ -482,6 +488,7 @@ function renderBoard() {
   renderTags();
   renderChrome();
   paintSelection();
+  drainFlip();
 }
 
 function syncCards(prev, view) {
@@ -499,6 +506,13 @@ function syncCards(prev, view) {
     return;
   }
   cancelFlights();
+  // A card that began turning when it was double-tapped finishes from there.
+  const primedFace = {};
+  for (const key of changedKeys) {
+    if (!board.primed.has(key)) continue;
+    primedFace[key] = motionFor(board.primed.get(key)).values.face?.value;
+    board.primed.delete(key);
+  }
   // A card the player just dropped starts its flight from where it was released.
   const drop = board.pendingDrop;
   board.pendingDrop = null;
@@ -585,8 +599,10 @@ function syncCards(prev, view) {
       fly(partner, key, after[key].card, true);
       fly(key, partner, after[partner].card, true);
       handled.add(key).add(partner);
-    } else if (before[key].key === "X" && after[key].key !== "X")
-      flipSlot(slot, true, reveal++ * 70);
+    } else if (before[key].key === "X" && after[key].key !== "X") {
+      if (primedFace[key] !== undefined) flipSlot(slot, true, 0, primedFace[key]);
+      else flipSlot(slot, true, reveal++ * 70);
+    }
     else if (after[key].key === "X") flipSlot(slot, false, reveal++ * 70);
     else popSlot(slot);
   }
@@ -693,7 +709,7 @@ function ruleStickerHtml(sticker, size, opts = {}) {
  * The stickers a hand has earned: one per rule that is affecting that player
  * right now. Rules that are merely enabled show nothing.
  */
-function ruleStickers(player) {
+function ruleStickers(player, effects = state.game.effects[player]) {
   const g = state.game,
     pairs = [];
   // A Jack or Queen pair earns a bonus swap; it has no score line of its own.
@@ -709,21 +725,18 @@ function ruleStickers(player) {
       )
         pairs.push({ rule: "royal_pairs", variant: top.card.rank === 11 ? 0 : 1 });
     }
-  for (const effect of g.effects[player] || []) pairs.push(...effectStickers(effect));
+  for (const effect of effects || []) pairs.push(...effectStickers(effect));
   return groupStickers(pairs);
 }
 function activeRules(player) {
   if (state.game.rule_previews) return Object.keys(state.game.rule_previews[player] || {});
   return [...new Set(ruleStickers(player).map((sticker) => sticker.rule))];
 }
-/**
- * What the rules in play have done to a hand: its score as it stands, against
- * the plain points of its cards (with only matching columns cancelled).
- */
-function ruleDelta(player) {
-  const g = state.game;
-  return g.effect_totals[player] - (g.base_scores ?? g.scores)[player];
+/** The plain points of a hand's face-up cards, before any pairing or rule. */
+function faceValue(player) {
+  return state.game.players[player].reduce((sum, slot) => sum + (slot.visible ? slot.card.points : 0), 0);
 }
+const signed = (points) => `${points > 0 ? "+" : ""}${points}`;
 /** True while the table is waiting on this player (including opening flips). */
 function myTurn() {
   const g = state.game;
@@ -839,13 +852,25 @@ function renderTags() {
       "aria-label",
       `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ""}`,
     );
-    const delta = ruleDelta(player);
-    const stickers = ruleStickers(player);
+    // The bar under the score: how many modifiers this hand has in play, and
+    // what they (and its matched columns) add to or take off the face value of
+    // its cards. While a move waits for Confirm, it reads as it would once the
+    // move is played, new score first.
+    const preview = board.staged?.preview;
+    const after = !!preview && (side === "me" || preview.effect_totals[player] !== score);
+    const total = after ? preview.effect_totals[player] : score;
+    const count = after ? preview.modifier_counts[player] : enabled;
+    const delta = total - (after ? preview.face_values[player] : faceValue(player));
+    const stickers = ruleStickers(player, after ? preview.effects[player] : undefined);
+    const modifiers = `${count} Modifier${count === 1 ? "" : "s"}`;
+    rulesTag.classList.toggle("previewing", after);
     patch(
       `rules-txt-${side}`,
       rulesTag.querySelector(".txt"),
-      `${enabled}|${delta}`,
-      `${enabled} Modifier${enabled === 1 ? "" : "s"} in<br>play (${delta > 0 ? "+" : ""}${delta}pts)`,
+      `${count}|${delta}|${after ? total : ""}`,
+      after
+        ? `<b class="new-score">New score: ${total}pts</b><br>${modifiers} (${signed(delta)}pts)`
+        : `${modifiers} in<br>play (${signed(delta)}pts)`,
     );
     patch(
       `rules-ico-${side}`,
@@ -859,7 +884,7 @@ function renderTags() {
     );
     rulesTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${enabled} modifiers in play, ${delta} points from rules. Open details.`,
+      `${state.names[player]}: ${after ? `new score ${total} points. ` : ""}${count} modifiers in play, ${signed(delta)} points against the cards' face value. Open details.`,
     );
   }
   // the cycle button wears the colour of the opponent it turns to
@@ -1410,10 +1435,57 @@ function canFlip(ref) {
     (ref[0] === state.viewer && legal.flip.includes(ref[1]))
   );
 }
-/** Flips play at once: there is no confirm step for turning a card over. */
+/**
+ * Flips play at once: there is no confirm step for turning a card over. Only
+ * the server knows the card, so it has to be asked, but the card starts to
+ * turn right away and the answer finishes the turn. A flip asked for while
+ * another move is still on its way is kept, and sent as soon as that one lands.
+ */
 function flipMove(ref) {
   haptic("flip");
-  return ref[0] === "draw" ? move("draw") : move("flip", { index: ref[1] });
+  primeFlip(ref);
+  if (busy) {
+    const waiting = board.queuedFlip;
+    if (waiting && !same(waiting, ref)) unprime(waiting); // only the latest one waits
+    board.queuedFlip = ref;
+    return Promise.resolve(false);
+  }
+  return sendFlip(ref);
+}
+async function sendFlip(ref) {
+  // someone else acting at the same moment (opening flips are everyone's at
+  // once) only changes the table's version: the flip is sent again
+  const opts = { stillLegal: () => canFlip(ref) };
+  const ok = await (ref[0] === "draw" ? move("draw", {}, opts) : move("flip", { index: ref[1] }, opts));
+  unprime(ref);
+  return ok;
+}
+function primeFlip(ref) {
+  const slot = slotFor(ref);
+  if (!slot || slot.classList.contains("empty")) return;
+  const motion = motionFor(slot);
+  if (ref[0] === "draw" || reducedMotion.matches) return void motion.kick({ scale: 2.2 });
+  if (slot.classList.contains("is-face") || board.primed.has(refKey(ref))) return;
+  board.primed.set(refKey(ref), slot);
+  // up off the table and most of the way over, the back still showing
+  motion.to({ face: 108, lift: 1, scale: 1.1, rx: 0, ry: 0 });
+  motion.kick({ scale: 2.2 });
+}
+/** Lay a card that was turning back down (the flip was called off, or refused). */
+function unprime(ref) {
+  const slot = board.primed.get(refKey(ref));
+  if (!slot) return;
+  board.primed.delete(refKey(ref));
+  if (slot.isConnected && !slot.classList.contains("is-face"))
+    motionFor(slot).to({ face: 180, lift: 0, scale: 1 });
+}
+/** Send the flip that was waiting on another move, once that move has landed. */
+function drainFlip() {
+  const ref = board.queuedFlip;
+  if (!ref || busy) return;
+  board.queuedFlip = null;
+  if (canFlip(ref)) sendFlip(ref);
+  else unprime(ref);
 }
 
 function clearTargets() {
@@ -1513,20 +1585,32 @@ function previewPlan(item) {
     [hand, discard],
   ];
 }
+/** Ask what the score tags would read once a staged swap or discard is played. */
+async function previewScore(item) {
+  if (!["swap", "discard"].includes(item.action)) return;
+  try {
+    const result = await api(`/api/lobbies/${state.id}/preview`, "POST", {
+      action: item.action,
+      version: item.version,
+      ...item.extra,
+    });
+    if (board.staged !== item || result.version !== state.version) return;
+    item.preview = result;
+    renderTags();
+  } catch {} // (a server from before previews: the bar keeps what it showed)
+}
 function stageMove(staged) {
+  const shown = board.staged?.preview;
   if (board.staged) cancelStaged(false);
-  const item = (board.staged = { ...staged, version: state.version, ready: false, movers: [] });
+  if (shown) renderTags();
+  // Confirm and Undo are there at once: the preview plays out beside them
+  const item = (board.staged = { ...staged, version: state.version, ready: true, movers: [], preview: null });
   const plan = previewPlan(item).filter(([slot, to]) => slot && to && slot !== to);
   board.selected = item.from && !plan.length ? [item.from] : [];
   board.lastTap = null;
   paintSelection();
-  // Confirm and Undo show up once the move has played out in front of you
-  const ready = () => {
-    if (board.staged !== item || item.ready) return;
-    item.ready = true;
-    paintSelection();
-  };
-  if (!plan.length) return item.from ? setTimeout(ready, 240) : ready();
+  previewScore(item);
+  if (!plan.length) return;
   // Preview: every card involved travels to where the move will leave it, and
   // turns to lie the way its new place does. Undo sends them all back.
   const offset = (slot, key) => motionFor(slot).values[key]?.value || 0;
@@ -1557,7 +1641,6 @@ function stageMove(staged) {
     });
   }
   haptic("snap");
-  setTimeout(ready, 420);
 }
 function cancelStaged(paint = true) {
   const staged = board.staged;
@@ -1565,7 +1648,9 @@ function cancelStaged(paint = true) {
   board.staged = null;
   for (const slot of staged.movers) if (slot.isConnected) releaseDrag(slot);
   board.selected = [];
-  if (paint) paintSelection();
+  if (!paint) return;
+  paintSelection();
+  if (staged.preview) renderTags(); // the bar goes back to the table as it is
 }
 async function confirmStaged() {
   const staged = board.staged;
@@ -1743,11 +1828,31 @@ function onBoardPointerDown(event) {
     cancelStaged();
     if (moved || event.target.closest("[data-undo]")) return; // the cards just go back
   }
+  // a press whose lift was never reported must not swallow the next one
+  if (board.drag && event.isPrimary && event.pointerId !== board.drag.pointer)
+    onBoardPointerUp({ type: "pointercancel", pointerId: board.drag.pointer });
   if (!slot || board.drag || event.button > 0 || slot.classList.contains("empty"))
     return;
+  const ref = JSON.parse(slot.dataset.ref);
+  // The second press of a double-tap: the card starts to turn as the finger
+  // comes down. Where a press on this card could not be the start of a drag
+  // (opening flips, the go-fish pile) the flip is played then and there;
+  // otherwise it is played as the finger lifts, unless it turned into a drag.
+  const second = secondTap(ref);
+  const flipped = second && !movesFrom(ref).length;
+  if (second) {
+    board.lastTap = null;
+    board.selected = [];
+    paintSelection();
+    if (flipped) flipMove(ref);
+    else primeFlip(ref);
+  }
   board.drag = {
     slot,
-    ref: JSON.parse(slot.dataset.ref),
+    ref,
+    second,
+    flipped,
+    began: performance.now(),
     pointer: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
@@ -1762,12 +1867,12 @@ function onBoardPointerDown(event) {
   try {
     slot.setPointerCapture(event.pointerId);
   } catch {}
-  motionFor(slot).to({ scale: 0.95, rx: 0, ry: 0 });
+  if (!second) motionFor(slot).to({ scale: 0.95, rx: 0, ry: 0 });
 }
 function beginDrag(drag) {
   drag.active = true;
+  if (drag.second) unprime(drag.ref); // it was the start of a drag after all
   board.selected = [];
-  board.lastTap = null;
   paintSelection();
   drag.slot.classList.remove("returning");
   drag.slot.classList.add("dragging");
@@ -1824,7 +1929,7 @@ function onBoardPointerMove(event) {
   const dx = event.clientX - drag.startX,
     dy = event.clientY - drag.startY;
   if (!drag.active) {
-    if (Math.hypot(dx, dy) < DRAG_START) return;
+    if (drag.flipped || Math.hypot(dx, dy) < DRAG_START) return;
     if (swipeFromCard(drag, dx, dy)) return;
     beginDrag(drag);
   }
@@ -1877,20 +1982,30 @@ async function onBoardPointerUp(event) {
   try {
     drag.slot.releasePointerCapture(event.pointerId);
   } catch {}
-  if (!drag.active) {
-    motionFor(drag.slot).to({ scale: 1 });
-    if (event.type === "pointerup") tapSlot(drag.ref, drag.slot);
-    return;
-  }
+  const lifted = event.type === "pointerup";
+  const tapped = () => {
+    if (drag.flipped) return; // already played, as the finger came down
+    if (!drag.second) {
+      motionFor(drag.slot).to({ scale: 1 });
+      if (lifted) tapSlot(drag.ref, drag.slot);
+    } else if (lifted && canFlip(drag.ref)) flipMove(drag.ref);
+    else unprime(drag.ref);
+  };
+  if (!drag.active) return tapped();
   clearTargets();
   const travelled = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
   const drawing =
     drag.ref[0] === "draw" && state.game.legal.draw && travelled > 44;
-  if (event.type !== "pointerup" || busy || (!drag.hot && !drawing)) {
+  if (!lifted || busy || (!drag.hot && !drawing)) {
     releaseDrag(drag.slot);
     paintSelection();
+    // a quick tap that slid a little under the finger is still a tap
+    if (lifted && !drag.hot && !drawing && travelled < TAP_SLOP && performance.now() - drag.began < TAP_SLOP_MS)
+      tapped();
+    else board.lastTap = null;
     return;
   }
+  board.lastTap = null;
   if (wantsConfirm() && drag.hot) {
     // the cards play the move out, then wait for Confirm (a draw just happens)
     stageMove({ ...drag.hot, to: drag.hot.ref, from: drag.ref });
@@ -1910,27 +2025,29 @@ function onBoardPointerCancel(event) {
   onBoardPointerUp(event);
 }
 
+/**
+ * True when a tap on this card, now, is the second of a double-tap that
+ * should flip it. Nothing about the table having changed in between matters,
+ * only that the card can still be flipped.
+ */
+function secondTap(ref) {
+  const last = board.lastTap;
+  return !!last && same(last.ref, ref) && performance.now() - last.time <= DOUBLE_TAP_MS && canFlip(ref);
+}
 /** A tap selects; tapping a highlighted destination plays the move; a double-tap flips. */
 function tapSlot(ref, slot) {
   if (!state?.game || state.void_offer || state.status !== "playing") return;
   if (ref[0] === "under") return;
-  const now = performance.now();
-  const last = board.lastTap;
-  if (
-    !busy &&
-    canFlip(ref) &&
-    last &&
-    last.version === state.version &&
-    same(last.ref, ref) &&
-    now - last.time <= DOUBLE_TAP_MS
-  ) {
+  // (touch and mouse catch the second tap as it is pressed; this is the same
+  // rule for the keyboard and the controller)
+  if (secondTap(ref)) {
     board.lastTap = null;
     board.selected = [];
     paintSelection();
     flipMove(ref);
     return;
   }
-  board.lastTap = canFlip(ref) ? { ref, time: now, version: state.version } : null;
+  board.lastTap = { ref, time: performance.now() };
   if (!myTurn()) return popSlot(slot, 0.3); // not your turn: a nudge, no selection
   const pinned = pinnedCard();
   if (pinned) {
@@ -2142,7 +2259,7 @@ function rulesSheet(player) {
   const color = colorFor(player);
   const active = activeRules(player);
   const effects = g.effects[player] || [];
-  const visible = (g.base_scores ?? g.scores)[player],
+  const visible = faceValue(player),
     total = g.effect_totals[player];
   const enabled = catalog.filter((rule) => state.rules[rule.key]);
   const editable = g.legal.set_rules;

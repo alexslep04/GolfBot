@@ -22,7 +22,7 @@ function harness() {
     matchMedia:()=>({matches:false,addEventListener(){}}),getComputedStyle:()=>({}),
     CSS:{supports:()=>false},Image:class{set src(value){}},
     document:{baseURI:'https://example.test/golf/',body:element(),documentElement:element(),
-      getElementById:id=>nodes.get(id)||null,createElement:element,
+      getElementById:id=>nodes.get(id)||null,querySelector:()=>null,createElement:element,
       addEventListener:(type,cb)=>(listeners[type] ||= []).push(cb)},
     window:{addEventListener(){},scrollTo(){},scrollY:0},
     location:{pathname:'/golf/',search:'',origin:'https://example.test'},
@@ -136,7 +136,7 @@ test('every selectable rule has examples, hidden by default, with only necessary
 
 
 test('rated labels use Elo, modifier totals come from each player, Practice alone shows flame',()=>{
-  const h=harness();h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],rated:true,ratings:[1234,1100],practice:false,connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[8,10],scores:[8,10],effects:[[],[]],turn_order:[0,1],modifier_counts:[2,4],draw_count:20}};renderTags();`);
+  const h=harness();h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],rated:true,ratings:[1234,1100],practice:false,connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[8,10],scores:[8,10],effects:[[],[]],players:[[],[]],turn_order:[0,1],modifier_counts:[2,4],draw_count:20}};renderTags();`);
   assert.match(h.run(`board.el.querySelector("[data-score-for='me']").firstElementChild.innerHTML`),/Alice \(1234\)/);
   assert.match(h.run(`board.el.querySelector("[data-rules-for='opp']").querySelector(".txt").innerHTML`),/4 Modifiers/);
   assert.equal(h.run('board.el.querySelector("[data-practice-streak]").hidden'),true);
@@ -148,7 +148,7 @@ test('rated labels use Elo, modifier totals come from each player, Practice alon
 
 test('tables of three mark who is up next on their score tag: yours, or that of the opponent showing',()=>{
   const h=harness();
-  const game=(current,next)=>`{phase:"choose",current:${current},decision_player:${current},next_up:${next},legal:{flip:[]},effect_totals:[8,10,3],scores:[8,10,3],effects:[[],[],[]],turn_order:[0,1,2],modifier_counts:[0,0,0],draw_count:20}`;
+  const game=(current,next)=>`{phase:"choose",current:${current},decision_player:${current},next_up:${next},legal:{flip:[]},effect_totals:[8,10,3],scores:[8,10,3],effects:[[],[],[]],players:[[],[],[]],turn_order:[0,1,2],modifier_counts:[0,0,0],draw_count:20}`;
   const label=`board.el.querySelector("[data-score-for='me']").querySelector("[data-turn-label]").textContent`;
   const aria=key=>h.run(`board.el.querySelector("${key}").attributes["aria-label"]`);
   h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob","Cy"],connected:[true,true,true],rules:{},game:${game(2,0)}};renderTags();`);
@@ -282,7 +282,7 @@ test('examples reuse game card markup and front/back flip structure',()=>{
 });
 
 test('streak count is an explicit badge beside flame, including zero',()=>{
-  const h=harness();h.run('board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],practice:true,streak:{current:0,best:0,draws:0},connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[0,0],scores:[0,0],effects:[[],[]],turn_order:[0,1],modifier_counts:[0,0],draw_count:20}};renderTags()');
+  const h=harness();h.run('board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],practice:true,streak:{current:0,best:0,draws:0},connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[0,0],scores:[0,0],effects:[[],[]],players:[[],[]],turn_order:[0,1],modifier_counts:[0,0],draw_count:20}};renderTags()');
   assert.match(h.run('board.el.querySelector("[data-practice-streak]").innerHTML'),/class="digits streak-count" data-count="0"/);
 });
 
@@ -385,4 +385,65 @@ test('Solo shows best streak with W-D-L and win rate instead of current streak',
   assert.match(html,/W–D–L/);assert.match(html,/win rate/);
   assert.match(html,/6–2–2/);assert.match(html,/60%/);
   assert.doesNotMatch(html,/Current streak|Best reached/);
+});
+
+test('the modifiers bar counts points against the face value of the cards, and previews a staged move',()=>{
+  const h=harness();
+  const card=(points)=>`{visible:true,card:{points:${points}}}`;
+  // a matched column of 8s and a 3: 19 on the cards, 3 on the score tag
+  h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bot"],connected:[true,true],rules:{},game:{phase:"choose",current:0,decision_player:0,legal:{flip:[]},effect_totals:[3,12],scores:[3,12],effects:[["Column 1 pair: 0 (-16)"],[]],players:[[${card(8)},${card(3)},{visible:false,card:null},${card(8)}],[${card(10)},${card(2)}]],turn_order:[0,1],modifier_counts:[0,1],draw_count:20}};renderTags();`);
+  const bar=side=>h.run(`board.el.querySelector("[data-rules-for='${side}']").querySelector(".txt").innerHTML`);
+  assert.equal(bar('me'),'0 Modifiers in<br>play (-16pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
+  assert.match(h.run(`board.el.querySelector("[data-rules-for='me']").attributes["aria-label"]`),/0 modifiers in play, -16 points against the cards' face value/);
+  // a move waiting for Confirm: your bar reads as it would afterwards; theirs only if their score would change
+  h.run(`board.staged={ready:true,movers:[],preview:{version:1,effect_totals:[9,12],modifier_counts:[2,1],face_values:[14,12],effects:[[],[]]}};renderTags();`);
+  assert.equal(bar('me'),'<b class="new-score">New score: 9pts</b><br>2 Modifiers (-5pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
+  h.run(`board.staged.preview.effect_totals=[9,15];board.staged.preview.face_values=[14,12];renderTags();`);
+  assert.equal(bar('opp'),'<b class="new-score">New score: 15pts</b><br>1 Modifier (+3pts)');
+  // called off: back to the table as it is
+  h.run(`paintSelection=()=>{};cancelStaged();`);assert.equal(bar('me'),'0 Modifiers in<br>play (-16pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
+});
+
+test('a staged move can be confirmed at once, and asks the server what the score would be',async()=>{
+  const h=harness();
+  h.run(`paintSelection=()=>{};renderTags=()=>{globalThis.redrawn=true};prefs.confirm=true;state={id:"t1",version:7,status:"playing",viewer:0,game:{legal:{}}};playMove("swap",{index:2},{from:["discard",null],label:"swap"});`);
+  assert.equal(h.run('board.staged.ready'),true);
+  const sent=h.requests.at(-1);
+  assert.equal(sent.url,'/golf/api/lobbies/t1/preview');assert.deepEqual(JSON.parse(sent.options.body),{action:'swap',version:7,index:2});
+});
+
+test('a double-tap flips whatever else has happened at the table, and waits its turn behind a move in flight',async()=>{
+  const h=harness();
+  h.run(`state={id:"t1",version:7,status:"playing",viewer:0,game:{phase:"setup",legal:{flip:[1,4],draw:false}}};board.lastTap={ref:[0,1],time:performance.now()};`);
+  assert.equal(h.run('secondTap([0,1])'),true);assert.equal(h.run('secondTap([0,4])'),false);
+  // someone else's flip arriving between the two taps changes the version, nothing more
+  h.run('state.version=8;');assert.equal(h.run('secondTap([0,1])'),true);
+  h.run('board.lastTap.time-=DOUBLE_TAP_MS+50;');assert.equal(h.run('secondTap([0,1])'),false);
+  h.run('state.game.legal.flip=[4];board.lastTap={ref:[0,1],time:performance.now()};');assert.equal(h.run('secondTap([0,1])'),false);
+  // asked for while another move is still out: kept, then sent once that one has landed
+  const before=h.requests.length;
+  h.run('busy=true;flipMove([0,4]);');
+  assert.equal(h.requests.length,before);assert.deepEqual(h.run('JSON.stringify(board.queuedFlip)'),'[0,4]');
+  h.run('busy=false;drainFlip();');
+  assert.equal(h.run('board.queuedFlip'),null);
+  const sent=h.requests.at(-1);
+  assert.equal(sent.url,'/golf/api/lobbies/t1/action');assert.deepEqual(JSON.parse(sent.options.body),{action:'flip',version:8,index:4});
+  // no longer legal by the time its turn comes: dropped, not sent
+  const count=h.requests.length;h.run('busy=true;flipMove([0,4]);state.game.legal.flip=[];busy=false;drainFlip();');
+  assert.equal(h.requests.length,count);assert.equal(h.run('board.queuedFlip'),null);
+});
+
+test('settings offer the Golf and Poker themes, and the choice re-skins the page',()=>{
+  const h=harness();
+  h.run('settingsSheet()');
+  assert.match(h.nodes.get('sheet').innerHTML,/data-pref="theme"[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Golf<\/b>/);
+  assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
+  h.run('togglePref("theme")');
+  assert.equal(h.run('prefs.theme'),'poker');assert.equal(h.run('document.documentElement.dataset.theme'),'poker');
+  h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Poker<\/b>/);
+  h.run('togglePref("theme")');
+  assert.equal(h.run('prefs.theme'),'golf');assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
+  // every theme the settings offer has its tokens in the stylesheet
+  const css=fs.readFileSync(path.join(__dirname,'style.css'),'utf8');
+  for(const [key] of JSON.parse(h.run('JSON.stringify(THEMES)')).slice(1)) assert.match(css,new RegExp(`:root\\[data-theme="${key}"\\] \\{`));
 });

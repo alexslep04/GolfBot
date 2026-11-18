@@ -2,6 +2,7 @@
 from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 from collections import Counter
+from copy import copy
 import random
 from scoring import score_adjustments, column_score, opponent_adjustment, color_multiplier, scoring_rule_keys, POISON_POINTS
 
@@ -426,6 +427,36 @@ class GolfGame:
         who = f"Player {self.current + 1}"
         self.last_move = f"{who} swapped {outgoing.label}{outgoing.suit} for {incoming.label}{incoming.suit}."
         self._finish_turn()
+
+    def preview(self, index=None, refs=None):
+        """A copy of the table as it would stand once a swap (or a table trade) is played.
+
+        Only what the face-up cards prove is worked out: combos, locks and who
+        has gone out. The turn does not advance and nothing hidden is turned
+        over, so scoring the copy from its face-up cards gives nothing away.
+        With neither argument the copy is the table as it is (a discard).
+        """
+        sim = copy(self)
+        sim.players = [list(layout) for layout in self.players]
+        sim.draw_pile, sim.discard_pile = list(self.draw_pile), list(self.discard_pile)
+        sim.locked_cards = set(self.locked_cards)
+        sim.gambler_earned, sim.angel_earned = list(self.gambler_earned), list(self.angel_earned)
+        sim.activated_rules = [set(keys) for keys in self.activated_rules]
+        if refs is not None:
+            first, second = refs
+            if self.phase not in ("bonus", "guess_trade") or first == second:
+                raise ValueError("Select two different table cards.")
+            a, b = sim.table_slot(first), sim.table_slot(second)
+            sim._put_slot(first, b)
+            sim._put_slot(second, a)
+        elif index is not None:
+            if index not in self.targets():
+                raise ValueError("Select an eligible card from your own layout.")
+            incoming = self.held_card if self.held_card else self.discard_pile[-1]
+            sim.players[self.current][index] = Slot(incoming, True)
+        sim._update_combos()
+        sim._mark_finish()
+        return sim
 
     def discard(self):
         if self.phase not in ("drawn", "drawn_revealed"):
