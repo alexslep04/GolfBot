@@ -132,6 +132,7 @@ const prefs = {
   padDrag: "hold", // controller: hold the trigger to carry a card, or "toggle"
   haptics: true,
   hideTips: false,
+  autoQueue: true, // join the Quickplay queue as soon as the site opens
   theme: "golf", // the look of the whole game: see THEMES
 };
 // Each theme is a set of colour tokens in style.css, under :root[data-theme].

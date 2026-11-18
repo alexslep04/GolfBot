@@ -303,6 +303,18 @@ async function joinQueue() {
   renderQueueBanner();
   renderSocial();
 }
+/**
+ * With "Join Quickplay on open" on, opening the site's home page puts the
+ * player straight in the queue — unless they already are in it, or have a
+ * table of their own to get back to.
+ */
+async function autoJoinQueue() {
+  if (!prefs.autoQueue || page !== "home" || session.room_id) return;
+  if (["waiting", "offer", "matched"].includes(presenceState.queue?.status)) return;
+  try {
+    await joinQueue();
+  } catch {}
+}
 async function enterQueueMatch() {
   if (queueEntering) return;
   queueEntering = true;
@@ -440,6 +452,7 @@ function prefsHtml() {
   const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
   const rows = [
     row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
+    row("autoQueue", "sparkles", "Join Quickplay on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
     row("hideTips", "text.bubble.fill", "Hide tooltips", onOff(prefs.hideTips), prefs.hideTips),
   ];
@@ -2227,7 +2240,7 @@ function bootData() {
       if (avatars.some((avatar) => avatar.id === saved && avatar.selectable))
         session.avatar = saved;
     } catch {}
-    pollPresence();
+    const firstPoll = pollPresence();
     setInterval(pollPresence, 5000);
     try {
       await route();
@@ -2235,6 +2248,8 @@ function bootData() {
       home();
       toast(error.message);
     }
+    await firstPoll;
+    autoJoinQueue();
   } catch (error) {
     booted();
     root.innerHTML = `<div class="empty">${e(error.message)}<p>Refresh to reconnect to your server.</p></div>`;
