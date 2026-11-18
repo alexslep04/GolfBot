@@ -64,7 +64,11 @@ const emoteNames = {
   shocked: "Shocked",
   laughing: "Laughing",
   nervous: "Nervous",
+  thanks: "Thanks!",
+  oops: "Oops!",
 };
+// these are said in words, as a speech bubble, rather than shown as a face
+const TEXT_EMOTES = ["thanks", "oops"];
 let activeEmotes = {},
   emoteSeen = {},
   emoteTimers = {},
@@ -1765,6 +1769,12 @@ async function navigate(target) {
 document.addEventListener("click", async (event) => {
   // tapping the dimmed area behind a sheet closes it
   if (event.target === sheetRoot) return closeSheet();
+  // and tapping the dimmed table around the results sets them aside to look
+  // at the table (the Results button brings them back)
+  if (event.target.classList?.contains("summary-scrim") && !board.summaryHidden) {
+    board.summaryHidden = true;
+    return renderSummary();
+  }
   const button = event.target.closest("button, a[data-nav]");
   if (!button || button.disabled) return;
   if (button.matches("a[data-nav]")) event.preventDefault();
@@ -2114,13 +2124,27 @@ root.addEventListener("change", async (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !sheetRoot.hidden) return closeSheet();
   if (page === "room" && board.staged && sheetRoot.hidden) {
-    // a staged move: Enter plays it, Escape calls it off
-    if (event.key === "Escape") return cancelStaged();
+    // a staged move: Enter plays it; Escape, Delete or Backspace undo it
     if (
-      event.key === "Enter" &&
-      !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(event.target.tagName)
+      ["Escape", "Delete", "Backspace"].includes(event.key) &&
+      !["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName)
     ) {
       event.preventDefault();
+      // the key would otherwise light up a focus ring on the card just played
+      document.activeElement?.blur?.();
+      return cancelStaged();
+    }
+    // While the Confirm button is showing, Enter presses it, even with focus
+    // still on the card just played (only typing, or Undo itself, keeps Enter).
+    if (
+      event.key === "Enter" &&
+      !event.repeat &&
+      board.staged.ready &&
+      !["INPUT", "SELECT", "TEXTAREA"].includes(event.target.tagName) &&
+      !event.target.closest?.("[data-undo], dialog, .emote-pop")
+    ) {
+      event.preventDefault();
+      document.activeElement?.blur?.();
       return confirmStaged();
     }
   }

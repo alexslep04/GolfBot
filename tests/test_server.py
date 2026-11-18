@@ -237,6 +237,12 @@ class WebTests(unittest.TestCase):
         response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': 'laughing'})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['solo'])
+        for text in ('thanks', 'oops'):
+            response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': text})
+            self.assertEqual(response.status_code, 200, text)
+            self.assertEqual([emote['id'] for emote in response.json()['emotes']], [text])
+        for retired in ('good_game', 'gg ez'):
+            self.assertEqual(self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': retired}).status_code, 422)
         self.assertEqual(self.host.get('/api/history').json()['matches'], [])
 
     def test_roman_fives_public_state_agrees_with_final_scores(self):

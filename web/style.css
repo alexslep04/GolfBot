@@ -57,6 +57,7 @@
   --black: #000; /* primary text */
   --grey: #8e8e93; /* secondary text */
   --flame: #ff8a3d; /* the win streak, lit */
+  --flame-edge: var(--paper); /* the lit flame's outline */
   --paper: #fff;
   --red: #f47979;
   --red2: #fde6e6;
@@ -128,34 +129,82 @@
   --bg: #0d3525;
   --felt: #17573b; /* the lit middle of the table */
   --gold: #c9a961;
-  --fw: #2b7a55;
+  --fw: #3f8a64;
   --fw2: #4f9674;
-  --fw3: #dde6d3;
-  --fw-text: #143526;
+  --fw3: #183d2c;
+  --fw-text: #e2ecdc;
   --accent: #b89b5e;
-  --ink: #2b2a28;
-  --grey: #88846f;
+  --ink: #ece4cf;
+  --black: #ece4cf;
+  --grey: #9a9682;
   --flame: #d67a34;
-  --paper: #f8f2e2;
-  --red: #b5433f;
-  --red2: #efdcd3;
-  --p1: #3d6c96;
-  --p1b: #d3dee6;
-  --p1t: #16314a;
-  --p2: #a3423d;
-  --p2b: #ead5cd;
-  --p2t: #4d1b17;
-  --p3: #bf9537;
-  --p3b: #ebe0c2;
-  --p3t: #4b3a12;
-  --p4: #77508f;
-  --p4b: #dfd3e3;
-  --p4t: #33203d;
+  --paper: #18241d;
+  --red: #c4544f;
+  --red2: #3a1f1d;
+  --p1: #4f82b0;
+  --p1b: #1c2c3a;
+  --p1t: #cfe1f2;
+  --p2: #b8524c;
+  --p2b: #3a1f1d;
+  --p2t: #f3d2cc;
+  --p3: #c9a043;
+  --p3b: #362b17;
+  --p3t: #f2e1b4;
+  --p4: #8a63a3;
+  --p4b: #2d2238;
+  --p4t: #e6d5f0;
   --s2on: #fff;
   --on-bg: #efe7cf;
   --on-bg2: var(--gold);
-  --sad: #6c6893;
-  --shadow: rgb(0 0 0 / 0.4);
+  --sad: #7d78a8;
+  --shadow: rgb(0 0 0 / 0.45);
+}
+/* "Night Golf" is the same course after dark: the fairway in moonlit greens,
+   the seat colours kept bright enough to read but laid on deep surfaces. */
+:root[data-theme="night"] {
+  --bg: #0f2018;
+  --fw: #3f8f5a;
+  --fw2: #57a86f;
+  --fw3: #17301f;
+  --fw-text: #dcefd2;
+  --accent: #5b8a66;
+  --ink: #e4eee0;
+  --black: #e4eee0;
+  --grey: #8e9a90;
+  --paper: #13221a;
+  --red: #e06c6c;
+  --red2: #3a1b1a;
+  --p1: #4a9ee0;
+  --p1b: #142a3b;
+  --p1t: #cfeaff;
+  --p2: #e0605b;
+  --p2b: #3a1b1a;
+  --p2t: #ffd6d2;
+  --p3: #e8b923;
+  --p3b: #352b0f;
+  --p3t: #fde9b0;
+  --p4: #b65ad8;
+  --p4b: #2c1938;
+  --p4t: #f0d6fb;
+  --s2on: var(--p3b);
+  --flame: #ffa152; /* a touch brighter against the night */
+  --on-bg: #dcefd2;
+  --on-bg2: #7fd18f;
+  --sad: #8b80c4;
+  --shadow: rgb(0 0 0 / 0.45);
+}
+/* Dark themes: the lit flame keeps an outline of its own orange, dimmer than
+   its fill, instead of vanishing into the dark sticker edge */
+:root:is([data-theme="poker"], [data-theme="night"]) {
+  --flame-edge: color-mix(in srgb, var(--flame) 55%, var(--paper));
+}
+:root[data-theme="night"] {
+  --flame-edge: color-mix(in srgb, var(--flame) 68%, var(--paper));
+}
+/* Both dark themes: buttons keep their colour in a quiet outline rather than
+   a bold one, so the dark surfaces carry the look. */
+:root:is([data-theme="poker"], [data-theme="night"]) :is(.btn, .chip) {
+  border-color: color-mix(in srgb, var(--c) 30%, var(--c2));
 }
 .c-s0 {
   --c: var(--s0);
@@ -256,6 +305,9 @@ body {
 /* Poker: no fairway. The table is felt, lit from above the middle and falling
    away to a dark rail, with a fine grain and one thin gold line set in from
    the edge, like the betting line on a card table. */
+:root[data-theme="night"] #backdrop {
+  background-image: url(assets/fairway-night.svg);
+}
 :root[data-theme="poker"] #backdrop {
   background:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
@@ -477,6 +529,10 @@ p {
   --stroke: var(--ink);
   transition: transform 0.25s var(--spring);
 }
+/* Dark themes: the icon's light outline, softened toward the table */
+:root:is([data-theme="poker"], [data-theme="night"]) .icon-btn {
+  --stroke: color-mix(in srgb, var(--ink) 50%, var(--paper));
+}
 .icon-btn:hover {
   transform: scale(1.1);
 }
@@ -510,7 +566,14 @@ p {
   --sw: 1.2rem;
 }
 .logo .club {
-  width: 2.114rem;
+  /* 0.4rem wider than its design box, and the club drawn 0.4rem further in,
+     so it stands a little right of the "o" with the gap to the "f" unchanged */
+  width: 2.514rem;
+  /* the "f" tucks in 0.3rem closer than the other letters do */
+  margin-right: -1.3rem;
+  /* the club is the logo's red letter: a light body in a red sticker outline */
+  --club-fill: var(--p2b);
+  --club-stroke: var(--p2);
 }
 .logo .club-box {
   position: relative;
@@ -519,13 +582,13 @@ p {
   height: 7.334rem;
   transform: rotate(2deg);
 }
-.logo .club-box img {
+.logo .club-art {
   position: absolute;
-  left: 0;
-  top: -2.4%;
-  width: 168.69%;
-  height: 112.25%;
-  max-width: none;
+  left: 0.4rem;
+  top: -0.3rem;
+  height: 8.3rem;
+  width: auto;
+  overflow: visible;
 }
 .page-title {
   font: 700 2.4rem/1.1 var(--text);
@@ -1293,7 +1356,7 @@ body > header.topbar .brand {
   color: var(--on-bg2);
 }
 /* Poker: a link on the bare table needs a light colour, not the seat's dark one */
-:root[data-theme="poker"] body > header.topbar a:not(.brand) {
+:root:is([data-theme="poker"], [data-theme="night"]) body > header.topbar a:not(.brand) {
   color: var(--on-bg);
 }
 body > header.topbar {
@@ -1549,6 +1612,12 @@ button.tag-rules:active > .tag-in {
 .b-bottom .tag-avatar {
   margin: 0.4rem 0 -1.6rem;
 }
+/* Dark themes: the avatar and the points numerals take the avatar picker's
+   look, a dark fill of the seat's colour inside an outline of that colour */
+:root:is([data-theme="poker"], [data-theme="night"]) :is(.tag-avatar, .tag-score .score) {
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
 /* the opponent sits across the table, so their avatar hangs upside down; the
    shadow offset flips with it so it still falls down-right on screen */
 .b-top .tag-avatar {
@@ -1587,6 +1656,9 @@ button.tag-rules:active > .tag-in {
 }
 .streak .flame {
   display: grid;
+}
+.streak.hot :is(.flame, .score) {
+  --stroke: var(--flame-edge);
 }
 .streak.hot .flame {
   /* two glows that both grow with the streak: a wide warm haze and a tight bright core */
@@ -1787,6 +1859,10 @@ button.tag-rules:active > .tag-in {
   background-image: url(assets/card-back.png);
   transform: rotateY(180deg);
 }
+/* Night Golf: the same textured back, in the fairway's after-dark green */
+:root[data-theme="night"] .face.back {
+  background-image: url(assets/card-back-night.png);
+}
 /* Poker: the same textured back, in oxblood instead of fairway green */
 :root[data-theme="poker"] .face.back {
   background-image: url(assets/card-back-poker.png);
@@ -1805,6 +1881,16 @@ button.tag-rules:active > .tag-in {
   background-image: url(assets/card-face-red.png);
   color: var(--red);
   --fill: var(--red);
+}
+/* Dark themes: the same hand-drawn face turned inside out, a dark card with
+   a light border, so a hand doesn't glare against the table. */
+:root:is([data-theme="poker"], [data-theme="night"]) .face.front {
+  background-image: url(assets/card-face-black-dark.png);
+}
+:root:is([data-theme="poker"], [data-theme="night"]) .face.front.red {
+  background-image: url(assets/card-face-red-dark.png);
+  color: #f08a86;
+  --fill: #f08a86;
 }
 .corner {
   display: flex;
@@ -1862,9 +1948,9 @@ button.tag-rules:active > .tag-in {
   border-radius: 1.1rem;
   background: linear-gradient(
       112deg,
-      transparent 30%,
-      rgb(255 255 255 / 0.85) 50%,
-      transparent 70%
+      transparent 32%,
+      rgb(255 255 255 / 0.45) 50%,
+      transparent 68%
     )
     no-repeat;
   background-size: 240% 100%;
@@ -1895,7 +1981,7 @@ button.tag-rules:active > .tag-in {
   inset: -0.5rem;
   border-radius: 2rem;
   border: 0.4rem dashed var(--p1);
-  animation: march 0.9s linear infinite;
+  animation: march 1.6s ease-in-out infinite alternate;
   /* the card's own transform, so the outline stays centred on it as it lifts */
   transform: translate(var(--dx, 0px), var(--dy, 0px))
     rotate(calc(var(--rot, 0deg) + var(--lean, 0deg))) scale(var(--scale, 1));
@@ -1927,7 +2013,7 @@ button.tag-rules:active > .tag-in {
   background: color-mix(in srgb, var(--p1) 14%, transparent);
   transform: translate(var(--dx, 0px), var(--dy, 0px))
     rotate(calc(var(--rot, 0deg) + var(--lean, 0deg))) scale(var(--scale, 1));
-  animation: target-pulse 0.9s ease-in-out infinite alternate;
+  animation: target-pulse 1.6s ease-in-out infinite alternate;
   pointer-events: none;
   z-index: 3;
 }
@@ -1964,15 +2050,16 @@ button.tag-rules:active > .tag-in {
   color: var(--p3t);
   transform: translate(-50%, -50%) scale(1.15);
 }
+/* the dashed outlines breathe, gently */
 @keyframes target-pulse {
   to {
-    opacity: 0.55;
+    opacity: 0.8;
   }
 }
 @keyframes march {
   to {
-    filter: hue-rotate(40deg);
-    opacity: 0.6;
+    filter: hue-rotate(12deg);
+    opacity: 0.82;
   }
 }
 .flyer {
@@ -2081,7 +2168,7 @@ button.tag-rules:active > .tag-in {
   animation: pop 0.4s var(--spring);
 }
 /* (on felt the labels are read against a dark table, not a pale fairway) */
-:root[data-theme="poker"] .side-act {
+:root:is([data-theme="poker"], [data-theme="night"]) .side-act {
   color: var(--on-bg);
 }
 /* Confirm and Undo are wanted the instant a move is staged */
@@ -2306,6 +2393,55 @@ button.tag-rules:active > .tag-in {
   width: 4.6rem;
   height: 4.6rem;
   object-fit: contain;
+}
+.emote-pop {
+  flex-direction: column;
+}
+.emote-row {
+  display: flex;
+  gap: 0.6rem;
+}
+/* the text emotes: a row of short sayings under the faces */
+.emote-words {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+.emote-pop button.emote-word {
+  width: auto;
+  height: 4rem;
+  padding: 0 0.8rem;
+  border: 0.3rem solid color-mix(in srgb, var(--ink) 25%, var(--paper));
+  border-radius: 1.2rem;
+  color: var(--ink);
+  font: 700 1.5rem/1 var(--text);
+  white-space: nowrap;
+}
+.emote-pop button.emote-word:hover {
+  transform: scale(1.06) rotate(-2deg);
+}
+/* a text emote as it is shown: a speech-bubble sticker */
+.emote-say {
+  display: block;
+  padding: 0.8rem 1.4rem;
+  border: 0.4rem solid var(--ink);
+  border-radius: 2rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 700 2rem/1.1 var(--text);
+  white-space: nowrap;
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+.player-emote.other .emote-say {
+  padding: 0.4rem 0.8rem;
+  border-width: 0.3rem;
+  font-size: 1.5rem;
+  box-shadow: none;
+}
+.player-emote.tile .emote-say {
+  padding: 0.4rem 0.9rem;
+  border-width: 0.3rem;
+  font-size: 1.4rem;
 }
 .player-emote {
   position: absolute;
@@ -3492,7 +3628,7 @@ button:disabled > .haptic-switch {
   align-self: center;
   margin-right: 0.4rem;
   --fill: var(--flame);
-  --stroke: var(--paper);
+  --stroke: var(--flame-edge);
 }
 .leader-hero p strong {
   font-size: 2rem;
@@ -3500,10 +3636,11 @@ button:disabled > .haptic-switch {
 /* a streak is the flame's orange, number and all */
 .leader-hero .stat-rate.streak-rate {
   --fill: var(--flame);
+  --stroke: var(--flame-edge);
 }
 .board-row .rate .streak-num {
   color: var(--flame);
-  -webkit-text-stroke: 0.4rem var(--paper);
+  -webkit-text-stroke: 0.4rem var(--flame-edge);
   paint-order: stroke fill;
 }
 .leader-list .board-row {
@@ -3518,7 +3655,7 @@ button:disabled > .haptic-switch {
 .board-row .rate .ico {
   align-self: center;
   --fill: var(--flame);
-  --stroke: var(--paper);
+  --stroke: var(--flame-edge);
 }
 .board-row .rate small {
   font-size: 1.3rem;

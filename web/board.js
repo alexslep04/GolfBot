@@ -1101,14 +1101,24 @@ function renderEmotes() {
 }
 /** The quick emotes and the mute bell: in the chat bubble's pop-up, and under the results. */
 function emoteButtons() {
-  return `${Object.entries(emoteNames)
+  const closed = state.status === "closed" ? "disabled" : "";
+  const faces = Object.entries(emoteNames)
+    .filter(([id]) => !TEXT_EMOTES.includes(id))
     .map(
       ([id, label]) =>
-        `<button type="button" data-emote="${id}" aria-label="Send ${label.toLowerCase()} emote" ${state.status === "closed" ? "disabled" : ""}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
+        `<button type="button" data-emote="${id}" aria-label="Send ${label.toLowerCase()} emote" ${closed}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
     )
-    .join(
-      "",
-    )}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button>`;
+    .join("");
+  const words = TEXT_EMOTES.map(
+    (id) => `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`,
+  ).join("");
+  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div><div class="emote-words">${words}</div>`;
+}
+/** A face emote is its sticker; a text emote is a speech bubble saying it. */
+function emoteArt(item, player) {
+  if (TEXT_EMOTES.includes(item.id))
+    return `<span class="emote-say" aria-label="${e(state.names[player])}: ${e(emoteNames[item.id])}">${e(emoteNames[item.id])}</span>`;
+  return `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(state.names[player])}: ${emoteNames[item.id]} emote">`;
 }
 function playerEmote(player, onTile = false) {
   if (opponentEmotesMuted && player !== state.viewer) return "";
@@ -1117,7 +1127,7 @@ function playerEmote(player, onTile = false) {
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
   const where =
     player === state.viewer ? "me" : player === board.view.opp ? "them" : "other";
-  const image = `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(state.names[player])}: ${emoteNames[item.id]} emote">`;
+  const image = emoteArt(item, player);
   if (onTile)
     return `<div class="player-emote tile" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms">${image}</div>`;
   // a white tooltip with the player's avatar and name in their own colour, pointing back at the cycle button
@@ -1353,7 +1363,7 @@ function renderSummary() {
     const heading = resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     // the verdict and the graph float over the table; the green panel holds the rest
-    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}<button type="button" class="btn small c-fw" data-summary-toggle>${glyph("eye.fill", 20)} View table</button></div></div><div class="emote-pop summary-emotes" role="group" aria-label="Quick emotes">${emoteButtons()}</div></section>`;
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div><div class="emote-pop summary-emotes" role="group" aria-label="Quick emotes">${emoteButtons()}</div></section>`;
   });
 }
 
@@ -1511,6 +1521,16 @@ function pinnedCard() {
   if (!g || !myTurn() || !["revealed", "drawn_revealed"].includes(g.phase)) return null;
   return g.legal.swap.length === 1 ? [state.viewer, g.legal.swap[0]] : null;
 }
+/**
+ * Where a card rests in its slot: on the table, or (selected) lifted a little
+ * toward you. The lift runs through the same springs as hover, drag and flip,
+ * so moving between them eases instead of snapping to the stylesheet's pose.
+ */
+function restPose(slot) {
+  if (!slot.classList.contains("selected")) return { scale: 1, lift: 0, y: 0 };
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+  return { scale: 1.07, lift: 0.8, y: -0.6 * rem };
+}
 function paintSelection() {
   if (!board.el) return;
   // nothing can be picked up when it is not your turn, so nothing stays outlined
@@ -1519,7 +1539,13 @@ function paintSelection() {
   if (pinned && !board.staged && !board.carry && !board.drag?.active) board.selected = [pinned];
   board.slots.forEach((slot) => {
     const ref = JSON.parse(slot.dataset.ref);
-    slot.classList.toggle("selected", hasRef(board.selected, ref));
+    const was = slot.classList.contains("selected");
+    const now = hasRef(board.selected, ref);
+    slot.classList.toggle("selected", now);
+    // a card in hand (dragged, carried, previewing a move) has its own pose
+    // (written at once, so the stylesheet's pose never shows for a frame)
+    if (was !== now && !slot.matches(".dragging, .returning"))
+      motionFor(slot).to(restPose(slot)).write();
     slot.classList.toggle(
       "can-act",
       !slot.classList.contains("empty") &&
@@ -1802,7 +1828,7 @@ function barAction(action) {
 /* ---------- pointer input ---------- */
 function setHover(slot, event) {
   if (board.hover && board.hover !== slot && !board.hover.classList.contains("dragging"))
-    motionFor(board.hover).to({ rx: 0, ry: 0, scale: 1 });
+    motionFor(board.hover).to({ rx: 0, ry: 0, scale: restPose(board.hover).scale });
   board.hover = slot;
   // a card being dragged or previewing a staged move is away from its slot:
   // measuring the pointer against the slot would spin it right over
@@ -1970,7 +1996,7 @@ function releaseDrag(slot) {
   slot.classList.remove("dragging");
   slot.classList.add("returning");
   const motion = motionFor(slot);
-  motion.to({ x: 0, y: 0, lean: 0, scale: 1, lift: 0, rx: 0, ry: 0 });
+  motion.to({ x: 0, lean: 0, rx: 0, ry: 0, ...restPose(slot) });
   motion.onRest = () => slot.classList.remove("returning");
 }
 async function onBoardPointerUp(event) {
@@ -1986,7 +2012,7 @@ async function onBoardPointerUp(event) {
   const tapped = () => {
     if (drag.flipped) return; // already played, as the finger came down
     if (!drag.second) {
-      motionFor(drag.slot).to({ scale: 1 });
+      motionFor(drag.slot).to({ scale: restPose(drag.slot).scale });
       if (lifted) tapSlot(drag.ref, drag.slot);
     } else if (lifted && canFlip(drag.ref)) flipMove(drag.ref);
     else unprime(drag.ref);

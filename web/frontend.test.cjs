@@ -22,7 +22,7 @@ function harness() {
     matchMedia:()=>({matches:false,addEventListener(){}}),getComputedStyle:()=>({}),
     CSS:{supports:()=>false},Image:class{set src(value){}},
     document:{baseURI:'https://example.test/golf/',body:element(),documentElement:element(),
-      getElementById:id=>nodes.get(id)||null,querySelector:()=>null,createElement:element,
+      getElementById:id=>nodes.get(id)||null,querySelector:()=>null,querySelectorAll:()=>[],createElement:element,
       addEventListener:(type,cb)=>(listeners[type] ||= []).push(cb)},
     window:{addEventListener(){},scrollTo(){},scrollY:0},
     location:{pathname:'/golf/',search:'',origin:'https://example.test'},
@@ -412,6 +412,21 @@ test('a staged move can be confirmed at once, and asks the server what the score
   assert.equal(sent.url,'/golf/api/lobbies/t1/preview');assert.deepEqual(JSON.parse(sent.options.body),{action:'swap',version:7,index:2});
 });
 
+test('with a move staged, Enter confirms it even from a focused card, and Escape, Delete or Backspace undo it',()=>{
+  const h=harness();
+  h.run(`paintSelection=()=>{};renderTags=()=>{};prefs.confirm=true;state={id:"t1",version:7,status:"playing",viewer:0,game:{legal:{}}};playMove("swap",{index:2},{from:["discard",null],label:"swap"});
+    page="room";globalThis.calls=[];confirmStaged=()=>calls.push("confirm");cancelStaged=()=>calls.push("undo");`);
+  const keydown=h.listeners.keydown.at(-1);
+  const press=(key,target={tagName:'BUTTON',closest:()=>null})=>{let prevented=false;keydown({key,target,repeat:false,preventDefault(){prevented=true;}});return prevented;};
+  // focus is still on the card button that was just played
+  assert.equal(press('Enter'),true);
+  for(const key of ['Escape','Delete','Backspace']) assert.equal(press(key),true);
+  assert.equal(h.run('JSON.stringify(calls)'),'["confirm","undo","undo","undo"]');
+  // typing in a field keeps its own keys
+  press('Backspace',{tagName:'INPUT',closest:()=>null});press('Enter',{tagName:'INPUT',closest:()=>null});
+  assert.equal(h.run('JSON.stringify(calls)'),'["confirm","undo","undo","undo"]');
+});
+
 test('a double-tap flips whatever else has happened at the table, and waits its turn behind a move in flight',async()=>{
   const h=harness();
   h.run(`state={id:"t1",version:7,status:"playing",viewer:0,game:{phase:"setup",legal:{flip:[1,4],draw:false}}};board.lastTap={ref:[0,1],time:performance.now()};`);
@@ -433,14 +448,17 @@ test('a double-tap flips whatever else has happened at the table, and waits its 
   assert.equal(h.requests.length,count);assert.equal(h.run('board.queuedFlip'),null);
 });
 
-test('settings offer the Golf and Poker themes, and the choice re-skins the page',()=>{
+test('settings offer the Original, Poker and Night Golf themes, and the choice re-skins the page',()=>{
   const h=harness();
   h.run('settingsSheet()');
-  assert.match(h.nodes.get('sheet').innerHTML,/data-pref="theme"[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Golf<\/b>/);
+  assert.match(h.nodes.get('sheet').innerHTML,/data-pref="theme"[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Original<\/b>/);
   assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
   h.run('togglePref("theme")');
   assert.equal(h.run('prefs.theme'),'poker');assert.equal(h.run('document.documentElement.dataset.theme'),'poker');
   h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Poker<\/b>/);
+  h.run('togglePref("theme")');
+  assert.equal(h.run('prefs.theme'),'night');assert.equal(h.run('document.documentElement.dataset.theme'),'night');
+  h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Night Golf<\/b>/);
   h.run('togglePref("theme")');
   assert.equal(h.run('prefs.theme'),'golf');assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
   // every theme the settings offer has its tokens in the stylesheet

@@ -5,15 +5,17 @@
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 // property → [CSS variable, unit, rest value, stiffness, damping, settle epsilon]
+// (the rotations — lean, tilt, flip — are damped a little more than they
+// once were, so a card turns with a softer bounce)
 const MOTION_SPEC = {
   x: ["--dx", "px", 0, 520, 34, 0.15],
   y: ["--dy", "px", 0, 520, 34, 0.15],
-  lean: ["--lean", "deg", 0, 190, 13, 0.05],
+  lean: ["--lean", "deg", 0, 190, 16, 0.05],
   scale: ["--scale", "", 1, 420, 20, 0.002],
   lift: ["--lift", "", 0, 300, 30, 0.01],
-  rx: ["--rx", "deg", 0, 260, 20, 0.05],
-  ry: ["--ry", "deg", 0, 260, 20, 0.05],
-  face: ["--face", "deg", null, 230, 16.5, 0.4],
+  rx: ["--rx", "deg", 0, 260, 24, 0.05],
+  ry: ["--ry", "deg", 0, 260, 24, 0.05],
+  face: ["--face", "deg", null, 230, 19, 0.4],
 };
 const motions = new Map();
 let motionFrame = 0,
@@ -103,7 +105,7 @@ class CardMotion {
     const now = (key) => this.values[key]?.value || 0;
     const tilt = Math.abs(now("rx")) + Math.abs(now("ry")) + Math.abs(now("lean"));
     if (tilt > 0.05) {
-      style.setProperty("--sheen", Math.min(0.32, tilt / 60).toFixed(3));
+      style.setProperty("--sheen", Math.min(0.24, tilt / 80).toFixed(3));
       style.setProperty(
         "--sheen-x",
         Math.max(-1, Math.min(1, (now("ry") + now("lean")) / 16)).toFixed(3),
