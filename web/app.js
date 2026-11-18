@@ -1042,6 +1042,16 @@ function closeSheetIfStale() {
 function openRulesSheet(player) {
   openSheet(rulesSheet(player), player);
 }
+/** One player's points in each finished game of the series, and their sum. */
+function seriesTally(player) {
+  if (state.best_of === 1) return "";
+  const games = state.history || [];
+  const total = games.reduce((sum, game) => sum + game.scores[player], 0);
+  return `<h3>This series</h3><div class="tally" data-series-tally>${
+    games.map((game) => `<div><span>Game ${game.round}</span><b>${game.scores[player]} pts</b></div>`).join("") ||
+    "<div><span>No games finished yet</span></div>"
+  }<div class="total"><span>Total after ${games.length} ${games.length === 1 ? "game" : "games"}</span><b>${total} pts</b></div></div>`;
+}
 /** A player's record, shown over the table (tap an opponent's name tag). */
 async function playerStatsSheet(player) {
   const id = state.player_ids?.[player];
@@ -1049,7 +1059,8 @@ async function playerStatsSheet(player) {
   const color = colorFor(player);
   openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
     <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    <div data-player-stats><div class="loading">Loading stats…</div></div>
+    ${seriesTally(player)}
+    <div data-player-stats style="margin-top:1.2rem"><div class="loading">Loading stats…</div></div>
     <div class="row" style="margin-top:1.2rem">${id ? `<button type="button" class="btn small ${color} grow" data-stats-player="${e(id)}">Full stats</button>` : ""}<button type="button" class="btn small ${color} grow" data-nav="stats">${tilted("medal", 22)} Leaderboard</button></div>
   </section>`);
   const holder = sheetRoot.querySelector("[data-player-stats]");
