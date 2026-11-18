@@ -249,10 +249,10 @@ test('the player popup lists that player\'s points for each finished game of a s
   h.run('state={best_of:5,names:["Alice","Bob"],history:[{round:1,scores:[4,12],winner:0},{round:2,scores:[9,-3],winner:1}]}');
   const bob=h.run('seriesTally(1)');
   assert.match(bob,/Game 1<\/span><b>12 pts/);assert.match(bob,/Game 2<\/span><b>-3 pts/);
-  assert.match(bob,/Total after 2 games<\/span><b>9 pts/);
-  assert.match(h.run('seriesTally(0)'),/Total after 2 games<\/span><b>13 pts/);
+  assert.match(bob,/Total<\/span><b>9 pts/);
+  assert.match(h.run('seriesTally(0)'),/Total<\/span><b>13 pts/);
   h.run('state.history=[]');
-  assert.match(h.run('seriesTally(1)'),/No games finished yet/);assert.match(h.run('seriesTally(1)'),/Total after 0 games<\/span><b>0 pts/);
+  assert.match(h.run('seriesTally(1)'),/No games finished yet/);assert.match(h.run('seriesTally(1)'),/Total<\/span><b>0 pts/);
   h.run('state.best_of=1');assert.equal(h.run('seriesTally(1)'),'');
 });
 

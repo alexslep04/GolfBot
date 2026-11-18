@@ -1047,12 +1047,12 @@ function seriesTally(player) {
   if (state.best_of === 1) return "";
   const games = state.history || [];
   const total = games.reduce((sum, game) => sum + game.scores[player], 0);
-  return `<h3>This series</h3><div class="tally" data-series-tally>${
+  return `<h3>This series</h3><div class="tally plain" data-series-tally>${
     games.map((game) => `<div><span>Game ${game.round}</span><b>${game.scores[player]} pts</b></div>`).join("") ||
     "<div><span>No games finished yet</span></div>"
-  }<div class="total"><span>Total after ${games.length} ${games.length === 1 ? "game" : "games"}</span><b>${total} pts</b></div></div>`;
+  }<div class="total"><span>Total</span><b>${total} pts</b></div></div>`;
 }
-/** A player's record, shown over the table (tap an opponent's name tag). */
+/** A player's record, shown over the table (tap a name tag, theirs or yours). */
 async function playerStatsSheet(player) {
   const id = state.player_ids?.[player];
   const mine = state.player_ids?.[state.viewer];
@@ -1801,7 +1801,8 @@ document.addEventListener("click", async (event) => {
     if ("settings" in data) return settingsSheet();
     if ("gameMenu" in data) return gameMenuSheet();
     if ("sheetPlayer" in data) return openRulesSheet(Number(data.sheetPlayer));
-    if (data.statsFor) return await playerStatsSheet(board.view.opp);
+    if (data.statsFor)
+      return await playerStatsSheet(data.statsFor === "me" ? state.viewer : board.view.opp);
     if (data.rulesFor)
       return openRulesSheet(
         data.rulesFor === "me" ? state.viewer : board.view.opp,

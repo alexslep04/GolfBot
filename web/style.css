@@ -2909,6 +2909,12 @@ button.tag-rules:active > .tag-in {
   background: rgb(255 255 255 / 0.55);
   font-size: 1.6rem;
 }
+/* a tally that sits straight on its sheet, with no panel of its own */
+.tally.plain {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+}
 .tally div {
   display: flex;
   justify-content: space-between;

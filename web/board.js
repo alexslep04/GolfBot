@@ -341,7 +341,7 @@ function mountBoard() {
             <button type="button" class="icon-btn" data-emotes aria-label="Quick emotes">${icon("text.bubble.fill", 44)}</button>
           </div>
           <span class="tag-avatar" data-avatar-for="me" aria-hidden="true"></span>
-          <div class="tag tag-score c-p1" data-score-for="me"><span class="tag-in"></span><span class="turn-label" data-turn-label aria-hidden="true">Your turn</span></div>
+          <button type="button" class="tag tag-score c-p1" data-score-for="me" data-stats-for="me"><span class="tag-in"></span><span class="turn-label" data-turn-label aria-hidden="true">Your turn</span></button>
         </div>
         <div class="b-main">
           <div class="hand" data-hand="me">${hand(me, HAND_TILT[0])}</div>
@@ -837,7 +837,7 @@ function renderTags() {
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ""}`,
+      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
     );
     const delta = ruleDelta(player);
     const stickers = ruleStickers(player);
