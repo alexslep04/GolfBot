@@ -7,8 +7,8 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from game import Card, Rules, Slot
-from match_history import MatchHistory
-from player_stats import BOT_ID, build_stats
+from match_history import MatchHistory, browser_key, guest_id
+from player_stats import BOT_ID, GUESTS_ID, build_stats
 from server import Room, Store, create_app
 
 
@@ -41,12 +41,18 @@ class StatsTests(unittest.TestCase):
         data = build_stats(self.matches)
         board = data['leaderboard']
         # Rival won their only game; tester won 2 of 5; Golfbot 1 of 4.
-        self.assertEqual([row['profile']['id'] for row in board], ['player:Rival', 'player:tester', BOT_ID])
-        self.assertEqual([row['round_win_rate'] for row in board], [1, 2 / 5, 1 / 4])
-        self.assertEqual((board[1]['round_wins'], board[1]['round_losses'], board[1]['round_draws']), (2, 2, 1))
+        # Every guest is one "Guest" on the ranking: Rival won their only game and
+        # tester won 2 of 5, so together 3 of 6. Golfbot won 1 of 4.
+        self.assertEqual([row['profile']['id'] for row in board], [GUESTS_ID, BOT_ID])
+        self.assertEqual([row['round_win_rate'] for row in board], [3 / 6, 1 / 4])
+        self.assertEqual((board[0]['round_wins'], board[0]['round_losses'], board[0]['round_draws']), (3, 2, 1))
+        self.assertEqual((board[0]['profile']['label'], board[0]['profile']['guests']), ('Guest', 2))
+        # each guest still has their own record
+        self.assertEqual(build_stats(self.matches, 'player:Rival')['player']['overall']['round_win_rate'], 1)
+        self.assertEqual(build_stats(self.matches, 'player:tester')['player']['overall']['round_win_rate'], 2 / 5)
         # A filter nobody has played under leaves every rate empty, and nobody is dropped.
         empty = build_stats(self.matches, enabled=['devils_row'])['leaderboard']
-        self.assertEqual(len(empty), 3)
+        self.assertEqual(len(empty), 2)
         self.assertTrue(all(row['rounds'] == 0 and row['round_win_rate'] is None for row in empty))
 
     def test_overall_and_head_to_head_count_rounds_series_draws_and_scores(self):
@@ -241,12 +247,12 @@ class StatsApiTests(unittest.TestCase):
                 payload = {**match(['tester', 'GolfBot'], [result([-2, 4])], 0, solo=True), 'id': str(index)}
                 with store.history.connection:
                     store.history.connection.execute('INSERT INTO matches VALUES (?, ?, ?, ?, ?)',
-                        (str(index), 'private-host-key', 'private-guest-key', index, json.dumps(payload)))
-            response = client.get('/Golfgame/api/stats', params={'player': 'player:tester', 'opponent': BOT_ID, 'house_rules': 'false'})
+                        (str(index), browser_key('private-host-token'), 'private-guest-key', index, json.dumps(payload)))
+            response = client.get('/Golfgame/api/stats', params={'player': guest_id('private-host-token'), 'opponent': BOT_ID, 'house_rules': 'false'})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()['player']['overall']['rounds'], 65)
             self.assertEqual(response.headers['cache-control'], 'no-store')
-            for secret in ('private-host-key', 'private-guest-key', 'golf_session', 'TunnelSecret'):
+            for secret in (browser_key('private-host-token'), 'private-host-token', 'private-guest-key', 'golf_session', 'TunnelSecret'):
                 self.assertNotIn(secret, response.text)
             for params in ({'enabled': 'fake_rule'}, {'enabled': 'v10', 'disabled': 'v10'}, {'player': 'player:missing'}):
                 self.assertEqual(client.get('/Golfgame/api/stats', params=params).status_code, 422)
@@ -282,7 +288,7 @@ class StatsApiTests(unittest.TestCase):
                 self.assertFalse(rounds[1]['rules']['v10'])
                 self.assertNotIn('secret-token', json.dumps(records))
                 self.assertNotIn('players', json.dumps(records))
-                stats = build_stats(records, 'player:tester', enabled=['v10'])['player']['overall']
+                stats = build_stats(records, guest_id('secret-token'), enabled=['v10'])['player']['overall']
                 self.assertEqual(stats['rounds'], 1)
                 self.assertIn('v10', rounds[0]['activations'][0])
                 self.assertEqual(next(row for row in stats['rule_activations'] if row['key'] == 'v10')['win_rate'], 1)

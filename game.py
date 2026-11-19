@@ -63,6 +63,7 @@ RULE_OPTIONS = [
     ("royal_pairs", "J-J / Q-Q: bonus swap"),
     ("devils_row", "Devils 666"),
     ("gamblers_row", "Gamblers 777"),
+    ("crazy_eights", "Crazy 8s"),
     ("angels_row", "Angels 999"),
     ("king_queen", "King-Queen: color scoring"),
     ("holdem", "Hold 'em"),
@@ -75,7 +76,6 @@ RULE_OPTIONS = [
     ("poisoned_card", "Poisoned Card"),
     ("suited_rows", "Suited rows"),
     ("all_in_color", "All in red/black"),
-    ("crazy_eights", "Crazy 8s"),
 ]
 
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from bot import legal_actions, play_action
 from game import Card, GolfGame, Rules, Slot
+from match_history import guest_id
 from match_settings import house_rules
 from patches import PATCH_VERSION
 from player_stats import build_stats
@@ -270,8 +271,8 @@ class Web111Tests(unittest.TestCase):
             room.record_result()
         records = self.store.history.results()
         self.assertEqual(records[0]['series_leaders'],[0,1])
-        self.assertEqual(build_stats(records,'player:A')['player']['overall']['match_draws'],1)
-        stats = build_stats(records,'player:C')['player']['overall']
+        self.assertEqual(build_stats(records,guest_id('a'))['player']['overall']['match_draws'],1)
+        stats = build_stats(records,guest_id('c'))['player']['overall']
         self.assertEqual((stats['match_losses'],stats['match_draws']),(1,0))
 
     def test_many_host_can_invite_after_second_player_joins(self):
@@ -310,7 +311,7 @@ class Web111Tests(unittest.TestCase):
         self.assertEqual(match['status'],'finished')
         self.assertIsNone(match['winner'])
         self.assertEqual(match['patch'],PATCH_VERSION)
-        stats = build_stats([match],'player:A')['player']['overall']
+        stats = build_stats([match],guest_id('a'))['player']['overall']
         self.assertEqual((stats['match_wins'],stats['match_losses'],stats['match_draws']),(0,0,1))
 
     def test_queue_requires_both_accept_and_only_then_interrupts_solo(self):
@@ -371,11 +372,11 @@ class Web111Tests(unittest.TestCase):
         room.start_round(); room.game.phase='over'; room.record_result()
         current = self.store.history.results()[0]
         legacy = {**current,'id':'old','patch':None,'rounds':[{k:v for k,v in current['rounds'][0].items() if k != 'patch'}]}
-        result = build_stats([current,legacy],'player:A','bot:golfbot',patch=PATCH_VERSION)
+        result = build_stats([current,legacy],guest_id('a'),'bot:golfbot',patch=PATCH_VERSION)
         self.assertEqual(result['player']['overall']['rounds'],1)
         self.assertEqual(result['comparison']['head_to_head']['rounds'],1)
         self.assertIn('legacy',result['patches'])
-        self.assertEqual(build_stats([current,legacy],'player:A',patch='legacy')['player']['overall']['rounds'],1)
+        self.assertEqual(build_stats([current,legacy],guest_id('a'),patch='legacy')['player']['overall']['rounds'],1)
 
     def test_history_uses_game_end_time_and_identifies_third_seat_privately(self):
         for name, ended in (('Newer',200),('Older',100)):

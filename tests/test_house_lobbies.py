@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from game import Rules
+from match_history import guest_id
 from match_settings import HOUSE_VERSION, house_rules
 from player_stats import build_stats
 from server import COOKIE, Store, create_app
@@ -150,7 +151,7 @@ class LobbyFeatureTests(unittest.TestCase):
                 self.assertEqual(self.room.champion, winner)
                 record = next(record for record in self.store.history.results() if record['id'] == self.room.match_id)
                 self.assertEqual(record['status'], 'finished')
-                stats = build_stats([record], 'player:Host')['player']['overall']
+                stats = build_stats([record], guest_id(self.room.seats[0]))['player']['overall']
                 self.assertEqual(stats['rounds'], 2)
                 self.assertEqual(stats['completed_matches'], 1)
                 self.assertEqual(stats['match_draws'], int(winner is None))
@@ -211,7 +212,7 @@ class LobbyFeatureTests(unittest.TestCase):
         self.guest.post(self.path + '/join', json={'username': 'Guest'}).raise_for_status()
         self.room.game.turns = 18
         self.finish([1, 9])
-        stats = self.host.get('/Golfgame/api/stats', params={'player': 'player:Host'}).json()
+        stats = self.host.get('/Golfgame/api/stats', params={'player': guest_id(self.room.seats[0])}).json()
         self.assertTrue(stats['filters']['house_rules'])
         self.assertEqual(stats['player']['overall']['average_turns'], 18)
         self.assertIsNotNone(stats['player']['overall']['average_rules_in_play'])

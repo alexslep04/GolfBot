@@ -270,6 +270,28 @@ test('the player popup lists that player\'s points for each finished game of a s
   h.run('state.best_of=1');assert.equal(h.run('seriesTally(1)'),'');
 });
 
+test('the ranking shows guests as one row that opens no player page, and times read as seconds',()=>{
+  const h=harness();
+  const row=(id,label,rounds)=>({profile:{id,label},rounds,round_wins:1,round_losses:0,round_draws:0,round_win_rate:1});
+  const html=h.run(`leaderboardHtml(${JSON.stringify({leaderboard:[row('account:1','@alice',2),row('guests','Guest',5)]})})`);
+  assert.match(html,/<button type="button" data-stats-player="account:1"/);
+  assert.match(html,/<div class="list-item board-row c-fw" aria-label="2\. Guest/);assert.doesNotMatch(html,/data-stats-player="guests"/);
+  assert.equal(h.run('statSeconds(8.42)'),'8.4 s');assert.equal(h.run('statSeconds(72)'),'1 min 12 s');assert.equal(h.run('statSeconds(null)'),'—');
+  // a guest's own page is the browser's profile the server names, not their display name
+  h.run('session={username:"Sam",player_id:"browser:abc"}');assert.equal(h.run('myPlayerId()'),'browser:abc');
+  assert.equal(h.run('emoteNames.ofc'),'Ofc!');assert.ok(h.run('TEXT_EMOTES.includes("ofc")'));
+});
+
+test('the player popup has one View stats button for that player, and does not load the stats itself',()=>{
+  const h=harness();const before=h.requests.length;
+  h.run('state={id:"t",viewer:0,best_of:5,names:["Alice","Bob"],player_ids:["account:42","browser:abc"],seats:[1,2],history:[]};playerStatsSheet(1)');
+  const html=h.nodes.get('sheet').innerHTML;
+  assert.match(html,/data-stats-player="browser:abc">[\s\S]*View stats<\/button>/);
+  assert.doesNotMatch(html,/Leaderboard|Advanced stats|Full stats|Loading stats/);assert.equal(h.requests.length,before);
+  h.run('state.player_ids=[null,null];playerStatsSheet(1)');
+  assert.match(h.nodes.get('sheet').innerHTML,/data-nav="stats">[\s\S]*View stats<\/button>/);
+});
+
 test('void action posts corrected lobby endpoint and reply payload',async()=>{
   const h=harness();h.run('state={id:"room"};session.room_id="room";accept=next=>{};');
   const click=h.listeners.click.at(-1);
@@ -413,7 +435,7 @@ test('Solo shows best streak with W-D-L and win rate instead of current streak',
   assert.match(html,/6–2–2/);assert.match(html,/60%/);
   assert.doesNotMatch(html,/Current streak|Best reached/);
   // each row's current streak sits beside its best, small
-  assert.match(html,/class="streak-now">3 currently</);
+  assert.match(html,/class="streak-now">currently 3</);
 });
 
 test('the modifiers bar counts points against the face value of the cards, and previews a staged move',()=>{

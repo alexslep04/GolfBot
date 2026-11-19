@@ -71,6 +71,11 @@ Three visible 6s in a row lock those cards for the game. Only a bonus swap may m
 
 Three visible 7s in a row earn final score /7, rounded up. Earn once per player; the benefit remains if the row breaks.
 
+### Crazy 8s
+<!-- rule: crazy_eights -->
+
+Three 8s in a row earn final score /8, rounded up. Earn once per player, even with two rows of 8s; unlike Gamblers 777, the row must still be in place in the final hand.
+
 ### Angels 999
 <!-- rule: angels_row -->
 
@@ -130,11 +135,6 @@ A row of three cards of one suit uses the middle card's base Golf points: red ad
 <!-- rule: all_in_color -->
 
 Six red cards multiply every opponent's final score by 2. Six black cards divide your final score by 2. Check the final hand; apply once per player, after additions and before rounding up once.
-
-### Crazy 8s
-<!-- rule: crazy_eights -->
-
-Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.
 
 ## Shared conventions
 

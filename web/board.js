@@ -19,6 +19,7 @@ const RULE_ICON = {
   royal_pairs: "crown.fill",
   devils_row: "flame.fill",
   gamblers_row: "dice.fill",
+  crazy_eights: "8.circle.fill",
   angels_row: "sparkles",
   king_queen: "paintpalette.fill",
   holdem: "hand.raised.fill",
@@ -31,7 +32,6 @@ const RULE_ICON = {
   poisoned_card: "flag.pattern.checkered",
   suited_rows: "rectangle.split.1x2.fill",
   all_in_color: "circle.lefthalf.filled",
-  crazy_eights: "8.circle.fill",
 };
 // Rules with more than one way to trigger get a sticker per variant, drawn from
 // one visual family so they read as siblings: [symbol, what it means].

@@ -9,6 +9,8 @@ import time
 
 from patches import PATCH_VERSION as PATCH  # one release label for the whole server
 
+GUESTS_ID = 'guests'  # the single row every guest shares on a leaderboard
+
 
 class Progression:
     def __init__(self, history):
@@ -229,17 +231,44 @@ class Progression:
             self.db.execute('''UPDATE progression_players SET current_streak=0,draws_in_row=0
                 WHERE patch=? AND id=?''', (patch, identity['id']))
 
-    def leaderboard(self, patch=PATCH):
+    @staticmethod
+    def _combine_guests(rows, solo):
+        """Fold every guest on a board into one "Guest" row, re-ranked with the accounts.
+
+        Games are added together. Elo is the guests' average; the streaks are the
+        best any one guest holds.
+        """
+        guests = [row for row in rows if not row['id'].startswith('account:')]
+        if not guests:
+            return rows
+        games = {key: sum(row[key] for row in guests) for key in ('wins', 'draws', 'losses')}
+        total = sum(games.values())
+        combined = {'id': GUESTS_ID, 'label': 'Guest', 'guests': len(guests), **games,
+                    'win_rate': games['wins'] / total if total else None}
+        if solo:
+            best = min(guests, key=lambda row: (-row['best_streak'], row['best_at'] is None, row['best_at'] or 0))
+            combined.update(best_streak=best['best_streak'], best_at=best['best_at'],
+                            current_streak=max(row['current_streak'] for row in guests))
+            order = lambda row: (-row['best_streak'], row['best_at'] is None, row['best_at'] or 0, row['id'])
+        else:
+            combined['elo'] = round(sum(row['elo'] for row in guests) / len(guests))
+            order = lambda row: (-row['elo'], row['id'])
+        return sorted([row for row in rows if row['id'].startswith('account:')] + [combined], key=order)
+
+    def leaderboard(self, patch=PATCH, combine_guests=True):
         with self.lock:
             pvp = self.db.execute('''SELECT id,label,elo,wins,draws,losses FROM progression_players
                 WHERE patch=? AND wins+draws+losses>0 ORDER BY elo DESC,id''', (patch,)).fetchall()
             solo = self.db.execute('''SELECT id,label,best_streak,current_streak,best_at,solo_wins,solo_draws,solo_losses
                 FROM progression_players WHERE patch=? AND solo_games>0
                 ORDER BY best_streak DESC,best_at IS NULL,best_at,id''', (patch,)).fetchall()
-        return {'pvp': [dict(zip(('id', 'label', 'elo', 'wins', 'draws', 'losses', 'win_rate'),
-                                (*r, r[3] / sum(r[3:6])))) for r in pvp],
-                'solo': [dict(zip(('id', 'label', 'best_streak', 'current_streak', 'best_at', 'wins', 'draws', 'losses', 'win_rate'), (*r, r[5] / sum(r[5:8]) if sum(r[5:8]) else None))) for r in solo],
-                'patch': patch}
+        boards = {'pvp': [dict(zip(('id', 'label', 'elo', 'wins', 'draws', 'losses', 'win_rate'),
+                                   (*r, r[3] / sum(r[3:6])))) for r in pvp],
+                  'solo': [dict(zip(('id', 'label', 'best_streak', 'current_streak', 'best_at', 'wins', 'draws', 'losses', 'win_rate'), (*r, r[5] / sum(r[5:8]) if sum(r[5:8]) else None))) for r in solo]}
+        if combine_guests:
+            boards = {'pvp': self._combine_guests(boards['pvp'], False),
+                      'solo': self._combine_guests(boards['solo'], True)}
+        return {**boards, 'patch': patch}
 
     def save_practice(self, account_id, payload):
         if not isinstance(payload, dict):

@@ -115,6 +115,35 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(state['names'][0], 'Laptop')
             self.assertEqual(phone.get('/golf/api/session').json()['username'], 'Laptop')
 
+    def test_account_page_lists_previously_used_display_names_newest_first(self):
+        store = Store()
+        with TestClient(create_app(store, 'test.apps.googleusercontent.com'), base_url='https://sleptsov.dev') as client:
+            client.get('/golf/api/session')
+            self.assertEqual(client.get('/golf/api/account/display-names').status_code, 401)  # guests have no list
+            self.login(client)
+            self.name(client, 'namer')
+            # a clock that ticks on every call, so each save has its own moment
+            import itertools, time as clock
+            start = clock.time()
+            times = (start + tick for tick in itertools.count(1))
+            with patch('accounts.time.time', side_effect=lambda: next(times)):
+                for display in ('First', 'Second', 'Third', 'First'):
+                    client.post('/golf/api/name', json={'username': display}).raise_for_status()
+            names = client.get('/golf/api/account/display-names').json()['names']
+            # the current name (First) is left out; the rest run from most to least recently chosen
+            self.assertEqual(names[:2], ['Third', 'Second'])
+            self.assertNotIn('First', names)
+            # a name only ever played under, before names were recorded, is found in the saved games
+            store.history.connection.execute('DELETE FROM account_display_names')
+            state = client.post('/golf/api/solo', json={'username': 'Played As'}).json()
+            room = store.rooms[state['id']]
+            room.game.phase = 'over'
+            room.record_result()
+            client.post(f"/golf/api/lobbies/{room.id}/leave").raise_for_status()
+            client.post('/golf/api/name', json={'username': 'Now'}).raise_for_status()
+            # First was the name in use when Played As replaced it, so it was kept as well
+            self.assertEqual(client.get('/golf/api/account/display-names').json()['names'], ['Played As', 'First'])
+
     def test_two_display_names_share_account_stats_but_matching_guest_name_does_not(self):
         store = Store()
         with TestClient(create_app(store, 'test.apps.googleusercontent.com'), base_url='https://sleptsov.dev') as client:
@@ -137,7 +166,9 @@ class AccountTests(unittest.TestCase):
             self.assertEqual(result['player']['profile']['label'], '@unique_player')
             self.assertEqual(result['player']['profile']['display_names'], ['Alias One', 'Alias Two'])
             self.assertEqual(result['player']['overall']['rounds'], 2)
-            self.assertIn('player:unique_player', [p['id'] for p in result['players']])
+            # signed out, the same person is a guest again: their own profile, apart from the account
+            guests = [p for p in result['players'] if p['is_guest']]
+            self.assertEqual([(p['username'], p['id'].split(':')[0]) for p in guests], [('unique_player', 'browser')])
             self.assertNotIn('google-private-sub', json.dumps(result))
 
     def test_history_reset_prevents_an_old_host_reinserting_a_cached_series(self):

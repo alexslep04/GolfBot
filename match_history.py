@@ -12,6 +12,11 @@ def browser_key(token):
     return hashlib.sha256(token.encode()).hexdigest() if token else None
 
 
+def guest_id(token):
+    """A guest's public player id: the first half of their browser key, as on the leaderboards."""
+    return 'browser:' + browser_key(token)[:32]
+
+
 class MatchHistory:
     def __init__(self, path=":memory:"):
         if str(path) != ":memory:":
@@ -94,10 +99,35 @@ class MatchHistory:
         return streak
 
     def results(self):
-        """All result payloads for aggregation, without private browser keys."""
+        """All result payloads for aggregation.
+
+        Every guest seat is identified by the browser that played it (the same
+        shortened hash the leaderboards use), so each guest has their own
+        record however many share a display name. That covers games saved
+        before guests had ids, as long as the seat's browser was recorded.
+        """
         with self.lock:
-            rows = self.connection.execute('SELECT payload FROM matches').fetchall()
-        return [json.loads(payload) for (payload,) in rows]
+            rows = self.connection.execute('SELECT id, host, guest, payload FROM matches').fetchall()
+            seats = {}
+            for match_id, seat, browser in self.connection.execute('SELECT match_id, seat, browser FROM match_seats'):
+                seats.setdefault(match_id, {})[seat] = browser
+        results = []
+        for match_id, host, guest, payload in rows:
+            match = json.loads(payload)
+            browsers = {0: host, 1: guest, **seats.get(match_id, {})}
+            names = match.get('names') or []
+            participants = list(match.get('participants') or [])
+            participants += [None] * (len(names) - len(participants))
+            for seat, name in enumerate(names):
+                profile = participants[seat]
+                known = isinstance(profile, dict) and profile.get('id')
+                if (known and not str(known).startswith('player:')) or (match.get('solo') and seat == 1):
+                    continue  # an account, a bot, or a guest who already has an id
+                if browsers.get(seat):
+                    participants[seat] = {'id': 'browser:' + browsers[seat][:32], 'kind': 'guest', 'display_name': name}
+            match['participants'] = participants
+            results.append(match)
+        return results
 
     def stats_results(self):
         return self.results()

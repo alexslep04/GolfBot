@@ -113,7 +113,7 @@ class ProgressionTests(unittest.TestCase):
             self.service.practice_result('a', A, 0, PATCH)
         with patch('progression.time.time', return_value=10):
             self.service.practice_result('b', B, 0, PATCH)
-        self.assertEqual([r['id'] for r in self.service.leaderboard(PATCH)['solo']], [B['id'], A['id']])
+        self.assertEqual([r['id'] for r in self.service.leaderboard(PATCH, combine_guests=False)['solo']], [B['id'], A['id']])
         self.service.rate_game('same', [A, B], 0, 'old')
         self.service.rate_game('same', [A, B], 1, PATCH)
         self.service.practice_result('a', A, 0, 'old')

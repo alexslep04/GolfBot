@@ -63,7 +63,7 @@ class VersionedStatic(StaticFiles):
 
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emote: Literal["unamused", "shocked", "laughing", "nervous", "thanks", "oops", "wow", "save"]
+    emote: Literal["unamused", "shocked", "laughing", "nervous", "thanks", "oops", "wow", "save", "ofc"]
 
 
 class Settings(BaseModel):
@@ -203,6 +203,11 @@ class Room:
     pending_reaction: str | None = None
     bot_seats: list = field(default_factory=list)  # debug tables: seats the server plays itself
     away: set = field(default_factory=set)  # sockets whose page is in the background
+    # how long each person has spent on their turns in the game in play: seconds
+    # and turns per seat, and the turn being timed now
+    move_seconds: list = field(default_factory=list)
+    move_counts: list = field(default_factory=list)
+    turn_clock: dict | None = None
 
     practice: bool = False
     rated: bool = False
@@ -229,6 +234,47 @@ class Room:
                 self.progression.save_practice(self.practice_account, practice_save.save(self))
             except Exception:
                 log.exception("Could not save practice game for table %s", self.id)
+
+    def _turn_key(self):
+        game = self.game
+        if game is None or game.phase in ("setup", "over") or game.scoring_reveal:
+            return None
+        return game.turns, game.current
+
+    def seat_present(self, seat):
+        """A person (never a bot) with the table open and in front of them right now."""
+        token = self.seats[seat] if seat < len(self.seats) else None
+        return bool(token and seat not in self.bot_seats
+                    and any(ws not in self.away for ws in self.clients.get(token, ())))
+
+    def track_turn_time(self, now=None):
+        """Time each turn from the moment it becomes a player's until it ends.
+
+        A turn only counts if the player was at the table for all of it: one
+        that starts while they are away, or that they leave or disconnect
+        during, is dropped, so stepping away never drags their average.
+        """
+        now = time.time() if now is None else now
+        count = len(self.seats)
+        if len(self.move_seconds) != count:
+            self.move_seconds, self.move_counts = [0.0] * count, [0] * count
+        key, clock = self._turn_key(), self.turn_clock
+        if clock and clock["key"] != key:
+            if clock["counts"] and clock["player"] < count:
+                self.move_seconds[clock["player"]] += max(0.0, now - clock["started"])
+                self.move_counts[clock["player"]] += 1
+            clock = None
+        if key and clock is None:
+            clock = {"key": key, "player": key[1], "started": now, "counts": self.seat_present(key[1])}
+        self.turn_clock = clock
+
+    def drop_turn_time(self, seat=None):
+        """Leave the turn in progress out of the timing (for one seat, or whoever is playing)."""
+        key = self._turn_key()
+        if self.turn_clock is None and key:
+            self.turn_clock = {"key": key, "player": key[1], "started": time.time(), "counts": False}
+        if self.turn_clock and seat in (None, self.turn_clock["player"]):
+            self.turn_clock["counts"] = False
 
     def expire_offer(self):
         if self.void_offer and self.void_offer['expires_at'] <= time.time():
@@ -305,12 +351,15 @@ class Room:
             self.ready[seat] = True
         self.round_recorded = False
         self.timeline = []
+        self.move_seconds, self.move_counts = [0.0] * len(self.seats), [0] * len(self.seats)
+        self.turn_clock = None
         self.emotes.clear()
         self.save_practice()
 
     def track_scores(self):
         """Add a point to the score timeline when a turn ends, and the final scores at the end."""
         game = self.game
+        self.track_turn_time()
         if game is None or game.phase == "setup" or (self.timeline and self.timeline[-1]["final"]):
             return
         if game.phase == "over":
@@ -334,6 +383,9 @@ class Room:
                              # the scores showing after each turn (for the comeback record)
                              "timeline": [point["scores"] for point in self.timeline if not point["final"]],
                              "ended_at": time.time(),
+                             # time each person spent on the turns they were at the table for
+                             "move_seconds": [round(seconds, 1) for seconds in self.move_seconds],
+                             "move_counts": list(self.move_counts),
                              "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in range(len(self.seats))]})
         self.history[-1].update(modifier_data(self.game, visible_only=False))
@@ -565,6 +617,8 @@ def snapshot(room, token):
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
              "points": room.points, "timeline": room.timeline,
+             # who is in each seat, for opening their stats from the table
+             "player_ids": [(profile or {}).get("id") for profile in room.participants],
              "streak": room.streak if room.solo and not room.practice else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [p in room.bot_seats or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
@@ -819,7 +873,12 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     def session_view(session):
         return {"username": session.username, "room_id": session.room_id if session.room_id in store.rooms else None,
                 "avatar": session.avatar, "account": session.account, "google_client_id": google_client_id,
-                "csrf_token": session.csrf_token, "google_nonce": session.google_nonce, "patch": PATCH_VERSION}
+                "csrf_token": session.csrf_token, "google_nonce": session.google_nonce, "patch": PATCH_VERSION,
+                # this player's own stats profile: their account, or this browser as a guest
+                "player_id": 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)}
+
+    def browser_id(session):
+        return sha256(session.token.encode()).hexdigest()[:32]
 
     def csrf(session, token):
         if not secrets.compare_digest(session.csrf_token, token):
@@ -827,7 +886,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     def profile_for(session):
         try:
-            return participant(session.account, session.username)
+            return participant(session.account, session.username, browser_id(session))
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
 
@@ -840,7 +899,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     def progression_profile(session):
         profile = account_practice_profile(session) if session.account else profile_for(session)
         if not session.account:
-            profile = {**profile, 'id': 'browser:' + sha256(session.token.encode()).hexdigest()[:32]}
+            profile = {**profile, 'id': 'browser:' + browser_id(session)}
         return profile
 
     def find_room(room_id):
@@ -1215,6 +1274,26 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     await broadcast(room)
         return session_view(session)
 
+    @app.get('/api/account/display-names')
+    async def previous_display_names(request: Request):
+        """The display names this account has gone by, most recently used first, without the current one."""
+        session = session_for(request)
+        if session.account is None:
+            raise HTTPException(401, 'Sign in with Google first.')
+        account_id = session.account['id']
+        used = store.accounts.display_names(account_id)
+        # names played under before they were recorded come from the saved games
+        for match in await asyncio.to_thread(store.history.stats_results):
+            when = match.get('last_game_ended_at') or match.get('updated_at') or 0
+            for seat, profile in enumerate(match.get('participants') or []):
+                if isinstance(profile, dict) and profile.get('id') == 'account:' + account_id:
+                    names = match.get('names') or []
+                    name = profile.get('display_name') or (names[seat] if seat < len(names) else None)
+                    if name:
+                        used[name] = max(used.get(name, 0), when)
+        used.pop(session.username, None)
+        return {'names': sorted(used, key=lambda name: (-used[name], name.casefold()))}
+
     @app.post('/api/auth/logout')
     async def logout(body: Logout, request: Request, response: Response):
         session = session_for(request)
@@ -1282,9 +1361,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get('/api/leaderboards')
     async def leaderboards(request: Request):
         session_for(request)
+        # the boards show every guest as one "Guest"; records still name the player
         boards = store.progression.leaderboard(PATCH_VERSION)
+        ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
-        boards['records'] = await asyncio.to_thread(build_records, results, boards['pvp'])
+        boards['records'] = await asyncio.to_thread(build_records, results, ratings)
         return boards
 
     @app.get("/api/lobbies")
@@ -1561,7 +1642,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 and not room.departed[0] and room.status in ('playing', 'round_over')
                 and room.progression_players
                 and room.progression_players[0]['id'] ==
-                    'browser:' + sha256(session.token.encode()).hexdigest()[:32]):
+                    'browser:' + browser_id(session)):
             return room
         leave_old(session, 'changing sign-in')
         return None
@@ -1669,6 +1750,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         history_store=store.history, practice=True, progression=store.progression,
                         practice_account=account_id, progression_players=[progression_profile(session)], **fields)
             room.game = practice_save.restore_game(saved['game'])
+            room.drop_turn_time()  # the turn they come back to was not timed from its start
             store.rooms[room.id] = room
         else:
             if room.bot_task:
@@ -1819,6 +1901,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         forfeit(room, seat)
                 except Exception:
                     log.exception("Could not record the departure from table %s", room.id)
+                room.drop_turn_time(seat)
                 room.status = "closed"
                 room.departed[seat] = True
                 if room.solo:
@@ -1942,6 +2025,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 # the page says when it goes into (or out of) the background
                 if message == "hidden":
                     room.away.add(ws)
+                    if not room.seat_present(seat):
+                        room.drop_turn_time(seat)  # they switched away mid-turn: not timed
                 elif message == "visible":
                     room.away.discard(ws)
                 if token not in room.seats:
@@ -1962,6 +2047,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 seat = room.seats.index(token)
                 if seat < len(room.disconnected):
                     room.disconnected[seat] = time.time()
+                room.drop_turn_time(seat)  # a turn they walked away from is not timed
                 room.save_practice()
                 if room.practice and room.bot_task:
                     room.bot_task.cancel()

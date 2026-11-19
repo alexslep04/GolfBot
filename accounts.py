@@ -33,6 +33,8 @@ class Accounts:
             # the display name the player last chose, shared by every device they sign in on
             if 'display_name' not in {row[1] for row in self.db.execute('PRAGMA table_info(accounts)')}:
                 self.db.execute('ALTER TABLE accounts ADD COLUMN display_name TEXT')
+            # every display name an account has saved, and when it last chose it
+            self.db.execute('CREATE TABLE IF NOT EXISTS account_display_names (account_id TEXT NOT NULL, name TEXT NOT NULL, used_at REAL NOT NULL, PRIMARY KEY(account_id, name))')
 
     @staticmethod
     def public(row):
@@ -79,13 +81,31 @@ class Accounts:
 
     def save_display_name(self, account_id, name):
         with self.lock, self.db:
+            now = time.time()
+            # the name being replaced is kept too, even if it was chosen before names were recorded
+            previous = self.db.execute('SELECT display_name FROM accounts WHERE id=?', (account_id,)).fetchone()
+            if previous and previous[0] and previous[0] != name:
+                self.db.execute('INSERT OR IGNORE INTO account_display_names VALUES (?, ?, ?)', (account_id, previous[0], now - 1))
             self.db.execute('UPDATE accounts SET display_name=? WHERE id=?', (name, account_id))
+            self.db.execute('''INSERT INTO account_display_names VALUES (?, ?, ?)
+                ON CONFLICT(account_id, name) DO UPDATE SET used_at=excluded.used_at''', (account_id, name, now))
+
+    def display_names(self, account_id):
+        """Every display name this account has saved, with when it was last chosen."""
+        with self.lock:
+            return dict(self.db.execute('SELECT name, used_at FROM account_display_names WHERE account_id=?', (account_id,)).fetchall())
 
 
-def participant(account, display_name):
+def participant(account, display_name, browser=None):
+    """A seat's public identity: an account, or a guest known by their browser.
+
+    Every guest browser is its own player, however many share a display name.
+    Without a browser (older callers) a guest falls back to their name.
+    """
     if account:
         if not account['unique_name']:
             raise ValueError('Choose your unique name before joining a game.')
         return {'id': 'account:' + account['id'], 'unique_name': account['unique_name'],
                 'display_name': display_name, 'kind': 'account'}
-    return {'id': 'player:' + display_name, 'display_name': display_name, 'kind': 'guest'}
+    return {'id': 'browser:' + browser if browser else 'player:' + display_name,
+            'display_name': display_name, 'kind': 'guest'}

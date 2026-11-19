@@ -34,6 +34,7 @@ const RULE_SHORT = {
   royal_pairs: "J-J/Q-Q",
   devils_row: "666",
   gamblers_row: "777",
+  crazy_eights: "Crazy 8s",
   angels_row: "999",
   king_queen: "K-Q Colors",
   holdem: "Hold 'em",
@@ -46,7 +47,6 @@ const RULE_SHORT = {
   poisoned_card: "Poison",
   suited_rows: "Suited rows",
   all_in_color: "All in",
-  crazy_eights: "Crazy 8s",
 };
 const POPULAR_RULES = [
   "royal_pairs",
@@ -69,9 +69,10 @@ const emoteNames = {
   oops: "Oops!",
   wow: "Wow!",
   save: "What a save!",
+  ofc: "Ofc!",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["thanks", "oops", "wow", "save"];
+const TEXT_EMOTES = ["thanks", "oops", "wow", "save", "ofc"];
 let activeEmotes = {},
   emoteSeen = {},
   emoteTimers = {},
@@ -1646,33 +1647,16 @@ function seriesTally(player) {
   }</div>`;
 }
 /** A player's record, shown over the table (tap a name tag, theirs or yours). */
-async function playerStatsSheet(player) {
+function playerStatsSheet(player) {
   const id = state.player_ids?.[player];
-  const mine = state.player_ids?.[state.viewer];
   const color = colorFor(player);
+  // the full record lives on the stats page; the popup only links to it
+  const target = id ? `data-stats-player="${e(id)}"` : `data-nav="stats"`;
   openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
     <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     ${seriesTally(player)}
-    <div data-player-stats style="margin-top:1.2rem"><div class="loading">Loading stats…</div></div>
-    <div class="row" style="margin-top:1.2rem">${id ? `<button type="button" class="btn small ${color} grow" data-stats-player="${e(id)}">Full stats</button>` : ""}<button type="button" class="btn small ${color} grow" data-nav="stats">${tilted("medal", 22)} Leaderboard</button></div>
+    <div class="row" style="margin-top:1.2rem"><button type="button" class="btn small ${color} grow" ${target}>${tilted("medal", 22)} View stats</button></div>
   </section>`);
-  const holder = sheetRoot.querySelector("[data-player-stats]");
-  let body;
-  try {
-    if (!id) throw new Error("No saved games for this player yet.");
-    const query = new URLSearchParams({ player: id });
-    if (mine && mine !== id) query.set("opponent", mine);
-    const result = await api("/api/stats?" + query);
-    if (result.player?.profile.id !== id) throw new Error("No saved games for this player yet.");
-    body =
-      statsTable([result.player], "overall", "Official stats · overall", color) +
-      (result.comparison
-        ? statsTable([result.player, result.comparison], "head_to_head", "Head to head with you", color)
-        : "");
-  } catch (error) {
-    body = `<p class="empty">${e(error.message)}</p>`;
-  }
-  if (holder.isConnected) holder.innerHTML = `<div class="stack">${body}</div>`;
 }
 /**
  * Send one table action. Resolves true when the server accepted it.
@@ -1809,6 +1793,7 @@ function accountPage() {
     }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div>${account ? displayNameForm() : ""}</div>`,
   );
   renderGoogleSignIn();
+  loadPreviousNames();
 }
 /** Signed in: change the name other players see at the table. */
 function displayNameForm() {
@@ -1819,7 +1804,23 @@ function displayNameForm() {
     ${field("Display Name", `<input id="account-display-name" name="display_name" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam")}
     ${session.room_id ? `<p class="hint dark">The table you're at keeps the name you joined with; the new one shows from your next table.</p>` : ""}
     <button type="submit" class="btn c-p3">Save display name</button>
+    <div data-previous-names></div>
   </form>`;
+}
+/** Under the display name: the names this account has gone by before. Tap one to use it again. */
+async function loadPreviousNames() {
+  const holder = () => root.querySelector("[data-previous-names]");
+  if (!session.account || !holder()) return;
+  try {
+    const { names } = await api("/api/account/display-names");
+    const target = holder();
+    if (!target) return;
+    target.innerHTML = names.length
+      ? `<h3 style="margin-top:.4rem">Previously used</h3><p class="hint dark">Most recent first. Tap a name to put it back in the box.</p><div class="chips" style="margin-top:.8rem">${names.map((name) => `<button type="button" class="chip" data-previous-name="${e(name)}">${e(name)}</button>`).join("")}</div>`
+      : `<p class="hint dark">No other display names used yet.</p>`;
+  } catch {
+    // the list is a nicety: the form works without it
+  }
 }
 
 /* ---------- match history ---------- */
@@ -1911,6 +1912,13 @@ const statPercent = (value) =>
         style: "percent",
         maximumFractionDigits: 1,
       }).format(value);
+/** A length of time for the stats tables: "8.4 s", or "1 min 12 s" past a minute. */
+const statSeconds = (value) =>
+  value === null
+    ? "—"
+    : value < 60
+      ? `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)} s`
+      : `${Math.floor(value / 60)} min ${Math.round(value % 60)} s`;
 /* ---------- leaderboard & player stats ---------- */
 // Filters work like the rule picker before a game: House (official stats) or
 // any rules, and with House off each rule can be required or excluded.
@@ -2015,18 +2023,24 @@ function toggleStatsFilters() {
     setTimeout(() => box.classList.remove("opening"), 900);
   }
 }
-/** The ranking: everyone with a matching game, best game win rate first. */
+/** This player's own stats profile: their account, or this browser as a guest. */
+const myPlayerId = () =>
+  session.player_id || (session.account ? "account:" + session.account.id : "player:" + session.username);
+/** The ranking: everyone with a matching game, best game win rate first. Guests share one row. */
 function leaderboardHtml(result) {
   const rows = result.leaderboard.filter((row) => row.rounds > 0);
   if (!rows.length) return `<p class="empty">No games match these filters yet.</p>`;
   return `<p class="hint dark">Ranked by game win rate. Tap a player for their full record.</p><div class="list">${rows
     .map((row, i) => {
       const games = `${row.rounds} game${row.rounds === 1 ? "" : "s"}`;
-      return `<button type="button" class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}" data-stats-player="${e(row.profile.id)}" aria-label="${i + 1}. ${e(row.profile.label)}, ${statPercent(row.round_win_rate)} win rate, ${games}">
+      // the combined "Guest" row is every guest added together, so it opens no player page
+      const opens = row.profile.id !== "guests";
+      const tag = opens ? "button" : "div";
+      return `<${tag}${opens ? ` type="button" data-stats-player="${e(row.profile.id)}"` : ""} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}" aria-label="${i + 1}. ${e(row.profile.label)}, ${statPercent(row.round_win_rate)} win rate, ${games}">
         <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "rank:first" }) : stickerText(String(i + 1), { key: `rank:${i}` })}</span>
         <div class="grow"><strong>${e(row.profile.label)}</strong><small>${row.round_wins}–${row.round_losses}–${row.round_draws} · ${games}</small></div>
-        <b class="rate">${statPercent(row.round_win_rate)}</b>${glyph("chevron.right", 16)}
-      </button>`;
+        <b class="rate">${statPercent(row.round_win_rate)}</b>${opens ? glyph("chevron.right", 16) : ""}
+      </${tag}>`;
     })
     .join("")}</div>`;
 }
@@ -2045,7 +2059,7 @@ function playerStatsHtml(result) {
     ${selectField("Compare With", `data-stats-opponent aria-label="Compare with"`, [["", "Nobody: overall only", !statsSelection.opponent], ...others.map((player) => [player.id, player.label, player.id === statsSelection.opponent])], "person.2.fill")}
     ${statsTable([entry, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}
     ${result.comparison ? statsTable([entry, result.comparison], "head_to_head", "Head to head", "c-p1") : ""}
-    <details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details>`;
+    <details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. Time spent on move is the average length of your turns, from the moment a turn becomes yours until it ends; a turn you leave or disconnect during is not timed, and games played before this was recorded are left out. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker.</p></details>`;
 }
 function ruleActivationsHtml(entry, scope) {
   const stats = entry[scope];
@@ -2069,6 +2083,7 @@ function statsTable(entries, scope, title, color) {
     ["Average points per game", (s) => statNumber(s.average_points)],
     ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
     ["Average turns per game", (s) => statNumber(s.average_turns ?? null)],
+    ["Average time spent on move", (s) => statSeconds(s.average_move_seconds ?? null)],
     [
       "Average modifiers in play per game",
       (s) => statNumber(s.average_rules_in_play ?? null),
@@ -2084,14 +2099,14 @@ function statsTable(entries, scope, title, color) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details><summary>View rule activation</summary><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where a selected guest name identifies multiple seats are excluded because those guests cannot be distinguished.</p>` : ""}</section>`;
+  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details><summary>View rule activation</summary><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section>`;
 }
 async function statsPage(fromUrl = false) {
   if (fromUrl) {
     const query = new URLSearchParams(location.search);
     statsSelection = {
       initialized: true,
-      player: query.get("player") || (session.account ? "account:" + session.account.id : "player:" + session.username),
+      player: query.get("player") || myPlayerId(),
       opponent: query.has("opponent") ? query.get("opponent") : "bot:golfbot",
       enabled: query.getAll("enabled"),
       disabled: query.getAll("disabled"),
@@ -2101,7 +2116,7 @@ async function statsPage(fromUrl = false) {
   }
   // the Advanced tab opens on your own record against Golfbot, this patch
   if (!statsSelection.initialized) {
-    statsSelection.player ||= session.account ? "account:" + session.account.id : "player:" + session.username;
+    statsSelection.player ||= myPlayerId();
     statsSelection.opponent ||= "bot:golfbot";
     statsSelection.patch ||= (session.patch || matchOptions.patch);
     statsSelection.initialized = true;
@@ -2154,6 +2169,7 @@ const RULE_EXAMPLES = {
   royal_pairs: [["Queen pair earns one bonus swap", ["QH",null,null,"QS",null,null]], ["Jack pair earns one bonus swap", ["JH",null,null,"JS",null,null]]],
   devils_row: [["Three 6s lock this row", ["6H","6S","6D",null,null,null]]],
   gamblers_row: [["Earn final score divided by 7, even if this row later breaks", ["7H","7S","7D",null,null,null]]],
+  crazy_eights: [["Earn final score divided by 8, as long as this row is still there at the end", ["8H","8S","8D",null,null,null]]],
   angels_row: [["Earn opponent's final score times 9 during play", ["9H","9S","9D",null,null,null]]],
   king_queen: [["Same-color King-Queen column: 5 points", ["KH",null,null,"QD",null,null]], ["Different-color column: 15 points", ["KH",null,null,"QS",null,null]]],
   holdem: [["Five-card flush: -5 points", ["AH","3H","6H","8H","JH",null]], ["Five-card straight: -5 points", ["3H","4S","5D","6C","7H",null]], ["Full house: -5 points", ["3H","3S","3D","8C","8H",null]], ["Four of a kind: -5 points", ["4H","4S","4D","4C","AH",null]]],
@@ -2167,7 +2183,6 @@ const RULE_EXAMPLES = {
   beggars: [["Your 10 is the unique highest visible value. Guess the chosen hidden card's rank before it flips", ["10H",null,null,null,null,null], ["3H",null,null,null,null,null], "Opponent: a correct guess trades your 10 for their lowest visible card after the reveal"]],
   four_kind: [["Four visible 4s may be arranged into two columns", ["4H","4S",null,"4D","4C",null]]],
   poisoned_card: [["First player to reveal all six during play: +1 before divisions", ["AH","3S","5D","7C","9H","KC"]]],
-  crazy_eights: [["Three 8s in a row: final score divided by 8", ["8H","8S","8D",null,null,null]]],
   suited_rows: [["Red row: middle 4 adds +4 to every opponent", ["AH","4H","8H",null,null,null]], ["Black row: middle 4 subtracts 4 from you", ["AS","4S","8S",null,null,null]]],
   all_in_color: [["All six red: every opponent's final score times 2", ["AH","3D","5H","7D","9H","KD"]], ["All six black: your final score divided by 2", ["AS","3C","5S","7C","9S","KC"]]],
 };
@@ -2266,7 +2281,7 @@ function leaderboardBody(tab, result) {
       return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} Elo`}, ${record(row)}, ${rate(row)} win rate">
         <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "lb-first" }) : stickerText(String(i + 1), { key: `lb-rank:${i}` })}</span>
         <div class="grow"><strong>${who(row)}</strong><small>${record(row)} · ${rate(row)} win rate</small></div>
-        <b class="rate">${solo ? `<small class="streak-now">${statNumber(row.current_streak ?? 0)} currently</small>${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}<small>Elo</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
+        <b class="rate">${solo ? `<small class="streak-now">currently ${statNumber(row.current_streak ?? 0)}</small>${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}<small>Elo</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
       </${tag}>`;
     })
     .join("");
@@ -2644,6 +2659,14 @@ document.addEventListener("click", async (event) => {
     }
     if (data.nav) return await navigate(data.nav);
     if ("statsFiltersToggle" in data) return toggleStatsFilters();
+    if (data.previousName) {
+      const input = root.querySelector("#account-display-name");
+      if (input) {
+        input.value = data.previousName;
+        input.focus();
+      }
+      return;
+    }
     if (data.statsPlayer) {
       statsSelection.player = data.statsPlayer;
       statsSelection.opponent = "";
@@ -2747,6 +2770,7 @@ root.addEventListener("submit", async (event) => {
         return toast(error.message);
       }
     } else pollPresence(); // the server learns the new name with the next presence update
+    loadPreviousNames(); // the name just replaced joins the list
     return toast(`You'll show as ${session.username}.`);
   }
   if (event.target.id === "account-name-form") {

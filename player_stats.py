@@ -4,6 +4,7 @@ from game import RULE_OPTIONS
 from patches import PATCH_VERSION
 
 BOT_ID = 'bot:golfbot'
+GUESTS_ID = 'guests'  # the single row every guest shares on the ranking
 
 
 def identities(match):
@@ -56,6 +57,34 @@ def recorded_modifier_counts(result, seat, player_count):
     return counts
 
 
+def recorded_move_time(result, seat, player_count):
+    """(seconds, turns) this seat was timed for in one game, or None if it has no record."""
+    seconds, counts = result.get('move_seconds'), result.get('move_counts')
+    if not (isinstance(seconds, list) and isinstance(counts, list) and len(seconds) == len(counts) == player_count):
+        return None
+    if type(counts[seat]) is not int or counts[seat] <= 0 or not isinstance(seconds[seat], (int, float)) or seconds[seat] < 0:
+        return None
+    return seconds[seat], counts[seat]
+
+
+def combine_guests(rows):
+    """Fold every guest's standing into one "Guest" row; accounts and Golfbot stay as they are."""
+    guests = [row for row in rows if row['profile']['is_guest']]
+    if not guests:
+        return rows
+    total = {key: sum(row[key] for row in guests) for key in (
+        'rounds', 'round_wins', 'round_losses', 'round_draws',
+        'completed_matches', 'match_wins', 'match_losses', 'match_draws')}
+    points = sum(row['average_points'] * row['rounds'] for row in guests if row['rounds'])
+    combined = {'profile': {'id': GUESTS_ID, 'username': 'Guest', 'unique_name': None, 'is_bot': False,
+                            'display_names': [], 'is_guest': True, 'label': 'Guest', 'guests': len(guests)},
+                **total,
+                'round_win_rate': total['round_wins'] / total['rounds'] if total['rounds'] else None,
+                'match_win_rate': total['match_wins'] / total['completed_matches'] if total['completed_matches'] else None,
+                'average_points': points / total['rounds'] if total['rounds'] else None}
+    return [row for row in rows if not row['profile']['is_guest']] + [combined]
+
+
 def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, house_only=False, patch=None):
     wins = losses = draws = total_points = opponent_points = 0
     match_wins = match_losses = completed_matches = unfinished_matches = ambiguous_matches = 0
@@ -63,6 +92,7 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
     points, activations, activation_wins = [], Counter(), Counter()
     known_activations = 0
     turns, modifier_counts = [], []
+    move_seconds, move_turns = 0.0, 0
     for match in matches:
         seats = identities(match)
         if player_id not in seats:
@@ -92,6 +122,10 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
             opponent_points += other
             if type(result.get('turns')) is int:
                 turns.append(result['turns'])
+            timed = recorded_move_time(result, seat, len(seats))
+            if timed:
+                move_seconds += timed[0]
+                move_turns += timed[1]
             counts = recorded_modifier_counts(result, seat, len(seats))
             if counts is not None:
                 modifier_counts.append(sum(counts.values()))
@@ -130,6 +164,9 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
         'average_advantage': (total_points - opponent_points) / count if count else None,
         'average_turns': sum(turns) / len(turns) if turns else None,
         'known_turn_games': len(turns),
+        # seconds per turn, over the turns the player was at the table for
+        'average_move_seconds': move_seconds / move_turns if move_turns else None,
+        'timed_turns': move_turns,
         # Keep the public metric key, now counting actual final modifier instances.
         'average_rules_in_play': sum(modifier_counts) / len(modifier_counts) if modifier_counts else None,
         'known_modifier_games': len(modifier_counts), 'unknown_modifier_games': count - len(modifier_counts),
@@ -183,7 +220,8 @@ def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=
             'completed_matches', 'match_wins', 'match_losses', 'match_draws', 'match_win_rate', 'average_points')}}
 
     # Best game win rate first; players with no matching games last. Ties go to whoever has played more.
-    leaderboard = sorted((standing(player) for player in players),
+    # every guest has their own record, but the ranking shows them as one "Guest"
+    leaderboard = sorted(combine_guests([standing(player) for player in players]),
                          key=lambda row: (row['round_win_rate'] is None, -(row['round_win_rate'] or 0), -row['rounds'],
                                           row['profile']['username'].casefold(), row['profile']['id']))
 
