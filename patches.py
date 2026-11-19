@@ -4,14 +4,14 @@ PATCH_VERSION = "1.3.0"
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
     # this patch names its sections itself; older ones use the default headings
-    "labels": {"revisions": "Reworked rules", "additions": "New rules", "changes": "Gameplay"},
+    "labels": {"revisions": "Reworked rules", "additions": "New Rules", "changes": "Gameplay"},
     "rules": {
         "revisions": [
             "The Ripped 5: the 5 of diamonds now cancels out any other 5 on the board, regardless of whether or not it is in an already canceled-out row.",
             "Poisoned Card: going out first now adds 1 point instead of 2.",
         ],
         "additions": [
-            "Crazy 8s: three 8s in a row divide your final score by 8.",
+            "Crazy 8s! Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.",
         ],
     },
     "changes": [

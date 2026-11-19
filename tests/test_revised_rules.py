@@ -132,6 +132,6 @@ class CrazyEightsTests(unittest.TestCase):
         game.players[0][0] = Slot(Card(8, 'S'), True)
         self.assertEqual(score_adjustments(game.players[0], game.rules)[1], 8)
 
-    def test_crazy_eights_is_a_custom_rule_not_in_house_rules(self):
+    def test_crazy_eights_is_a_house_rule(self):
         from match_settings import house_rules
-        self.assertFalse(house_rules()['crazy_eights'])
+        self.assertTrue(house_rules()['crazy_eights'])

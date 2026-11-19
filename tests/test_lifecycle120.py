@@ -157,13 +157,15 @@ class LifecycleTests(unittest.TestCase):
         with TestClient(self.client.app):
             other, room = self.rated()
             import time
-            room.disconnected = [time.time() - 29, None]
-            time.sleep(.1)
+            from server import RATED_GRACE
+            # stepping away for a while (closing the tab, switching apps) keeps the seat
+            room.disconnected = [time.time() - 31, None]
+            time.sleep(1.1)
             self.assertEqual(room.status, 'playing')
             with self.client.websocket_connect(f'/ws/{room.id}') as ws:
                 ws.receive_json()
                 self.assertIsNone(room.disconnected[0])
-            room.disconnected = [time.time() - 31, None]
+            room.disconnected = [time.time() - RATED_GRACE - 1, None]
             time.sleep(1.1)
             self.assertEqual(room.status, 'closed')
             self.assertEqual(len(room.history), 1)

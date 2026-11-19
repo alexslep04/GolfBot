@@ -133,6 +133,7 @@ const prefs = {
   haptics: true,
   hideTips: false,
   autoQueue: true, // join the Quickplay queue as soon as the site opens
+  turnAlerts: false, // a notification (and a buzz) when it's your turn while Golf is in the background
   theme: "golf", // the look of the whole game: see THEMES
 };
 // Each theme is a set of colour tokens in style.css, under :root[data-theme].
@@ -163,6 +164,18 @@ function setPref(key, value) {
   applyPrefs();
 }
 applyPrefs();
+
+/* ---------- keyboard or touch ---------- */
+// Focus rings (style.css) show only while the keyboard is the way in: a key
+// press turns them on, any tap or click turns them off again.
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (!event.metaKey && !event.ctrlKey && !event.altKey) document.documentElement.classList.add("keyboard");
+  },
+  true,
+);
+document.addEventListener("pointerdown", () => document.documentElement.classList.remove("keyboard"), true);
 
 /* ---------- taps ---------- */
 // A click only counts when the press began and ended on the same control

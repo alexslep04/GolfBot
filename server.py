@@ -1,5 +1,6 @@
 """Single-process, server-authoritative Golf lobbies served by FastAPI/Uvicorn."""
 import asyncio
+import base64
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from hashlib import sha256
@@ -201,6 +202,7 @@ class Room:
     streak: int = 0  # solo: games in a row the player has won against Golfbot
     pending_reaction: str | None = None
     bot_seats: list = field(default_factory=list)  # debug tables: seats the server plays itself
+    away: set = field(default_factory=set)  # sockets whose page is in the background
 
     practice: bool = False
     rated: bool = False
@@ -390,6 +392,11 @@ class Store:
         # a declined pair: frozenset of two tokens -> (cooldown end, each one's queue join time then)
         self.queue_declined = {}
         self.queue_lock = asyncio.Lock()
+        # turn notifications: each browser's push subscription, and the last turn it was told about
+        self.push_subscriptions = {}
+        self.push_told = {}
+        self.push_keys = None  # loaded or made on first use; False when pywebpush is missing
+        self.push_contact = None
 
     def session(self, token):
         session = self.sessions.get(token)
@@ -413,6 +420,9 @@ class Store:
         for token, session in list(self.sessions.items()):
             if session.touched < time.time() - 24 * 3600:
                 del self.sessions[token]
+
+
+RATED_GRACE = 180  # seconds a rated player may be away before it counts as leaving
 
 
 def debug_mode():
@@ -849,6 +859,72 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 sockets.discard(ws)
         # A slow connection must not delay every other player at a large table.
         await asyncio.gather(*(send(*delivery) for delivery in deliveries))
+        notify_turn(room)
+
+    # ---------- turn notifications (web push) ----------
+    def push_keys():
+        """The server's push signing keys, made once and kept in data/ (or None without pywebpush)."""
+        if store.push_keys is not None:
+            return store.push_keys or None
+        try:
+            from py_vapid import Vapid
+            from cryptography.hazmat.primitives import serialization
+        except ImportError:
+            store.push_keys = False
+            return None
+        path = ROOT / 'data' / 'push-keys.json'
+        if path.exists():
+            store.push_keys = json.loads(path.read_text(encoding='utf-8'))
+        else:
+            vapid = Vapid()
+            vapid.generate_keys()
+            private = vapid.private_pem().decode()
+            public = vapid.public_key.public_bytes(serialization.Encoding.X962,
+                                                   serialization.PublicFormat.UncompressedPoint)
+            store.push_keys = {'private': private,
+                               'public': base64.urlsafe_b64encode(public).decode().rstrip('=')}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(store.push_keys), encoding='utf-8')
+        return store.push_keys
+
+    def send_push(token, subscription, payload):
+        keys = push_keys()
+        if not keys:
+            return
+        from pywebpush import WebPushException, webpush
+        from py_vapid import Vapid
+        try:
+            webpush(subscription_info=subscription, data=json.dumps(payload), ttl=120,
+                    vapid_private_key=Vapid.from_pem(keys['private'].encode()),
+                    vapid_claims={'sub': store.push_contact or 'https://localhost'})
+        except WebPushException as error:
+            # a subscription the browser has dropped is forgotten
+            if error.response is not None and error.response.status_code in (404, 410):
+                store.push_subscriptions.pop(token, None)
+            else:
+                log.warning('Turn notification failed: %s', error)
+        except Exception:
+            log.exception('Turn notification failed')
+
+    def notify_turn(room):
+        """Tell the player whose turn it is, once per turn, if no page of theirs is in front."""
+        game = room.game
+        if game is None or room.status != 'playing' or game.phase in ('setup', 'over'):
+            return
+        seat = game.decision_player
+        token = room.seats[seat] if seat < len(room.seats) else None
+        subscription = store.push_subscriptions.get(token)
+        if not subscription or seat in room.bot_seats:
+            return
+        turn = f'{room.id}|{len(room.history)}|{game.turns}|{seat}'
+        if store.push_told.get(token) == turn:
+            return
+        store.push_told[token] = turn
+        if any(ws not in room.away for ws in room.clients.get(token, ())):
+            return  # they are looking at the table already
+        payload = {'title': 'Your turn in Golf', 'body': f'{room.name}: it\'s your move.',
+                   'tag': 'golf-turn', 'url': f'lobby/{room.id}'}
+        asyncio.get_running_loop().run_in_executor(None, send_push, token, subscription, payload)
 
     def kick_bot(room):
         if room.bot_seats and (room.bot_task is None or room.bot_task.done()):
@@ -982,6 +1058,41 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room.version += 1
         kick_bot(room)
         return snapshot(room, session.token)
+
+    class PushSubscription(BaseModel):
+        subscription: dict | None = None
+
+    @app.get('/api/push/key')
+    async def push_key(request: Request):
+        session_for(request)
+        keys = await asyncio.to_thread(push_keys)
+        if not keys:
+            raise HTTPException(404, 'Turn notifications are not available on this server.')
+        return {'key': keys['public']}
+
+    @app.post('/api/push/subscribe')
+    async def push_subscribe(body: PushSubscription, request: Request):
+        session = session_for(request)
+        subscription = body.subscription or {}
+        endpoint = subscription.get('endpoint')
+        if not isinstance(endpoint, str) or not endpoint.startswith('https://') or not isinstance(subscription.get('keys'), dict):
+            raise HTTPException(422, 'That is not a push subscription.')
+        store.push_subscriptions[session.token] = {'endpoint': endpoint, 'keys': subscription['keys']}
+        # push services ask who is sending: the address this game is served from
+        store.push_contact = store.push_contact or str(request.base_url)
+        return {'ok': True}
+
+    @app.post('/api/push/unsubscribe')
+    async def push_unsubscribe(request: Request):
+        session = session_for(request)
+        store.push_subscriptions.pop(session.token, None)
+        return {'ok': True}
+
+    @app.get('/sw.js')
+    async def service_worker():
+        # served from the app's own root so it can cover every page
+        return Response((ROOT / 'web' / 'sw.js').read_text(encoding='utf-8'), media_type='application/javascript',
+                        headers={'Cache-Control': 'no-cache'})
 
     @app.get("/health")
     async def health():
@@ -1735,22 +1846,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     had_offer = room.void_offer is not None
                     room.expire_offer()
                     changed = had_offer and room.void_offer is None
+                    # Leaving the site and coming back keeps your seat. Only a rated
+                    # player gone for longer than RATED_GRACE forfeits (so nobody can
+                    # stall an opponent); a practice table simply waits for you.
                     if room.rated and room.status in ('playing', 'round_over'):
                         for seat, since in enumerate(room.disconnected):
-                            if since is not None and time.time() - since >= 30 and not room.clients.get(room.seats[seat]):
+                            if since is not None and time.time() - since >= RATED_GRACE and not room.clients.get(room.seats[seat]):
                                 forfeit(room, seat)
                                 room.version += 1
                                 changed = True
                                 break
-                    if room.practice and not room.practice_account and room.status in ('playing', 'round_over'):
-                        since = room.disconnected[0]
-                        if since is not None and time.time() - since >= 30 and not room.clients.get(room.seats[0]):
-                            if room.counts_streak and not room.round_recorded:
-                                store.progression.reset_streak(room.progression_players[0], room.patch)
-                            room.status = 'closed'
-                            room.departed = [True, True]
-                            room.version += 1
-                            changed = True
                     if changed:
                         await broadcast(room)
 
@@ -1814,7 +1919,12 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             kick_bot(room)
             await broadcast(room)
             while True:
-                await ws.receive_text()
+                message = await ws.receive_text()
+                # the page says when it goes into (or out of) the background
+                if message == "hidden":
+                    room.away.add(ws)
+                elif message == "visible":
+                    room.away.discard(ws)
                 if token not in room.seats:
                     await ws.close(code=4403)
                     return
@@ -1827,6 +1937,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         except WebSocketDisconnect:
             pass
         finally:
+            room.away.discard(ws)
             room.clients.get(token, set()).discard(ws)
             if not room.clients.get(token) and token in room.seats:
                 seat = room.seats.index(token)

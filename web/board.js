@@ -928,11 +928,16 @@ function renderStreak() {
   // a new win pops the number, like the points counter
   if (changed && before !== undefined && count > Number(before)) holder.querySelector(".score").classList.add("bump");
 }
+let lastTurnBuzz = "";
 function renderTags() {
   renderStreak();
   const g = state.game;
   const turn = myTurn();
-  if (turn && board.signatures.turn === false) haptic("turn");
+  // a buzz (and a controller rumble) once for each turn that comes to you,
+  // including the first one of a game or the one waiting when the table opens
+  const turnKey = turn ? `${state.id}|${state.round}|${g.turns}|${g.phase === "setup"}` : "";
+  if (turn && turnKey !== lastTurnBuzz) haptic("turn");
+  lastTurnBuzz = turnKey;
   board.signatures.turn = turn;
   const upNext = nextUp();
   // where the cycle button is now, if it is showing (it may be about to move)

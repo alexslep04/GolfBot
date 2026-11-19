@@ -25,7 +25,7 @@ class Scoring111Tests(unittest.TestCase):
         for key in ('four_kind', 'beggars', 'suited_rows'):
             self.assertFalse(preset[key])
         self.assertTrue(preset['all_in_color'])
-        self.assertEqual(sum(preset.values()), 12)
+        self.assertEqual(sum(preset.values()), 13)  # Crazy 8s joined in 1.3
 
     def test_red_and_black_suited_rows_use_middle_base_points(self):
         game = GolfGame(rules=Rules(suited_rows=True))

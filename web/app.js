@@ -885,6 +885,7 @@ function prefsHtml() {
     row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
     row("autoQueue", "sparkles", "Join Quickplay on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
+    row("turnAlerts", "bell.fill", "Turn notifications", onOff(prefs.turnAlerts), prefs.turnAlerts),
     // stored as hideTips (so existing choices carry over), shown the positive way round
     row("hideTips", "text.bubble.fill", "Show tooltips", onOff(!prefs.hideTips), !prefs.hideTips),
   ];
@@ -897,7 +898,47 @@ function prefsHtml() {
     );
   return `<h3>Preferences</h3><div class="menu-list" data-prefs>${rows.join("")}</div>`;
 }
+/* ---------- turn notifications ----------
+   With them on, the server pushes a "your turn" notification (which also buzzes
+   phones that allow it) whenever your turn comes while Golf is in the background. */
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+function pushKeyBytes(key) {
+  const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(key.length / 4) * 4, "="));
+  return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+/** Subscribe this browser to turn notifications (asking permission first, when `ask`). */
+async function subscribeTurnAlerts(ask) {
+  if (!pushSupported()) throw new Error("This browser can't show notifications. On iPhone, add Golf to your Home Screen first.");
+  const permission = ask ? await Notification.requestPermission() : Notification.permission;
+  if (permission !== "granted") throw new Error("Notifications are blocked for Golf. Allow them in your browser's settings.");
+  const registration = await navigator.serviceWorker.register(appPath("/sw.js"));
+  await navigator.serviceWorker.ready;
+  const { key } = await api("/api/push/key");
+  const subscription =
+    (await registration.pushManager.getSubscription()) ||
+    (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(key) }));
+  await api("/api/push/subscribe", "POST", { subscription: subscription.toJSON() });
+}
+async function toggleTurnAlerts() {
+  const on = !prefs.turnAlerts;
+  try {
+    if (on) await subscribeTurnAlerts(true);
+    else {
+      await api("/api/push/unsubscribe", "POST");
+      const registration = await navigator.serviceWorker?.getRegistration(appPath("/sw.js"));
+      await (await registration?.pushManager.getSubscription())?.unsubscribe();
+    }
+    setPref("turnAlerts", on);
+    if (on) toast("You'll get a notification when it's your turn.");
+  } catch (error) {
+    setPref("turnAlerts", false);
+    toast(error.message);
+  }
+  const holder = sheetRoot.querySelector("[data-prefs]");
+  if (holder) holder.outerHTML = prefsHtml().replace(/^<h3>.*?<\/h3>/, "");
+}
 function togglePref(key) {
+  if (key === "turnAlerts") return toggleTurnAlerts();
   if (key === "padDrag") setPref(key, prefs.padDrag === "toggle" ? "hold" : "toggle");
   else if (key === "theme") {
     const at = THEMES.findIndex(([name]) => name === prefs.theme);
@@ -1477,6 +1518,8 @@ function connectRoom(id) {
   ws.onopen = () => {
     if (socket !== ws) return;
     opened = true;
+    // the server only sends a turn notification when no page of yours is in front
+    ws.send(document.visibilityState === "hidden" ? "hidden" : "visible");
     heartbeat = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 20000);
@@ -1487,12 +1530,23 @@ function connectRoom(id) {
   ws.onclose = () => {
     if (socket !== ws) return;
     clearInterval(heartbeat);
-    if (opened && page === "room") toast("Reconnecting to the table…");
+    // (dropped while in the background, it just reconnects on the way back)
+    if (opened && page === "room" && document.visibilityState === "visible") toast("Reconnecting to the table…");
     retry = setTimeout(() => {
       if (session.room_id === id) connectRoom(id);
     }, 1800);
   };
 }
+// Leaving the site and coming back: say so to the server, and if the connection
+// was dropped meanwhile (phones close it in the background), reconnect at once.
+document.addEventListener("visibilitychange", () => {
+  const visible = document.visibilityState === "visible";
+  if (socket?.readyState === WebSocket.OPEN) socket.send(visible ? "visible" : "hidden");
+  if (visible && session?.room_id && page === "room" && socket?.readyState !== WebSocket.OPEN && socket?.readyState !== WebSocket.CONNECTING) {
+    clearTimeout(retry);
+    connectRoom(session.room_id);
+  }
+});
 function accept(next) {
   if (state && state.id === next.id && next.version < state.version) return;
   syncEmotes(next);
@@ -2816,6 +2870,7 @@ function bootData() {
       if (avatars.some((avatar) => avatar.id === saved && avatar.selectable))
         session.avatar = saved;
     } catch {}
+    if (prefs.turnAlerts) subscribeTurnAlerts(false).catch(() => setPref("turnAlerts", false));
     const firstPoll = pollPresence();
     // while in the queue the server is asked far more often, so a match shows at once
     let lastPoll = performance.now();

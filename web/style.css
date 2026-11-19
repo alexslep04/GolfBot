@@ -454,9 +454,15 @@ p {
 [hidden] {
   display: none !important;
 }
-:focus-visible {
+/* Focus rings are for the keyboard: they only show once a key has been used,
+   and go again with the next tap or click (phones otherwise ring whatever a
+   dialog focuses on opening, or a field after its picker closes). */
+:root.keyboard :focus-visible {
   outline: 0.3rem solid var(--p1);
   outline-offset: 0.3rem;
+}
+:root:not(.keyboard) :focus-visible {
+  outline: none;
 }
 
 /* ---------- stickers: fill + stroke + hard shadow + gentle idle drift ---------- */
@@ -933,7 +939,7 @@ p {
 .field select {
   cursor: pointer;
 }
-.field:focus-within {
+:root.keyboard .field:focus-within {
   outline: 0.3rem solid var(--p1);
   outline-offset: 0.2rem;
 }
