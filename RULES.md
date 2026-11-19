@@ -71,7 +71,7 @@ Three visible 6s in a row lock those cards for the game. Only a bonus swap may m
 
 Three visible 7s in a row earn final score /7, rounded up. Earn once per player; the benefit remains if the row breaks.
 
-### Crazy 8s
+### Crazy 888
 <!-- rule: crazy_eights -->
 
 Three 8s in a row earn final score /8, rounded up. Earn once per player, even with two rows of 8s; unlike Gamblers 777, the row must still be in place in the final hand.
@@ -141,7 +141,7 @@ Six red cards multiply every opponent's final score by 2. Six black cards divide
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
 - **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
-- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, All in black, and Crazy 8s divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, All in black, and Crazy 888 divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
 - The ripped 5 is the first uncanceled 5 in the opposite row from left to right. The 5 of diamonds rips one even when it is already in a column pair; no other card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.

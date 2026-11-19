@@ -21,7 +21,7 @@ def v_pattern_effects(layout, rules, visible_only=False):
 
 
 def crazy_rows(layout, rules, visible_only=False):
-    """Rows (1 = top) of three 8s, for Crazy 8s."""
+    """Rows (1 = top) of three 8s, for Crazy 888."""
     if not rules.crazy_eights:
         return []
     return [row + 1 for row in range(2)
@@ -348,7 +348,7 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     if color is not None:
         effects.append("All in red: opponents ×2" if color else "All in black: /2")
     if crazy_rows(layout, rules, True):
-        effects.append("Crazy 8s /8")
+        effects.append("Crazy 888 /8")
     incoming = opponent_layouts if opponent_layouts is not None else [opponent_layout] if opponent_layout is not None else []
     for other_index, other_layout in enumerate(incoming):
         source = f" (opponent {other_index + 1})" if len(incoming) > 1 else ""

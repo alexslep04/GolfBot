@@ -34,7 +34,7 @@ const RULE_SHORT = {
   royal_pairs: "J-J/Q-Q",
   devils_row: "666",
   gamblers_row: "777",
-  crazy_eights: "Crazy 8s",
+  crazy_eights: "Crazy 888",
   angels_row: "999",
   king_queen: "K-Q Colors",
   holdem: "Hold 'em",

@@ -76,7 +76,7 @@ const EFFECT_RULE = [
   [/uited row/, "suited_rows"],
   [/All in/, "all_in_color"],
   [/Poisoned/, "poisoned_card"],
-  [/Crazy 8s/, "crazy_eights"],
+  [/Crazy 888/, "crazy_eights"],
   [/King-Queen/, "king_queen"],
 ];
 const HAND_TILT = [

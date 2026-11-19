@@ -120,7 +120,7 @@ class CrazyEightsTests(unittest.TestCase):
         game.players[0] = hand([8, 8, 8, 10, 4, 12])  # 3 x 8 + 10 + 4 + 10 = 48
         self.assertEqual(game.score(0), 6)  # 48 / 8
         self.assertIn('crazy_eights', scoring_rule_keys(game.players[0], game.rules))
-        self.assertIn('Crazy 8s /8', active_rule_effects(game.players[0], game.rules))
+        self.assertIn('Crazy 888 /8', active_rule_effects(game.players[0], game.rules))
         # off, or with one 8 hidden, nothing divides
         self.assertEqual(score_adjustments(game.players[0], Rules())[1], 1)
         game.players[0][1].visible = False

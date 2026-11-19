@@ -11,7 +11,7 @@ PATCH_NOTES = [{
             "Poisoned Card: going out first now adds 1 point instead of 2.",
         ],
         "additions": [
-            "Crazy 8s! Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.",
+            "Crazy 888! Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.",
         ],
     },
     "changes": [
