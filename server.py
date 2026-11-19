@@ -387,6 +387,8 @@ class Store:
         self.queue_results = {}
         self.queue_notices = {}
         self.queue_switching = set()
+        # a declined pair: frozenset of two tokens -> (cooldown end, each one's queue join time then)
+        self.queue_declined = {}
         self.queue_lock = asyncio.Lock()
 
     def session(self, token):
@@ -1168,15 +1170,31 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room = store.rooms.get(session.room_id)
         return not at_table(session) or bool(room and room.solo)
 
+    DECLINE_COOLDOWN = 10  # seconds before a declined pair may meet again
+
+    def remember_decline(seats):
+        """A declined pair is not offered to each other again until the cooldown has
+        passed and one of them has newly joined the queue (not just kept waiting)."""
+        store.queue_declined[frozenset(seats)] = (time.time() + DECLINE_COOLDOWN, {token: store.queue.get(token) for token in seats})
+
+    def declined_pair(first, second, now):
+        entry = store.queue_declined.get(frozenset((first, second)))
+        if entry is None:
+            return False
+        until, joined = entry
+        return now < until or all(store.queue.get(token) == joined[token] for token in (first, second))
+
     def cancel_queue(token, notice=None):
+        """Take a player out of the queue. Their opponent in an open offer keeps
+        waiting for someone else (the pair is not offered to each other again)."""
         store.queue.pop(token, None)
         for key, offer in list(store.queue_offers.items()):
             if token in offer['seats']:
                 del store.queue_offers[key]
+                remember_decline(offer['seats'])
                 for other in offer['seats']:
-                    store.queue.pop(other, None)
-                    if other != token:
-                        store.queue_notices[other] = notice or 'Your queue match was cancelled. You can join the queue again.'
+                    if other != token and other in store.queue:
+                        store.queue_notices[other] = notice or 'Your match was called off. Still looking for another player.'
 
     def prune_queue():
         now = time.time()
@@ -1186,16 +1204,23 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 cancel_queue(token)
         for offer in list(store.queue_offers.values()):
             if offer['expires'] <= now and not any(token in store.queue_switching for token in offer['seats']):
+                # nobody answered in time: both leave the queue
                 for token in offer['seats']:
                     store.queue_notices[token] = 'The queue offer expired. Join again when you are ready.'
+                    store.queue.pop(token, None)
                 cancel_queue(offer['seats'][0])
+        for pair, (until, joined) in list(store.queue_declined.items()):
+            # forgotten once the cooldown is over and either player has joined anew
+            if until <= now and any(store.queue.get(token) != joined[token] for token in pair):
+                del store.queue_declined[pair]
         offered = {token for offer in store.queue_offers.values() for token in offer['seats']}
         waiting = [token for token in store.queue if token not in offered]
         while len(waiting) >= 2:
             first = waiting.pop(0)
             one = store.sessions[first]
             second = next((token for token in waiting if not (
-                one.account and store.sessions[token].account and one.account['id'] == store.sessions[token].account['id'])), None)
+                one.account and store.sessions[token].account and one.account['id'] == store.sessions[token].account['id'])
+                and not declined_pair(first, token, now)), None)
             if second is None:
                 continue
             waiting.remove(second)
@@ -1257,8 +1282,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if not offer or session.token not in offer['seats']:
                 raise HTTPException(404, 'That queue offer is no longer available.')
             if not body.accept:
-                cancel_queue(session.token, 'Your opponent declined the queue match. Join the queue again to find another.')
-                return {'status': 'off'}
+                # declining keeps both players in the queue, each looking for someone else
+                del store.queue_offers[offer_id]
+                remember_decline(offer['seats'])
+                for other in offer['seats']:
+                    if other != session.token:
+                        store.queue_notices[other] = 'Your opponent declined. Still looking for another player.'
+                prune_queue()
+                return queue_view(session)
             choose_avatar(session, body.avatar)
             offer['accepted'].add(session.token)
             if len(offer['accepted']) == 2:

@@ -108,6 +108,14 @@
   --c2: var(--fw3);
   --ct: var(--fw-text);
 }
+/* the Quickplay stickers' edge: white on Original, and on the dark themes a dark
+   yellow from whichever yellow the theme uses */
+:root {
+  --p3-edge: var(--paper);
+}
+:root:is([data-theme="poker"], [data-theme="night"]) {
+  --p3-edge: color-mix(in srgb, var(--p3) 62%, #000);
+}
 /* Seat colours: the same for everyone at the table. Inside the table, --p1
    ("mine") is re-pointed at the viewer's own seat colour. */
 :root {
@@ -2379,7 +2387,7 @@ button.tag-rules:active > .tag-in {
 }
 .board-extra .icon-btn.queue {
   --fill: var(--p3);
-  --stroke: var(--paper);
+  --stroke: var(--p3-edge);
   width: 3.2rem;
   height: 3.2rem;
   animation: pop 0.4s var(--spring);
@@ -3662,6 +3670,15 @@ button:disabled > .haptic-switch {
   z-index: 90;
   --safe-top: env(safe-area-inset-top);
 }
+/* at the table, the dropped-down pill can be swiped away */
+.queue-banner.peek {
+  touch-action: none;
+  user-select: none;
+}
+/* scrolled past its spot, the pill floats at the top of the screen */
+.queue-banner.pinned {
+  position: fixed;
+}
 .queue-slot {
   flex: 0 1 auto;
   min-width: 0;
@@ -3727,47 +3744,71 @@ button:disabled > .haptic-switch {
   line-height: 1.1;
   color: var(--p3t);
   --fill: var(--p3);
+  --stroke: var(--p3-edge);
   animation: none;
 }
 .side-act.queue-leave .act-ico {
   height: 2.8rem;
 }
-.queue-tip {
+
+/* With a match found, the pill opens out into the offer: what it is beside a
+   Decline sticker, and Accept underneath. Kept to two short lines. */
+.queue-pill.open {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.7rem;
+  width: min(30rem, calc(100vw - 3.2rem));
+  padding: 0.8rem 0.9rem 1rem 1.3rem;
+  border-radius: 2.2rem;
+}
+.queue-offer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+.queue-offer-row .queue-text {
+  flex: 1;
+}
+/* the match style shows in full, on a line of its own, in the same quieter
+   secondary text as "In queue" */
+.queue-pill.open .queue-text small {
+  white-space: normal;
+  overflow: visible;
+  opacity: 0.75;
+}
+.queue-pill.open .queue-text b {
+  font-size: 1.6rem;
+}
+.queue-pill.open .queue-text small {
+  font-size: 1.2rem;
+}
+/* Open, the pill keeps a quieter secondary outline; Accept hangs below it as a
+   button of its own in the primary outline, between two sparkles.
+   (The pill is the root that grows, so Accept is placed out of its flow.) */
+.queue-pill.open {
+  position: relative;
+  overflow: visible;
+  margin-bottom: 5.4rem;
+  border-color: color-mix(in srgb, var(--p3) 45%, var(--p3b));
+}
+.queue-pill.open .queue-accept {
   position: absolute;
-  z-index: 300;
-  padding: 0.5rem 1.2rem;
-  border-radius: 1.6rem;
-  background: var(--p3);
-  color: var(--p3t);
-  font: 700 1.4rem/1.3 var(--text);
-  white-space: nowrap;
-  pointer-events: none;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.8rem);
+  min-height: 4.6rem;
+  border-color: var(--p3);
+  font-size: 1.7rem;
   box-shadow: 0.25rem 0.25rem 0 var(--shadow);
-  animation: pop 0.35s var(--spring);
-  transition: opacity 0.25s;
+  /* the sparkles: pale, inside the primary outline */
+  --fill: var(--p3b);
+  --stroke: var(--p3);
 }
-.queue-tip.out {
-  opacity: 0;
-}
-.queue-tip::after {
-  content: "";
-  position: absolute;
-  left: var(--tip-x, 50%);
-  top: calc(100% - 0.1rem);
-  margin-left: -0.8rem;
-  border: 0.8rem solid transparent;
-  border-top-color: var(--p3);
-  border-bottom: 0;
-}
-.queue-tip.below::after {
-  top: auto;
-  bottom: calc(100% - 0.1rem);
-  border: 0.8rem solid transparent;
-  border-bottom-color: var(--p3);
-  border-top: 0;
-}
-:root.in-game .queue-banner {
-  display: none;
+/* the right sparkle is mirrored; its shadow is offset the other way first, so
+   once flipped it still falls down and to the right like the left one's */
+.queue-pill.open .queue-accept .ico.mirrored {
+  scale: -1 1;
+  --shx: -0.3rem;
 }
 .social-dialog {
   width: min(42rem, calc(100vw - 3.2rem));

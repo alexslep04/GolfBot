@@ -4,7 +4,7 @@ from itertools import combinations
 from math import prod
 
 V_PATTERNS = ((0, 4, 2), (3, 1, 5))
-POISON_POINTS = 2
+POISON_POINTS = 1
 
 
 def v_pattern_effects(layout, rules, visible_only=False):
@@ -18,6 +18,14 @@ def v_pattern_effects(layout, rules, visible_only=False):
     if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in cards):
         effects.append(("V10 engine", 5))
     return effects
+
+
+def crazy_rows(layout, rules, visible_only=False):
+    """Rows (1 = top) of three 8s, for Crazy 8s."""
+    if not rules.crazy_eights:
+        return []
+    return [row + 1 for row in range(2)
+            if all((layout[i].visible or not visible_only) and layout[i].card.rank == 8 for i in range(row * 3, row * 3 + 3))]
 
 
 def holdem_categories(cards):
@@ -107,6 +115,8 @@ def score_adjustments(layout, rules, visible_only=False):
         divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules))
         if all_color(layout, rules) is False:
             divisor *= 2
+        if crazy_rows(layout, rules):
+            divisor *= 8
     return adjustment, divisor
 
 
@@ -155,6 +165,8 @@ def scoring_rule_keys(layout, rules):
         keys.add('suited_rows')
     if all_color(layout, rules, True) is not None:
         keys.add('all_in_color')
+    if crazy_rows(layout, rules, True):
+        keys.add('crazy_eights')
     if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, True)):
         keys.add('ripped_five')
     if rules.king_queen and any(layout[i].visible and layout[i + 3].visible and
@@ -182,6 +194,8 @@ def modifier_instance_counts(layout, rules, gambler_earned=False, locked_cards=(
     counts['suited_rows'] = sum(1 for _ in suited_rows(layout, rules, visible_only))
     if all_color(layout, rules, visible_only) is not None:
         counts['all_in_color'] = 1
+    if crazy_rows(layout, rules, visible_only):
+        counts['crazy_eights'] = 1
     if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, visible_only)):
         counts['ripped_five'] = 1
     if rules.king_queen:
@@ -259,6 +273,8 @@ def rule_preview_data(game):
                                & {'flush', 'straight', 'full_house', 'four_kind'})
             elif key == 'all_in_color':
                 indices = visible
+            elif key == 'crazy_eights':
+                indices = [i for row in crazy_rows(layout, rules, True) for i in range((row - 1) * 3, row * 3)]
             elif key == 'devils_row':
                 indices = [i for i in visible if layout[i].card in game.locked_cards]
             elif key in ('gamblers_row', 'angels_row'):
@@ -331,6 +347,8 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     color = all_color(layout, rules, True)
     if color is not None:
         effects.append("All in red: opponents ×2" if color else "All in black: /2")
+    if crazy_rows(layout, rules, True):
+        effects.append("Crazy 8s /8")
     incoming = opponent_layouts if opponent_layouts is not None else [opponent_layout] if opponent_layout is not None else []
     for other_index, other_layout in enumerate(incoming):
         source = f" (opponent {other_index + 1})" if len(incoming) > 1 else ""

@@ -338,12 +338,19 @@ class Web111Tests(unittest.TestCase):
         self.assertEqual(result['status'],'abandoned')
         self.assertEqual(self.post(self.guest,'/queue/enter')['id'],state['id'])
 
-    def test_queue_declines_and_offline_expirations_cancel_both_players(self):
+    def test_queue_declines_keep_both_waiting_and_expirations_cancel_both_players(self):
         self.post(self.host,'/queue/join',{'username':'A'})
         offer = self.post(self.guest,'/queue/join',{'username':'B'})
-        self.post(self.host,'/queue/offers/'+offer['id']+'/respond',{'accept':False})
+        # declining keeps both in the queue, and they are not offered to each other again
+        self.assertEqual(self.post(self.host,'/queue/offers/'+offer['id']+'/respond',{'accept':False})['status'],'waiting')
         self.assertFalse(self.store.queue_offers)
-        self.assertFalse(self.store.queue)
+        self.assertEqual(len(self.store.queue),2)
+        guest = self.post(self.guest,'/presence',{'username':'B'})['queue']
+        self.assertEqual(guest['status'],'waiting')
+        self.assertIn('declined', guest['notice'])
+        # cleared for the rest of this test, so the pair can meet again
+        self.store.queue_declined.clear()
+        self.post(self.host,'/queue/leave'); self.post(self.guest,'/queue/leave')
         self.post(self.host,'/queue/join',{'username':'A'})
         offer = self.post(self.guest,'/queue/join',{'username':'B'})
         self.store.queue_offers[offer['id']]['expires'] = 0

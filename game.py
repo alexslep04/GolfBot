@@ -56,6 +56,7 @@ class Rules:
     poisoned_card: bool = False
     suited_rows: bool = False
     all_in_color: bool = False
+    crazy_eights: bool = False
 
 
 RULE_OPTIONS = [
@@ -74,6 +75,7 @@ RULE_OPTIONS = [
     ("poisoned_card", "Poisoned Card"),
     ("suited_rows", "Suited rows"),
     ("all_in_color", "All in red/black"),
+    ("crazy_eights", "Crazy 8s"),
 ]
 
 

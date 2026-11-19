@@ -127,10 +127,11 @@ test('guest sign-in choice retains the table while opening the account screen',a
 });
 
 test('every selectable rule has examples, hidden by default, with only necessary cards',()=>{
-  const h=harness();const examples=h.run('RULE_EXAMPLES');assert.equal(Object.keys(examples).length,15);
+  const h=harness();const examples=h.run('RULE_EXAMPLES');assert.equal(Object.keys(examples).length,16);
   assert.equal(examples.royal_pairs[0][1].filter(Boolean).length,2);
   assert.equal(examples.roman_fives[0][1].filter(Boolean).length,3);
   assert.equal(examples.all_in_color[0][1].filter(Boolean).length,6);
+  assert.equal(examples.crazy_eights[0][1].filter(Boolean).length,3);
   for(const key of Object.keys(examples)) {
     const html=h.run(`ruleHelpCard({key:${JSON.stringify(key)},name:"Rule",description:"Description"})`);
     assert.match(html,/aria-expanded="false"/);assert.match(html,/class="rule-example"[^>]* hidden/);

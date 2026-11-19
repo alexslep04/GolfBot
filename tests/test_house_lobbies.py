@@ -42,6 +42,52 @@ class LobbyFeatureTests(unittest.TestCase):
         with patch.object(self.room.game, 'score', side_effect=lambda player: scores[player]):
             self.room.record_result()
 
+    def test_a_declined_player_stays_queued_and_meets_someone_new(self):
+        join = lambda client, name: client.post('/Golfgame/api/queue/join', json={'username': name}).json()
+        join(self.host, 'A')
+        offer = join(self.guest, 'B')
+        self.assertEqual(offer['status'], 'offer')
+        declined = self.host.post(f"/Golfgame/api/queue/offers/{offer['id']}/respond", json={'accept': False}).json()
+        self.assertEqual(declined['status'], 'waiting')
+        # a third player is offered to one of them, never A and B to each other again
+        third = join(self.other, 'C')
+        self.assertEqual(third['status'], 'offer')
+        pairs = [set(offer['seats']) for offer in self.store.queue_offers.values()]
+        self.assertEqual(len(pairs), 1)
+        self.assertNotEqual(pairs[0], {self.host.cookies.get(COOKIE), self.guest.cookies.get(COOKIE)})
+
+    def test_a_declined_pair_meets_again_only_after_ten_seconds_and_a_fresh_join(self):
+        join = lambda client, name: client.post('/Golfgame/api/queue/join', json={'username': name}).json()
+        poll = lambda client, name: client.post('/Golfgame/api/presence', json={'username': name}).json()['queue']
+        clock = [1000.0]
+        with patch('server.time.time', side_effect=lambda: clock[0]):
+            join(self.host, 'A')
+            offer = join(self.guest, 'B')
+            self.host.post(f"/Golfgame/api/queue/offers/{offer['id']}/respond", json={'accept': False}).raise_for_status()
+            # a fresh join inside the ten seconds is not enough
+            clock[0] = 1005
+            self.host.post('/Golfgame/api/queue/leave').raise_for_status()
+            self.assertEqual(join(self.host, 'A')['status'], 'waiting')
+            self.assertEqual(poll(self.guest, 'B')['status'], 'waiting')
+            # once the ten seconds are up, that fresh join pairs them again
+            clock[0] = 1011
+            self.assertEqual(poll(self.host, 'A')['status'], 'offer')
+
+    def test_a_declined_pair_that_just_keeps_waiting_is_not_paired_again(self):
+        join = lambda client, name: client.post('/Golfgame/api/queue/join', json={'username': name}).json()
+        poll = lambda client, name: client.post('/Golfgame/api/presence', json={'username': name}).json()['queue']
+        clock = [1000.0]
+        with patch('server.time.time', side_effect=lambda: clock[0]):
+            join(self.host, 'A')
+            offer = join(self.guest, 'B')
+            self.guest.post(f"/Golfgame/api/queue/offers/{offer['id']}/respond", json={'accept': False}).raise_for_status()
+            for step in (12, 24):
+                clock[0] = 1000 + step
+                self.assertEqual(poll(self.host, 'A')['status'], 'waiting')
+                self.assertEqual(poll(self.guest, 'B')['status'], 'waiting')
+            # joining again while already queued is not a fresh join either
+            self.assertEqual(join(self.guest, 'B')['status'], 'waiting')
+
     def test_host_can_turn_off_score_previews(self):
         self.assertTrue(self.guest.post('/Golfgame/api/lobbies', json={'username': 'Guest'}).json()['score_preview'])
         state = self.create(score_preview=False)

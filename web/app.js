@@ -46,6 +46,7 @@ const RULE_SHORT = {
   poisoned_card: "Poison",
   suited_rows: "Suited rows",
   all_in_color: "All in",
+  crazy_eights: "Crazy 8s",
 };
 const POPULAR_RULES = [
   "royal_pairs",
@@ -56,7 +57,7 @@ const POPULAR_RULES = [
   "ripped_five",
   "poisoned_card",
 ];
-const NEW_RULES = ["poisoned_card"];
+const NEW_RULES = ["crazy_eights"];
 
 /* ---------- emotes ---------- */
 const emoteNames = {
@@ -412,23 +413,38 @@ function renderQueueBanner() {
   const banner = document.getElementById("queue-banner");
   const queue = presenceState.queue;
   const onBoard = page === "room" && !!state?.game;
-  const visible = !!queue && ["waiting", "offer"].includes(queue.status) && !onBoard;
+  const offering = queue?.status === "offer";
+  // at the table the waiting pill only drops in when its sparkle is tapped (an offer always shows)
+  const peeking = performance.now() < queuePeekUntil;
+  const visible = !!queue && ["waiting", "offer"].includes(queue.status) && (!onBoard || offering || peeking);
+  banner.classList.toggle("peek", visible && onBoard && !offering);
   const html = visible ? queuePillHtml(queue) : "";
+  const ghost = visible ? queuePillHtml(queue, true) : "";
+  banner.classList.toggle("offering", visible && offering);
   // Each page's top bar keeps an invisible copy, which holds the pill's room
   // between its buttons; the one real pill sits over it.
   root.querySelectorAll(".queue-slot").forEach((holder) => {
-    if (holder.dataset.html !== html) {
-      holder.dataset.html = html;
-      holder.innerHTML = html;
+    if (holder.dataset.html !== ghost) {
+      holder.dataset.html = ghost;
+      holder.innerHTML = ghost;
     }
   });
-  if (!visible) hideQueuePill(banner, onBoard);
+  // (a peek that has already slid away is simply taken down)
+  if (!visible) hideQueuePill(banner, onBoard || !!banner.classList.contains?.("peek-out"));
   else {
+    const pill = banner.firstElementChild;
+    const before = !banner.hidden && pill ? { w: pill.offsetWidth, h: pill.offsetHeight, open: pill.classList.contains("open") } : null;
     if (banner.dataset.html !== html) {
       banner.dataset.html = html;
-      banner.innerHTML = html;
+      // patched in place: only what changed is redrawn, nothing plays again
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      if (pill && template.content) morphChildren(banner, template.content);
+      else banner.innerHTML = html;
     }
     placeQueuePill(banner);
+    const now = banner.firstElementChild;
+    if (before && now && before.open !== now.classList.contains("open")) growQueuePill(now, before);
   }
   renderHomeLive();
   if (page === "room" && state?.game && board.el?.isConnected) renderChrome();
@@ -456,7 +472,19 @@ function placeQueuePill(banner, animate = true) {
   const width = banner.offsetWidth,
     height = banner.offsetHeight;
   let to;
-  if (slot) {
+  const open = banner.classList.contains("offering");
+  if (slot && open && !(page === "room" && state?.game)) {
+    // opened out with an offer, hanging from the top of its spot: a pill at the
+    // side of the screen grows out from that side, one near the middle from the centre
+    const box = layoutBox(slot);
+    const screen = document.documentElement.clientWidth;
+    const middle = box.left + box.width / 2;
+    const left =
+      middle < screen * 0.3 ? box.left + (box.width - slot.firstElementChild?.offsetWidth || 0) / 2
+      : middle > screen * 0.7 ? box.left + box.width / 2 + (slot.firstElementChild?.offsetWidth || 0) / 2 - width
+      : (screen - width) / 2;
+    to = { left: Math.max(8, Math.min(screen - width - 8, left)), top: box.top };
+  } else if (slot && !open) {
     const box = layoutBox(slot);
     to = { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2 };
   } else
@@ -464,12 +492,19 @@ function placeQueuePill(banner, animate = true) {
       left: (document.documentElement.clientWidth - width) / 2,
       top: Math.max(8, parseFloat(getComputedStyle(banner).getPropertyValue("--safe-top")) || 0),
     };
-  // start from wherever it shows now, mid-glide included
+  // start from wherever it shows on screen now, mid-glide included
   const now = banner.getBoundingClientRect();
-  const from = queuePillAt && !wasHidden ? { left: now.left + scrollX, top: now.top + scrollY } : null;
-  banner.style.left = `${to.left}px`;
-  banner.style.top = `${to.top}px`;
+  const from = queuePillAt && !wasHidden ? { left: now.left, top: now.top } : null;
   queuePillAt = to;
+  pinQueuePill(banner);
+  // where it will rest on screen: pinned, its place is already in screen terms;
+  // otherwise its page place less the scroll (comparing like with like, so a
+  // pill pinned at the top while scrolled is not taken to have moved)
+  const pinned = banner.classList.contains?.("pinned");
+  const rest = {
+    left: parseFloat(banner.style.left) - (pinned ? 0 : scrollX),
+    top: parseFloat(banner.style.top) - (pinned ? 0 : scrollY),
+  };
   if (!animate || reducedMotion.matches) return;
   // the first page after a load is simply there, pill included
   const instant = root.firstElementChild?.classList.contains("instant") && wasHidden && !shownQueuePill;
@@ -483,8 +518,8 @@ function placeQueuePill(banner, animate = true) {
     );
     return;
   }
-  const dx = from.left - to.left,
-    dy = from.top - to.top;
+  const dx = from.left - rest.left,
+    dy = from.top - rest.top;
   if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
   banner.getAnimations().forEach((animation) => animation.cancel());
   banner.animate(
@@ -493,6 +528,133 @@ function placeQueuePill(banner, animate = true) {
   );
 }
 let shownQueuePill = false;
+/*
+ * At the table, tapping the Quickplay sparkle drops the pill down from the top
+ * for five seconds; it can be swiped away sooner.
+ */
+let queuePeekUntil = 0,
+  queuePeekTimer = 0;
+const QUEUE_PEEK_MS = 5000;
+function peekQueuePill() {
+  const banner = document.getElementById("queue-banner");
+  const already = performance.now() < queuePeekUntil && !banner.hidden;
+  queuePeekUntil = performance.now() + QUEUE_PEEK_MS;
+  clearTimeout(queuePeekTimer);
+  queuePeekTimer = setTimeout(endQueuePeek, QUEUE_PEEK_MS);
+  if (already) return;
+  banner.classList.remove("peek-out");
+  renderQueueBanner();
+  if (banner.hidden || reducedMotion.matches) return;
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  banner.animate(
+    [{ transform: "translateY(calc(-100% - 2rem))" }, { transform: "none" }],
+    { duration: 420, easing: "cubic-bezier(0.3, 0.8, 0.25, 1.1)" },
+  );
+}
+/** The peek ends: the pill rises back off the top (or leaves the way it was swiped). */
+function endQueuePeek(away = "translateY(calc(-100% - 2rem))") {
+  clearTimeout(queuePeekTimer);
+  queuePeekUntil = 0;
+  const banner = document.getElementById("queue-banner");
+  if (!banner.classList.contains("peek") || banner.hidden) return renderQueueBanner();
+  const finish = () => {
+    banner.classList.add("peek-out");
+    banner.style.translate = "";
+    renderQueueBanner();
+    banner.classList.remove("peek-out");
+  };
+  if (reducedMotion.matches) return finish();
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  // `away` adds to wherever a swipe has already dragged it (its `translate`)
+  banner
+    .animate([{ transform: "none" }, { transform: away, opacity: 0 }], {
+      duration: 280,
+      easing: "cubic-bezier(0.4, 0, 0.9, 0.6)",
+      fill: "forwards",
+    })
+    .finished.then(finish, finish);
+}
+// Swiping the dropped-down pill (at the table only) sends it away early.
+(() => {
+  let drag = null;
+  document.addEventListener("pointerdown", (event) => {
+    const banner = document.getElementById("queue-banner");
+    if (!banner?.classList.contains("peek") || !banner.contains(event.target)) return;
+    drag = { x: event.clientX, y: event.clientY, id: event.pointerId, moved: false };
+  });
+  document.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const banner = document.getElementById("queue-banner");
+    const dx = event.clientX - drag.x,
+      dy = Math.min(0, event.clientY - drag.y) + Math.max(0, event.clientY - drag.y) / 4;
+    if (!drag.moved && Math.hypot(dx, dy) < 8) return;
+    drag.moved = true;
+    drag.dx = dx;
+    drag.dy = dy;
+    banner.style.translate = `${dx}px ${dy}px`;
+  });
+  const release = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    const { moved, dx = 0, dy = 0 } = drag;
+    drag = null;
+    if (!moved) return;
+    // a drag is not also a tap on the pill's buttons
+    document.addEventListener("click", (click) => click.stopPropagation(), { capture: true, once: true });
+    const banner = document.getElementById("queue-banner");
+    if (Math.abs(dx) > 60 || dy < -24) {
+      const away = Math.abs(dx) > 60 ? `translateX(${Math.sign(dx) * innerWidth}px)` : "translateY(calc(-100% - 4rem))";
+      endQueuePeek(away);
+    } else {
+      banner.animate([{ translate: banner.style.translate }, { translate: "0 0" }], { duration: 300, easing: "cubic-bezier(0.34, 1.4, 0.64, 1)" });
+      banner.style.translate = "";
+    }
+  };
+  document.addEventListener("pointerup", release);
+  document.addEventListener("pointercancel", release);
+})();
+/**
+ * The pill rests at its spot in the page; once the page scrolls that spot out of
+ * view it floats at the top of the screen instead, and settles back on the way up.
+ */
+function pinQueuePill(banner = document.getElementById("queue-banner")) {
+  if (!queuePillAt) return;
+  const edge = Math.max(8, parseFloat(getComputedStyle(banner).getPropertyValue("--safe-top")) || 0);
+  const pinned = scrollY + edge > queuePillAt.top;
+  banner.classList.toggle("pinned", pinned);
+  banner.style.left = `${queuePillAt.left - (pinned ? scrollX : 0)}px`;
+  banner.style.top = `${pinned ? edge : queuePillAt.top}px`;
+}
+window.addEventListener("scroll", () => pinQueuePill(), { passive: true });
+/** The pill opening into an offer (or closing again) grows smoothly from its old size. */
+function growQueuePill(pill, from) {
+  if (reducedMotion.matches || !pill.animate) return;
+  const to = { w: pill.offsetWidth, h: pill.offsetHeight };
+  if (Math.abs(to.w - from.w) < 1 && Math.abs(to.h - from.h) < 1) return;
+  pill.getAnimations().forEach((animation) => animation.cancel());
+  pill.style.overflow = "hidden";
+  const grow = pill.animate(
+    [
+      { width: `${from.w}px`, height: `${from.h}px` },
+      { width: `${to.w}px`, height: `${to.h}px` },
+    ],
+    { duration: 420, easing: "cubic-bezier(0.3, 0.8, 0.25, 1.05)" },
+  );
+  const done = () => (pill.style.overflow = "");
+  grow.finished.then(done, done);
+  // what is new inside fades in as the room opens up
+  const accept = pill.querySelector(":scope > .queue-accept");
+  for (const child of pill.children)
+    if (child !== accept)
+      child.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: 120, easing: "ease-out", fill: "backwards" });
+  // and once it is open, Accept slides down out from under it
+  accept?.animate(
+    [
+      { opacity: 0, transform: "translateY(-1.6rem) scale(0.92)" },
+      { opacity: 1, transform: "none" },
+    ],
+    { duration: 380, delay: 400, easing: "cubic-bezier(0.34, 1.4, 0.64, 1)", fill: "backwards" },
+  );
+}
 function hideQueuePill(banner, instantly) {
   queuePillAt = null;
   if (banner.hidden) return;
@@ -512,47 +674,30 @@ window.addEventListener("resize", () => {
   const banner = document.getElementById("queue-banner");
   if (queuePillAt) placeQueuePill(banner, false);
 });
-/**
- * A tap on a Quickplay sparkle says what it means: a little bubble beside it
- * that fades by itself (or on a second tap).
- */
-let queueTipTimer = 0;
-function showQueueTip(anchor) {
-  document.querySelectorAll(".queue-tip").forEach((tip) => tip.remove());
-  clearTimeout(queueTipTimer);
-  if (anchor.dataset.tipOpen) {
-    delete anchor.dataset.tipOpen;
-    return;
-  }
-  anchor.dataset.tipOpen = "1";
-  const tip = document.createElement("div");
-  tip.className = "queue-tip";
-  tip.setAttribute("role", "status");
-  tip.textContent = "You're in the Quickplay queue";
-  document.body.appendChild(tip);
-  const box = anchor.getBoundingClientRect();
-  const width = tip.offsetWidth;
-  // above the sparkle, nudged to stay on screen; the arrow still points at it
-  const centre = box.left + box.width / 2;
-  const left = Math.max(8, Math.min(innerWidth - width - 8, centre - width / 2));
-  tip.style.left = `${left + scrollX}px`;
-  tip.style.top = `${box.top + scrollY - tip.offsetHeight - 10}px`;
-  tip.style.setProperty("--tip-x", `${centre - left}px`);
-  if (box.top - tip.offsetHeight - 10 < 4) {
-    tip.style.top = `${box.bottom + scrollY + 10}px`;
-    tip.classList.add("below");
-  }
-  queueTipTimer = setTimeout(() => {
-    delete anchor.dataset.tipOpen;
-    tip.classList.add("out");
-    setTimeout(() => tip.remove(), 250);
-  }, 2600);
-}
 /** The Quickplay pill: its status (tap to see an offer) and a Leave sticker. */
-function queuePillHtml(queue) {
+/**
+ * The Quickplay pill. Waiting, it says so beside a Leave sticker. With a match
+ * found it opens out into the offer: who and the full match style beside Leave,
+ * then a Decline sticker and Accept (declining keeps you in the queue). Both
+ * states share one root element, so the pill can grow from one into the other.
+ * `compact` is the top bar's invisible copy, which only keeps the closed pill's room.
+ */
+function queuePillHtml(queue, compact = false) {
   const offer = queue.status === "offer";
-  const status = offer ? (queue.accepted ? "Waiting…" : "Match found!") : "In queue";
-  return `<div class="queue-pill${offer ? " offer" : ""}"><button type="button" class="queue-info" ${offer ? "data-queue-view" : "data-queue-tip"} aria-label="Quickplay: ${status}"><span class="queue-text"><b>Quickplay</b><small>${status}</small></span></button><button type="button" class="act side-act queue-leave" data-queue-leave aria-label="Leave the Quickplay queue"><span class="act-ico">${icon("rectangle.portrait.and.arrow.right", 24, { sw: 3.4 })}</span><span class="side-label">Leave</span></button></div>`;
+  const leave = `<button type="button" class="act side-act queue-leave" data-queue-leave aria-label="Leave the Quickplay queue"><span class="act-ico">${icon("rectangle.portrait.and.arrow.right", 24, { sw: 3.4 })}</span><span class="side-label">Leave</span></button>`;
+  if (offer && !compact) {
+    const style = `${e(matchLength(queue.lobby || { best_of: 5, series_mode: "points" }))}${queue.lobby?.house_rules ? " · House rules" : ""}`;
+    // Decline takes Leave's place (and keeps you in the queue); Accept hangs below the pill
+    const decline = `<button type="button" class="act side-act queue-leave queue-decline" data-queue-reply="decline" aria-label="Decline this match and keep looking"><span class="act-ico">${icon("xmark.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Decline</span></button>`;
+    // a sparkle either side of the words, the second one mirrored
+    const sparkle = (mirror) => icon("sparkles", 24, { idle: false, sw: 3.4, cls: mirror ? "mirrored" : "" });
+    const accept = queue.accepted
+      ? `<button type="button" class="btn c-p3 queue-accept" disabled>${sparkle(false)}<span>Waiting for ${e(queue.opponent)}…</span>${sparkle(true)}</button>`
+      : `<button type="button" class="btn c-p3 queue-accept" data-queue-reply="accept">${sparkle(false)}<span>${padTag("y")}Accept</span>${sparkle(true)}</button>`;
+    return `<div class="queue-pill offer open" role="dialog" aria-label="Classic match found"><div class="queue-offer-row"><span class="queue-text"><b>Match found!</b><small>vs ${e(queue.opponent)}<br>${style}</small></span>${decline}</div>${accept}</div>`;
+  }
+  const status = offer ? "Match found!" : "In queue";
+  return `<div class="queue-pill${offer ? " offer" : ""}"><span class="queue-info" role="status" aria-label="Quickplay: ${status}"><span class="queue-text"><b>Quickplay</b><small>${status}</small></span></span>${leave}</div>`;
 }
 async function joinQueue() {
   saveName(name());
@@ -561,7 +706,6 @@ async function joinQueue() {
     avatar: session.avatar,
   });
   hiddenQueueOffer = null;
-  toast("You're in the Quickplay queue. Practice while you wait!");
   renderQueueBanner();
   renderSocial();
 }
@@ -600,17 +744,8 @@ function rulesSummary(rules) {
 }
 function renderSocial() {
   const dialog = document.getElementById("social-dialog");
-  const offer = presenceState.queue;
-  if (offer?.status === "offer" && hiddenQueueOffer !== offer.id) {
-    socialMode = "queue";
-    const signature = JSON.stringify(offer);
-    if (signature !== socialSignature) {
-      socialSignature = signature;
-      dialog.innerHTML = `<h2>${tilted("sparkles", 30)} Classic match</h2><p>Your opponent: <strong>${e(offer.opponent)}</strong></p><div class="meta" style="margin:1rem 0"><span class="pill c-p1">5 games · total pts</span>${houseBadge(offer.lobby)}</div><p class="hint">Both players must accept within 60 seconds. An unfinished practice game won't count.</p><details><summary>Rules in play</summary><p>${e(rulesSummary(offer.lobby.rules))}</p></details><div class="dialog-actions"><button type="button" class="btn c-p3" data-queue-reply="accept" ${offer.accepted ? "disabled" : ""}>${padTag("y")}${offer.accepted ? "Waiting…" : "Accept"}</button><button type="button" class="btn c-p2" data-queue-reply="decline">${padTag("x")}Decline</button>${offer.accepted ? `<button type="button" class="btn c-fw" data-queue-hide>${padTag("b")}Keep playing</button>` : ""}</div>`;
-    }
-    if (!dialog.open) dialog.showModal();
-    return;
-  }
+  // a match offer opens out of the Quickplay pill (see queuePillHtml), not here
+  if (socialMode === "queue") closeSocial();
   if (socialMode === "players" && state?.status !== "waiting") closeSocial();
   const invitation = session.room_id
     ? null
@@ -707,7 +842,7 @@ function patchChip() {
     return "";
   }
   if (!session?.patch || seen === session.patch) return "";
-  return `<button type="button" class="chip patch-chip c-p4" data-nav="patches">${icon("sparkles", 20, { idle: false })}<span>Updated to ${e(session.patch.replace(/\.0$/, ""))}: see what's new</span>${glyph("chevron.right", 12)}</button>`;
+  return `<button type="button" class="chip patch-chip c-p4" data-nav="patches">${icon("newspaper.fill", 20, { idle: false })}<span>Updated to ${e(session.patch.replace(/\.0$/, ""))}: see what's new</span>${glyph("chevron.right", 12)}</button>`;
 }
 function home() {
   leaveAfterSignIn = null;
@@ -1217,10 +1352,12 @@ function leavePrompt(leaving) {
       : leaving.rated
         ? "This ends the series early. Completed games and their Elo changes are kept."
         : "Your game and streak will be saved to your account so you can resume later.";
-  // a guest leaving Practice: Leave as a small sticker on the left, Sign in as the big button
+  // Leave is always the small stacked sticker on the left; the wide button beside
+  // it is Sign in (a guest leaving Practice) or Keep playing
+  const leaveSticker = `<button type="button" class="close-btn c-p2" data-leave-choice="leave">${icon("rectangle.portrait.and.arrow.right", 30)}<span>${padTag("x")}Leave</span></button>`;
   const actions = guestPractice
-    ? `<div class="dialog-actions signin-actions"><button type="button" class="close-btn c-p2" data-leave-choice="leave">${icon("rectangle.portrait.and.arrow.right", 30)}<span>${padTag("x")}Leave</span></button><button type="button" class="btn c-p3 grow" data-leave-choice="signin">${padTag("y")}Sign in</button></div>`
-    : `<div class="dialog-actions"><button type="button" class="btn c-p3" data-leave-choice="leave">${padTag("x")}Leave table</button><button type="button" class="btn c-fw" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
+    ? `<div class="dialog-actions signin-actions">${leaveSticker}<button type="button" class="btn c-p3 grow" data-leave-choice="signin">${tilted("person.crop.circle.fill", 26)}<span>${padTag("y")}Sign in</span></button></div>`
+    : `<div class="dialog-actions signin-actions">${leaveSticker}<button type="button" class="btn c-fw grow" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
   // the sign-in version is dismissed (to keep playing) by an x in its top right corner
   const dismiss = guestPractice ? `<button type="button" class="dialog-x" data-leave-choice="stay" aria-label="Keep playing">${icon("xmark.circle.fill", 26)}</button>` : "";
   dialog.innerHTML = `${dismiss}<h2 id="leave-title">${title}</h2><p id="leave-description">${description}</p>${actions}`;
@@ -1947,7 +2084,8 @@ const RULE_EXAMPLES = {
   roman_fives: [["8 + 4 + (-2) = 10 base points: final score divided by 2", ["8H",null,"2S",null,"4D",null]], ["Inverted V: 5 + 4 + A = 10", [null,"4S",null,"5D",null,"AH"]]],
   beggars: [["Your 10 is the unique highest visible value. Guess the chosen hidden card's rank before it flips", ["10H",null,null,null,null,null], ["3H",null,null,null,null,null], "Opponent: a correct guess trades your 10 for their lowest visible card after the reveal"]],
   four_kind: [["Four visible 4s may be arranged into two columns", ["4H","4S",null,"4D","4C",null]]],
-  poisoned_card: [["First player to reveal all six during play: +2 before divisions", ["AH","3S","5D","7C","9H","KC"]]],
+  poisoned_card: [["First player to reveal all six during play: +1 before divisions", ["AH","3S","5D","7C","9H","KC"]]],
+  crazy_eights: [["Three 8s in a row: final score divided by 8", ["8H","8S","8D",null,null,null]]],
   suited_rows: [["Red row: middle 4 adds +4 to every opponent", ["AH","4H","8H",null,null,null]], ["Black row: middle 4 subtracts 4 from you", ["AS","4S","8S",null,null,null]]],
   all_in_color: [["All six red: every opponent's final score times 2", ["AH","3D","5H","7D","9H","KD"]], ["All six black: your final score divided by 2", ["AS","3C","5S","7C","9S","KC"]]],
 };
@@ -2317,12 +2455,8 @@ document.addEventListener("click", async (event) => {
       hiddenQueueOffer = presenceState.queue.id;
       return closeSocial();
     }
-    if ("queueTip" in data) return showQueueTip(button);
-    if ("queueView" in data) {
-      hiddenQueueOffer = null;
-      socialSignature = "";
-      return renderSocial();
-    }
+    if ("queuePeek" in data) return peekQueuePill();
+    if ("queueView" in data) return renderQueueBanner(); // the offer is in the pill
     if ("queueLeave" in data || data.queueReply) {
       button.disabled = true;
       try {
@@ -2683,7 +2817,14 @@ function bootData() {
         session.avatar = saved;
     } catch {}
     const firstPoll = pollPresence();
-    setInterval(pollPresence, 5000);
+    // while in the queue the server is asked far more often, so a match shows at once
+    let lastPoll = performance.now();
+    setInterval(() => {
+      const queued = ["waiting", "offer"].includes(presenceState.queue?.status);
+      if (performance.now() - lastPoll < (queued ? 1500 : 5000) - 50) return;
+      lastPoll = performance.now();
+      pollPresence();
+    }, 500);
     try {
       await route();
     } catch (error) {

@@ -119,7 +119,7 @@ Four visible cards of one rank may immediately be moved into any two columns, or
 ### Poisoned Card
 <!-- rule: poisoned_card -->
 
-The first player to reveal all six cards adds 2 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
+The first player to reveal all six cards adds 1 to their score before divisions. Apply once, even if bonus swaps later hide a card. Final scoring reveals do not trigger it.
 
 ### Suited rows
 <!-- rule: suited_rows -->
@@ -131,12 +131,17 @@ A row of three cards of one suit uses the middle card's base Golf points: red ad
 
 Six red cards multiply every opponent's final score by 2. Six black cards divide your final score by 2. Check the final hand; apply once per player, after additions and before rounding up once.
 
+### Crazy 8s
+<!-- rule: crazy_eights -->
+
+Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.
+
 ## Shared conventions
 
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
 - **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
-- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, and All in black divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, All in black, and Crazy 8s divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
 - The ripped 5 is the first uncancelled 5 (other than the 5 of diamonds) from left to right. The 5 of diamonds rips one even when it is already in a column pair; no other card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.

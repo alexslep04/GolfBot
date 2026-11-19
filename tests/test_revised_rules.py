@@ -73,7 +73,7 @@ class RevisedRulesTests(unittest.TestCase):
         game.phase = 'choose'
         game.reveal(5)
         self.assertEqual(game.finisher, 0)
-        self.assertEqual(game.score(0), 10)  # (18 + 2) / 2.
+        self.assertEqual(game.score(0), 10)  # (18 + 1) / 2, rounded up.
         game.end_turn()
         game.draw()
         game.discard()
@@ -81,7 +81,7 @@ class RevisedRulesTests(unittest.TestCase):
         self.assertEqual(game.finisher, 0)
         self.assertEqual(game.score(1), 10)  # Final scoring reveals do not poison player 1.
         self.assertEqual(visible_effect_total(game.players[0], game.rules, poisoned=True), 10)
-        self.assertIn('Poisoned Card: +2', active_rule_effects(game.players[0], game.rules, poisoned=True))
+        self.assertIn('Poisoned Card: +1', active_rule_effects(game.players[0], game.rules, poisoned=True))
 
     def test_bonus_finishing_opponent_assigns_poison_once_and_keeps_it(self):
         game = GolfGame(rules=Rules(poisoned_card=True))
@@ -97,8 +97,8 @@ class RevisedRulesTests(unittest.TestCase):
         self.assertEqual(game.finisher, 1)
         poisoned = game.score(1)
         game.rules.poisoned_card = False
-        self.assertEqual(poisoned - game.score(1), 2)
-        self.assertNotIn('Poisoned Card: +2', active_rule_effects(game.players[1], game.rules, poisoned=True))
+        self.assertEqual(poisoned - game.score(1), 1)
+        self.assertNotIn('Poisoned Card: +1', active_rule_effects(game.players[1], game.rules, poisoned=True))
 
     def test_live_totals_agree_with_scores_when_all_cards_known(self):
         for seat in (0, 1):
@@ -112,3 +112,26 @@ class RevisedRulesTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CrazyEightsTests(unittest.TestCase):
+    def test_a_row_of_three_eights_divides_the_final_score_by_eight(self):
+        game = GolfGame(rules=Rules(crazy_eights=True))
+        game.players[0] = hand([8, 8, 8, 10, 4, 12])  # 3 x 8 + 10 + 4 + 10 = 48
+        self.assertEqual(game.score(0), 6)  # 48 / 8
+        self.assertIn('crazy_eights', scoring_rule_keys(game.players[0], game.rules))
+        self.assertIn('Crazy 8s /8', active_rule_effects(game.players[0], game.rules))
+        # off, or with one 8 hidden, nothing divides
+        self.assertEqual(score_adjustments(game.players[0], Rules())[1], 1)
+        game.players[0][1].visible = False
+        self.assertNotIn('crazy_eights', scoring_rule_keys(game.players[0], game.rules))
+
+    def test_two_rows_of_eights_still_divide_once(self):
+        game = GolfGame(rules=Rules(crazy_eights=True), multiplayer=True, player_count=3)
+        game.players[0] = hand([8, 8, 8, 8, 8, 8])  # every column a pair: 0
+        game.players[0][0] = Slot(Card(8, 'S'), True)
+        self.assertEqual(score_adjustments(game.players[0], game.rules)[1], 8)
+
+    def test_crazy_eights_is_a_custom_rule_not_in_house_rules(self):
+        from match_settings import house_rules
+        self.assertFalse(house_rules()['crazy_eights'])

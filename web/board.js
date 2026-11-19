@@ -31,6 +31,7 @@ const RULE_ICON = {
   poisoned_card: "flag.pattern.checkered",
   suited_rows: "rectangle.split.1x2.fill",
   all_in_color: "circle.lefthalf.filled",
+  crazy_eights: "8.circle.fill",
 };
 // Rules with more than one way to trigger get a sticker per variant, drawn from
 // one visual family so they read as siblings: [symbol, what it means].
@@ -75,6 +76,7 @@ const EFFECT_RULE = [
   [/uited row/, "suited_rows"],
   [/All in/, "all_in_color"],
   [/Poisoned/, "poisoned_card"],
+  [/Crazy 8s/, "crazy_eights"],
   [/King-Queen/, "king_queen"],
 ];
 const HAND_TILT = [
@@ -780,8 +782,8 @@ function scoreDigits(value, side) {
  */
 /**
  * An effect line split into the rule and what it does to the score, so the
- * maths can sit in the right-hand column: "Poisoned Card: +2" and "Roman 5s /2"
- * become "Poisoned Card" | "+2" and "Roman 5s" | "/2".
+ * maths can sit in the right-hand column: "Poisoned Card: +1" and "Roman 5s /2"
+ * become "Poisoned Card" | "+1" and "Roman 5s" | "/2".
  */
 function effectParts(effect) {
   const colon = effect.indexOf(": ");
@@ -1196,7 +1198,7 @@ function renderChrome() {
     `${queue?.status}`,
     () =>
       queue && ["waiting", "offer"].includes(queue.status)
-        ? `<button type="button" class="icon-btn queue" ${queue.status === "offer" ? "data-queue-view" : "data-queue-tip"} aria-label="Quickplay queue">${icon("sparkles", 22)}</button>`
+        ? `<button type="button" class="icon-btn queue" ${queue.status === "offer" ? "data-queue-view" : "data-queue-peek"} aria-label="Show the Quickplay queue">${icon("sparkles", 22)}</button>`
         : "",
   );
   const bar = board.el.querySelector("[data-actionbar]");
@@ -1396,7 +1398,7 @@ function evalChart() {
     .join("; ");
   return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${arrows}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg>${tags}<div class="eval-tip" hidden></div></div></figure>`;
 }
-const RESULTS_DELAY = 2000; // ms between a game's last move and its results
+const RESULTS_DELAY = 750; // ms between a game's last move and its results
 /** The big result word: sticker letters that celebrate, or droop. */
 function resultTitle(mood, sentence, sub) {
   const word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood];
@@ -1474,8 +1476,8 @@ function renderSummary() {
     patch("summary", holder, "", "");
     return;
   }
-  // A game that ends while you watch leaves its last move on the table for two
-  // seconds before the results come up (arriving at a finished game, they show at once).
+  // A game that ends while you watch leaves its last move on the table for a
+  // moment before the results come up (arriving at a finished game, they show at once).
   const holdKey = `${state.id}|${state.history.length}`;
   if (board.summaryHold?.key !== holdKey)
     board.summaryHold = { key: holdKey, until: board.sawPlay && state.status !== "closed" ? performance.now() + RESULTS_DELAY : 0 };
