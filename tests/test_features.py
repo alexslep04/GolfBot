@@ -339,6 +339,24 @@ class FeatureTests(unittest.TestCase):
         game.reveal(4)
         self.assertEqual(game.phase, "revealed")
 
+    def test_beggars_at_a_big_table_only_the_next_player_guesses(self):
+        def table(highest):
+            game = GolfGame(seed=5, rules=Rules(beggars=True), multiplayer=True, player_count=3)
+            for player in range(3):
+                game.players[player] = [Slot(Card(2, "S"), True)] + [Slot(Card(4, "D")) for _ in range(5)]
+            game.players[highest][0] = Slot(Card(12, "H"), True)
+            game.phase, game.current = "choose", 0
+            return game
+        # player 1 comes after player 0, so their Queen earns the guess
+        game = table(1)
+        game.reveal(3)
+        self.assertEqual((game.phase, game.decision_player), ("guess", 1))
+        # player 2 holds the Queen but is not next: the card just turns over
+        game = table(2)
+        game.reveal(3)
+        self.assertEqual(game.phase, "revealed")
+        self.assertTrue(game.players[0][3].visible)
+
     def test_beggars_draw_then_reveal_preserves_held_card(self):
         game = self.setup_beggars()
         # Reset only the pending reveal to exercise the draw-first route.

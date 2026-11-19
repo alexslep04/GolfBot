@@ -15,7 +15,7 @@ const MOTION_SPEC = {
   lift: ["--lift", "", 0, 300, 30, 0.01],
   rx: ["--rx", "deg", 0, 260, 24, 0.05],
   ry: ["--ry", "deg", 0, 260, 24, 0.05],
-  face: ["--face", "deg", null, 230, 19, 0.4],
+  face: ["--face", "deg", null, 340, 31, 0.4], // nearly critical: one quick, smooth turn, the faintest settle
 };
 const motions = new Map();
 let motionFrame = 0,
@@ -193,13 +193,14 @@ function poseOf(slot) {
  */
 function flipSlot(slot, faceUp, delay = 0, from = faceUp ? 180 : 0) {
   const motion = motionFor(slot);
-  motion.jump({ face: from });
+  // a card already turning keeps its momentum rather than starting over
+  if (motion.values.face?.value !== from) motion.jump({ face: from });
   slot.classList.toggle("is-face", faceUp);
   const run = () => {
     if (!slot.isConnected) return;
     motion.to({ face: faceUp ? 0 : 180, lift: 1, scale: 1.1 });
-    motion.kick({ scale: 2.2, lean: (Math.random() - 0.5) * 120 });
-    setTimeout(() => motion.to({ lift: 0, scale: 1 }), 230);
+    motion.kick({ scale: 2.2, lean: (Math.random() - 0.5) * 70 });
+    setTimeout(() => motion.to({ lift: 0, scale: 1 }), 170);
   };
   if (delay) setTimeout(run, delay);
   else run();

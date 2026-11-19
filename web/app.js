@@ -884,6 +884,7 @@ function prefsHtml() {
   const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
   const rows = [
     row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
+    row("contrastCards", "suit.diamond.fill", "High contrast cards", onOff(prefs.contrastCards), !!prefs.contrastCards),
     row("autoQueue", "sparkles", "Join Quickplay on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
     row("turnAlerts", "bell.fill", "Turn notifications", onOff(prefs.turnAlerts), prefs.turnAlerts),
@@ -1420,7 +1421,8 @@ function leavePrompt(leaving) {
         : "Your game and streak will be saved to your account so you can resume later.";
   // Leave is always the small stacked sticker on the left; the wide button beside
   // it is Sign in (a guest leaving Practice) or Keep playing
-  const leaveSticker = `<button type="button" class="close-btn c-p2" data-leave-choice="leave">${icon("rectangle.portrait.and.arrow.right", 30)}<span>${padTag("x")}Leave</span></button>`;
+  // (blue when signing in is on offer, red when leaving is the only way out)
+  const leaveSticker = `<button type="button" class="close-btn ${guestPractice ? "c-p1" : "c-p2"}" data-leave-choice="leave">${icon("rectangle.portrait.and.arrow.right", 30)}<span>${padTag("x")}Leave</span></button>`;
   const actions = guestPractice
     ? `<div class="dialog-actions signin-actions">${leaveSticker}<button type="button" class="btn c-p3 grow" data-leave-choice="signin">${tilted("person.crop.circle.fill", 26)}<span>${padTag("y")}Sign in</span></button></div>`
     : `<div class="dialog-actions signin-actions">${leaveSticker}<button type="button" class="btn c-fw grow" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
@@ -2449,7 +2451,13 @@ document.addEventListener("click", async (event) => {
   if (event.target === sheetRoot) return closeSheet();
   // and tapping the dimmed table around the results sets them aside to look
   // at the table (the Results button brings them back)
-  if (event.target.classList?.contains("summary-scrim") && !board.summaryHidden) {
+  // (the results float over the table, so that is any tap that misses their
+  // panel, graph, emotes and buttons, not only one on the scrim itself)
+  const onTable =
+    event.target.classList?.contains("summary-scrim") ||
+    (event.target.closest?.(".summary.floating") &&
+      !event.target.closest(".summary-panel, .eval-chart, .summary-emote-anchor, button"));
+  if (onTable && !board.summaryHidden) {
     board.summaryHidden = true;
     return renderSummary();
   }

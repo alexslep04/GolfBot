@@ -98,6 +98,7 @@ const board = {
   hover: null,
   lastTap: null,
   primed: new Map(), // cards already turning while the server is asked to flip them
+  guessHeld: null, // the card just flipped, held up while an opponent guesses at it
   queuedFlip: null, // a flip asked for while another move was still on its way
   pendingDrop: null,
   staged: null, // a move waiting for the Confirm button
@@ -348,7 +349,7 @@ function faceHtml(card) {
     return `<span class="face front"></span><span class="face back"></span>`;
   const red = card.suit === "H" || card.suit === "D";
   const corner = `<span class="corner"><b>${e(card.label)}</b>${icon(SUIT_ICON[card.suit], 16, { idle: false, flat: true, sw: 2.4 })}</span>`;
-  return `<span class="face front${red ? " red" : ""}">${corner}${corner}</span><span class="face back"></span>`;
+  return `<span class="face front${red ? " red" : ""} suit-${card.suit}">${corner}${corner}</span><span class="face back"></span>`;
 }
 function slotHtml(ref, tilt, extra = "") {
   return `<button type="button" class="slot ${extra}" data-ref='${e(JSON.stringify(ref))}' style="--rot:${tilt}deg"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(null)}</span><span class="lock">${icon("lock.fill", 28, { idle: false })}</span></span><span class="move-label"></span></button>`;
@@ -452,6 +453,8 @@ function mountBoard() {
   board.drag = null;
   board.pendingDrop = null;
   board.primed = new Map();
+  board.guessHeld = null;
+  board.guessSeen = undefined;
   board.queuedFlip = null;
   board.staged = null;
   board.carry = null;
@@ -570,6 +573,37 @@ function renderBoard() {
   renderChrome();
   paintSelection();
   drainFlip();
+  settlePrimed();
+  reportGuess();
+}
+/** An info card for each Beggars guess someone else makes: the rank they called, and what the card was. */
+function reportGuess() {
+  const guess = state.game.last_guess;
+  const key = guess ? `${state.id}|${state.round}|${guess.count}` : "";
+  const seen = board.guessSeen;
+  board.guessSeen = key;
+  // arriving at a table, a guess made before you got here is old news
+  if (seen === undefined || !guess || key === seen || guess.player === state.viewer) return;
+  const named = (rank) => {
+    const name = { 1: "Ace", 11: "Jack", 12: "Queen", 13: "King" }[rank] || String(rank);
+    return `${[1, 8].includes(rank) ? "an" : "a"} ${name}`;
+  };
+  const who = state.names[guess.player];
+  const whose = guess.owner === state.viewer ? "your card" : `${state.names[guess.owner]}'s card`;
+  toast(
+    guess.rank === null
+      ? `Beggars: ${who} passed on guessing ${whose}.`
+      : guess.correct
+        ? `Beggars: ${who} guessed ${named(guess.rank)} for ${whose}, and got it right!`
+        : `Beggars: ${who} guessed ${named(guess.rank)} for ${whose}. It was ${named(guess.card)}.`,
+  );
+}
+/** Lay down a card held up for a Beggars guess if the guess ends without turning it (the table moved on, say). */
+function settlePrimed() {
+  const ref = board.guessHeld;
+  if (!ref || busy || state.game.phase === "guess") return;
+  board.guessHeld = null;
+  unprime(ref); // nothing to do once it has turned over
 }
 
 function syncCards(prev, view) {
@@ -884,10 +918,25 @@ function myTurn() {
     ? g.legal.flip.length > 0
     : g.decision_player === state.viewer;
 }
+/**
+ * Whose turn it is. Under Beggars Will be Choosers, flipping a card can hand
+ * one decision (the guess at that card, then any trade it wins) to another
+ * player, but the turn stays with the player who flipped it.
+ */
+function turnPlayer() {
+  const g = state.game;
+  return ["guess", "guess_trade"].includes(g.phase) ? g.current : g.decision_player;
+}
+/** True while it is this player's turn, even while an opponent guesses at their card. */
+function ownTurn() {
+  const g = state.game;
+  if (["guess", "guess_trade"].includes(g?.phase)) return state.status === "playing" && g.current === state.viewer;
+  return myTurn();
+}
 /** True while the table is waiting on this opponent (opening flips are everyone's at once). */
 function theirTurn(player) {
   const g = state.game;
-  return state.status === "playing" && !["setup", "over"].includes(g.phase) && g.decision_player === player;
+  return state.status === "playing" && !["setup", "over"].includes(g.phase) && turnPlayer() === player;
 }
 /**
  * At tables of three or more, the player whose turn comes after the one in
@@ -934,11 +983,13 @@ let lastTurnBuzz = "";
 function renderTags() {
   renderStreak();
   const g = state.game;
-  const turn = myTurn();
+  const turn = ownTurn();
   // a buzz (and a controller rumble) once for each turn that comes to you,
-  // including the first one of a game or the one waiting when the table opens
-  const turnKey = turn ? `${state.id}|${state.round}|${g.turns}|${g.phase === "setup"}` : "";
-  if (turn && turnKey !== lastTurnBuzz) {
+  // including the first one of a game or the one waiting when the table opens,
+  // and once when an opponent's flip asks you for a Beggars guess
+  const guessing = !turn && myTurn();
+  const turnKey = turn || guessing ? `${state.id}|${state.round}|${g.turns}|${g.phase === "setup"}|${guessing}` : "";
+  if (turnKey && turnKey !== lastTurnBuzz) {
     haptic("turn");
     // with turn notifications on, a phone also gets a short notification, which buzzes
     if (typeof buzzTurnNotification === "function" && document.visibilityState === "visible") buzzTurnNotification();
@@ -1079,7 +1130,7 @@ function promptText() {
   const [text, side] = promptFor();
   // with tooltips hidden, your own prompts go; whose turn it is stays
   if (prefs.hideTips && side === "me" && state.status === "playing")
-    return [state.game.final_turn && myTurn() ? "Final turn" : null, "me"];
+    return [state.game.final_turn && ownTurn() ? "Final turn" : null, "me"];
   return [text, side];
 }
 function promptFor() {
@@ -1092,6 +1143,15 @@ function promptFor() {
     return g.legal.flip.length
       ? [`Double-tap ${2 - g.players[me].filter((s) => s.visible).length === 1 ? "one more card" : "two cards"} to flip`, "me"]
       : ["Waiting for opening flips…", "opp"];
+  // an opponent guessing at a card just flipped: still that player's turn
+  if (["guess", "guess_trade"].includes(g.phase) && g.decision_player !== me) {
+    const guesser = state.names[g.decision_player];
+    const whose = g.current === me ? "your" : `${state.names[g.current]}'s`;
+    return [
+      final + (g.phase === "guess" ? `${guesser} is guessing ${whose} card…` : `${guesser} guessed right! Trading cards…`),
+      g.current === me ? "me" : "opp",
+    ];
+  }
   if (g.decision_player !== me)
     return [`${final}${state.names[g.decision_player]}'s turn`, "opp"];
   return [
@@ -1228,7 +1288,7 @@ function renderChrome() {
   bar.querySelectorAll("[data-action]").forEach((button) => {
     button.disabled = !actionAllowed(button.dataset.action);
   });
-  bar.classList.toggle("my-turn", myTurn()); // it pulses along with your tags
+  bar.classList.toggle("my-turn", ownTurn()); // it pulses along with your tags
   renderSummary();
   renderEmotes(); // after the results, whose tiles the reactions sit on
   renderModal();
@@ -1540,9 +1600,12 @@ function renderSummary() {
     const mood = verdict === null || verdict === undefined ? "draw" : verdict === viewer ? "win" : "lose";
     const sub =
       mood === "lose" ? title : mood === "win" ? (finished ? "The series is yours" : "Lowest score this game") : finished ? "The series is tied" : "Nobody takes this game";
-    // one tile per player: this game's points, the series so far, and whether they're ready
+    // one tile per player: this game's points, the series so far, and whether
+    // they're ready; lowest points (the best) on the left, ties by seat
     const tiles = state.names
-      .map((name, p) => {
+      .map((name, p) => [name, p])
+      .sort(([, a], [, b]) => (result ? result.scores[a] - result.scores[b] : 0) || a - b)
+      .map(([name, p]) => {
         const ready = !!state.ready[p];
         const crown = finished ? state.champion === p : result?.winner === p;
         const status = between
@@ -1551,19 +1614,22 @@ function renderSummary() {
         return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
       })
       .join("");
-    // Quit, the main move and View board: three sticker icons, each with its
-    // label underneath, spread across the panel
+    // Quit and View board: sticker icons with their labels underneath, either
+    // side of the main move
     const sticker = (attrs, color, symbol, label, extra = "", size = 30) =>
       `<button type="button" class="close-btn ${color}" ${attrs}>${icon(symbol, size)}<span>${extra}${label}</span></button>`;
     const quit = sticker("data-leave", "c-fw", "rectangle.portrait.and.arrow.right", "Quit");
     const look = sticker('data-summary-toggle aria-label="View the board"', "c-fw", "eye.fill", "View");
+    // the main move is a full button, filling the room between Quit and View
+    const wide = (attrs, symbol, label, extra = "") =>
+      `<button type="button" class="btn c-p1 summary-main" ${attrs}>${tilted(symbol, 30)}<span>${extra}${label}</span></button>`;
     const main = between
       ? state.ready[viewer]
-        ? sticker("disabled", "c-p1", "hourglass", "Waiting…")
-        : sticker('data-action="next_round"', "c-p1 main", "checkmark.circle.fill", "Ready", padTag("y"), 46)
+        ? wide("disabled", "hourglass", "Waiting…")
+        : wide('data-action="next_round"', "checkmark.circle.fill", "Ready", padTag("y"))
       : viewer === 0
-        ? sticker('data-action="rematch"', "c-p1 main", "arrow.clockwise", "Play again", padTag("y"), 46)
-        : sticker('disabled title="The host can start a rematch."', "c-p1", "hourglass", "Host's call");
+        ? wide('data-action="rematch"', "arrow.clockwise", "Play again", padTag("y"))
+        : wide('disabled title="The host can start a rematch."', "hourglass", "Host's call");
     const action = `<div class="summary-actions">${quit}${main}${look}</div>`;
     const heading = resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
@@ -1593,7 +1659,10 @@ function renderModal() {
       holder,
       `guess${target}`,
       () =>
-        `<div class="modal-shade"><section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Beggars rank guess"><h2>Beggars Will be Choosers</h2><p>Guess the hidden card in row ${Math.floor(target / 3) + 1}, column ${(target % 3) + 1}.</p><div class="ranks">${Array.from({ length: 13 }, (_, i) => `<button type="button" class="btn c-p4" data-guess="${i + 1}">${{ 1: "A", 11: "J", 12: "Q", 13: "K" }[i + 1] || i + 1}</button>`).join("")}</div><button type="button" class="btn small c-fw" data-guess="pass" style="width:100%">Pass</button></section></div>`,
+        `<div class="modal-shade"><section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Beggars rank guess"><button type="button" class="dialog-x" data-guess="pass" aria-label="Pass on the guess">${icon("xmark.circle.fill", 26)}</button><h2>Beggars Will be Choosers</h2><p>Guess the hidden card in row ${Math.floor(target / 3) + 1}, column ${(target % 3) + 1}.</p><div class="ranks">${Array.from({ length: 13 }, (_, i) => {
+          const label = { 1: "A", 11: "J", 12: "Q", 13: "K" }[i + 1] || String(i + 1);
+          return `<button type="button" class="rank-sticker" data-guess="${i + 1}" aria-label="Guess ${label}">${stickerText(label, { key: `rank:${i}` })}</button>`;
+        }).join("")}</div></section></div>`,
     );
   } else if (g.legal.keep_layout) {
     patch(
@@ -1679,11 +1748,22 @@ function flipMove(ref) {
   return sendFlip(ref);
 }
 async function sendFlip(ref) {
+  // the card keeps turning, on toward edge-on, while the server is asked what
+  // it is: the answer then carries it the rest of the way without a stop
+  const turning = board.primed.get(refKey(ref));
+  if (turning && !reducedMotion.matches) motionFor(turning).to({ face: 92 });
   // someone else acting at the same moment (opening flips are everyone's at
   // once) only changes the table's version: the flip is sent again
   const opts = { stillLegal: () => canFlip(ref) };
   const ok = await (ref[0] === "draw" ? move("draw", {}, opts) : move("flip", { index: ref[1] }, opts));
-  unprime(ref);
+  // under Beggars an opponent may guess at the card before it turns: it waits
+  // there, lifted, and finishes turning over once the guess is in
+  const g = state?.game;
+  if (ok && ref[0] === state.viewer && g?.phase === "guess" && g.guess_target === ref[1]) {
+    board.guessHeld = ref;
+    const held = board.primed.get(refKey(ref));
+    if (held) motionFor(held).to({ face: 140 }); // tipped back, its back showing, while they guess
+  } else unprime(ref);
   return ok;
 }
 function primeFlip(ref) {
@@ -1693,8 +1773,8 @@ function primeFlip(ref) {
   if (ref[0] === "draw" || reducedMotion.matches) return void motion.kick({ scale: 2.2 });
   if (slot.classList.contains("is-face") || board.primed.has(refKey(ref))) return;
   board.primed.set(refKey(ref), slot);
-  // up off the table and most of the way over, the back still showing
-  motion.to({ face: 108, lift: 1, scale: 1.1, rx: 0, ry: 0 });
+  // up off the table and starting to turn, the back still showing
+  motion.to({ face: 140, lift: 1, scale: 1.1, rx: 0, ry: 0 });
   motion.kick({ scale: 2.2 });
 }
 /** Lay a card that was turning back down (the flip was called off, or refused). */

@@ -119,6 +119,8 @@ class GolfGame:
         self.four_offered = [set() for _ in self.players]
         self.arrange_pending = None
         self.guess_pending = None
+        # the latest Beggars guess, for the table to report: who guessed what at whose card
+        self.last_guess = None
         self.message = "Select one of your cards and Flip. Reveal two to start."
         self.last_move = "Reveal two cards each to start."
 
@@ -211,7 +213,9 @@ class GolfGame:
             highest = [max((self.players[p][i].card.base_points for i in visible[p]), default=-3) for p in range(self.player_count)]
             leaders = [p for p, value in enumerate(highest) if value == max(highest)]
             other = leaders[0]
-            if len(leaders) == 1 and other != self.current and highest[other] > -3:
+            # at a table of three or more, only the next player in turn can be the one to guess
+            in_line = self.player_count <= 2 or other == self.next_player(self.current)
+            if len(leaders) == 1 and other != self.current and highest[other] > -3 and in_line:
                 self.guess_pending = {"player": other, "target": index, "phase": self.phase}
                 self.activated_rules[other].add("beggars")
                 self.phase = "guess"
@@ -275,6 +279,9 @@ class GolfGame:
         target = self.players[self.current][pending["target"]]
         correct = rank is not None and rank == target.card.rank
         target.visible = True
+        self.last_guess = {"player": pending["player"], "owner": self.current, "target": pending["target"],
+                           "rank": rank, "card": target.card.rank, "correct": correct,
+                           "count": (getattr(self, "last_guess", None) or {}).get("count", 0) + 1}
         self.flipped = pending["target"]
         self.phase = "drawn_revealed" if self.held_card else "revealed"
         self._update_combos()

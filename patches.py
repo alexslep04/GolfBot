@@ -9,6 +9,7 @@ PATCH_NOTES = [{
         "revisions": [
             "The Ripped 5: the 5 of diamonds now cancels out any other 5 in the opposite row, regardless of whether or not it is in an already canceled-out column.",
             "Poisoned Card: going out first now adds 1 point instead of 2.",
+            "Beggars Will be Choosers: at a table of three or more, only the player who comes next can guess.",
         ],
         "additions": [
             "Crazy 888! Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.",
@@ -25,6 +26,7 @@ PATCH_NOTES = [{
         "Every guest now has their own stats profile. The leaderboards show all guests together as one Guest.",
         "New stat: average time spent on move.",
         "Notifications! Get alerted when it's your turn.",
+        "High contrast cards! Turn them on in settings for orange diamonds and blue clubs.",
     ],
 }, {
     "version": "1.2.0",

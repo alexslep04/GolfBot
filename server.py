@@ -682,6 +682,7 @@ def snapshot(room, token):
         "near_rules": one_move_rules(game, viewer) if (room.score_preview or room.solo) and room.status == "playing" else [],
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
+        "last_guess": getattr(game, "last_guess", None),
         "table_refs": game.table_refs() if legal["bonus"] else [],
     }
     return state
@@ -1073,7 +1074,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def bot_loop(room):
         try:
             while True:
-                await asyncio.sleep(0.45)
+                # a Beggars guess holds up the player's own flip, so it comes quickly
+                await asyncio.sleep(0.1 if room.game and room.game.phase == "guess" else 0.45)
                 async with room.lock:
                     game = room.game
                     if room.id not in store.rooms or room.status != "playing" or (room.practice and not room.clients.get(room.seats[0])) or game.phase == "setup" or game.decision_player != 1:

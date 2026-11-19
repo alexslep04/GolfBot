@@ -114,7 +114,7 @@ A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2
 ### Beggars Will be Choosers
 <!-- rule: beggars -->
 
-The player with the highest visible card value may guess an opponent's chosen hidden card before it flips. A correct rank guess trades their highest visible card for the opponent's lowest visible card. Tied highest values give no guess; tied trade choices belong to the guesser. Locks apply.
+The player with the highest visible card value may guess an opponent's chosen hidden card before it flips. At a table of three or more, only the next player in turn may guess, and only when they hold that highest value. A correct rank guess trades their highest visible card for the opponent's lowest visible card. Tied highest values give no guess; tied trade choices belong to the guesser. Locks apply.
 
 ### 4 of a Kind
 <!-- rule: four_kind -->

@@ -135,6 +135,7 @@ const prefs = {
   autoQueue: true, // join the Quickplay queue as soon as the site opens
   turnAlerts: false, // a notification (and a buzz) when it's your turn while Golf is in the background
   theme: "golf", // the look of the whole game: see THEMES
+  contrastCards: false, // four-color suits: orange diamonds and blue clubs
 };
 // Each theme is a set of color tokens in style.css, under :root[data-theme].
 // "golf" is the original sticker look and needs no attribute.
@@ -150,6 +151,7 @@ function applyPrefs() {
   const html = document.documentElement.classList;
   html.toggle("no-haptics", !prefs.haptics);
   html.toggle("no-tips", prefs.hideTips);
+  html.toggle("contrast-cards", !!prefs.contrastCards);
   const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
   if (theme === THEMES[0]) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme[0];

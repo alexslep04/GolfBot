@@ -2023,12 +2023,15 @@ button.tag-rules:active > .tag-in {
      perspective on the slot makes Safari depth-sort the slot's layers, so the
      card, its shadow and the drop-target outline (all at the same depth)
      flicker over one another instead of keeping their stacking order. */
+  /* --face is the flip in motion (set on the slot while a card turns); at
+     rest a card lies by --rest-face. Setting --face here instead would beat
+     the slot's value and snap a card face-up without turning it over. */
   transform: perspective(60rem) rotateX(var(--rx, 0deg))
-    rotateY(calc(var(--ry, 0deg) + var(--face, 180deg)));
+    rotateY(calc(var(--ry, 0deg) + var(--face, var(--rest-face, 180deg))));
 }
 .is-face > .card > .card-flip,
 .card.is-face > .card-flip {
-  --face: 0deg;
+  --rest-face: 0deg;
 }
 .face {
   position: absolute;
@@ -2081,6 +2084,34 @@ button.tag-rules:active > .tag-in {
 }
 :root[data-theme="night"] .face.front.red {
   background-image: url(assets/card-face-red-night.png);
+}
+/* High contrast cards (Settings): four suits, four colors. Diamonds turn
+   orange and clubs blue, so no two suits share a color. */
+:root.contrast-cards .face.front.suit-D {
+  background-image: url(assets/card-face-orange.png);
+  color: #e8782a;
+  --fill: #e8782a;
+}
+:root.contrast-cards .face.front.suit-C {
+  background-image: url(assets/card-face-blue.png);
+  color: #3f7fd6;
+  --fill: #3f7fd6;
+}
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"]) .face.front.suit-D {
+  background-image: url(assets/card-face-orange-dark.png);
+  color: #f2a061;
+  --fill: #f2a061;
+}
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"]) .face.front.suit-C {
+  background-image: url(assets/card-face-blue-dark.png);
+  color: #7fb0f2;
+  --fill: #7fb0f2;
+}
+:root.contrast-cards[data-theme="night"] .face.front.suit-D {
+  background-image: url(assets/card-face-orange-night.png);
+}
+:root.contrast-cards[data-theme="night"] .face.front.suit-C {
+  background-image: url(assets/card-face-blue-night.png);
 }
 .corner {
   display: flex;
@@ -2850,11 +2881,18 @@ button.tag-rules:active > .tag-in {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   padding: 0.4rem 0.8rem 0;
 }
-/* the move that starts the next game: the biggest of the three */
-.summary-actions .close-btn.main {
-  font-size: 2rem;
+/* the move that starts the next game: a full button between Quit and View */
+.summary-actions .summary-main {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  white-space: nowrap;
+}
+.summary-actions .summary-main:disabled {
+  opacity: 0.6;
 }
 .summary-actions .close-btn:disabled {
   opacity: 0.6;
@@ -3348,6 +3386,7 @@ button.tag-rules:active > .tag-in {
   }
 }
 .modal {
+  position: relative; /* for its corner x */
   width: 100%;
   max-width: 37rem;
   box-shadow: 0.4rem 0.4rem 0 var(--shadow);
@@ -3362,7 +3401,29 @@ button.tag-rules:active > .tag-in {
   gap: 0.6rem;
   margin: 1.2rem 0;
 }
-.ranks .btn,
+/* Beggars ranks: sticker letters in the panel's accent, white-outlined, no boxes */
+.rank-sticker {
+  display: grid;
+  place-items: center;
+  min-height: 5.6rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: 700 3.8rem/1 var(--round);
+  --sw: 0.7rem;
+  /* the accent fill inside a paper outline (white on Original, the theme's paper elsewhere) */
+  --fill: var(--c);
+  --stroke: var(--paper);
+  transition: transform 0.28s var(--spring);
+}
+.rank-sticker:hover {
+  transform: scale(1.12) rotate(-3deg);
+}
+.rank-sticker:active {
+  transform: scale(0.88);
+  transition-duration: 0.08s;
+}
 .cols .btn {
   min-height: 4.8rem;
   border-radius: 1.6rem;
