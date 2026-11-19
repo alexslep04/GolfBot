@@ -722,6 +722,8 @@ p {
   height: 8.3rem;
   width: auto;
   overflow: visible;
+  /* the same rough sticker edge as the letters beside it */
+  filter: url(#texture);
 }
 .page-title {
   font: 700 2.4rem/1.1 var(--text);
@@ -2650,8 +2652,11 @@ button.tag-rules:active > .tag-in {
   font: 700 1.5rem/1 var(--text);
   white-space: nowrap;
 }
-.emote-pop button.emote-word:hover {
-  transform: scale(1.06) rotate(-2deg);
+/* (only with a real pointer: a tap would leave it stuck mid-tilt under the finger) */
+@media (hover: hover) {
+  .emote-pop button.emote-word:hover {
+    transform: scale(1.06) rotate(-2deg);
+  }
 }
 /* a text emote as it is shown: a speech-bubble sticker */
 .emote-say {

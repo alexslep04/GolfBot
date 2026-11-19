@@ -311,8 +311,11 @@ function hapticFlurry(count, gap, delay = 0) {
  */
 function inScroller(element) {
   for (let el = element.parentElement; el && el !== document.body; el = el.parentElement) {
-    const overflow = getComputedStyle(el).overflowY;
-    if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight + 1) return true;
+    const style = getComputedStyle(el);
+    const scrolls = (overflow) => overflow === "auto" || overflow === "scroll";
+    if (scrolls(style.overflowY) && el.scrollHeight > el.clientHeight + 1) return true;
+    // sideways scrollers too (the text emotes), which a switch would equally block
+    if (scrolls(style.overflowX) && el.scrollWidth > el.clientWidth + 1) return true;
     if (el.classList.contains("board")) return false; // the table never scrolls
   }
   return document.documentElement.scrollHeight > innerHeight + 1;
