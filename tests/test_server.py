@@ -60,7 +60,7 @@ class WebTests(unittest.TestCase):
         return response.json()
 
     def test_preview_scores_a_staged_swap_without_playing_it_or_using_hidden_cards(self):
-        self.start(rules={'gamblers_row': True})
+        self.start(rules={'angel_numbers': True})
         game = self.room.game
         seat = game.decision_player
         mine, theirs = (self.host, self.guest) if seat == 0 else (self.guest, self.host)
@@ -75,10 +75,10 @@ class WebTests(unittest.TestCase):
         self.assertEqual(after['effect_totals'][seat], 5)
         self.assertEqual(after['face_values'][seat], 30)
         self.assertEqual(after['modifier_counts'][seat], 1)
-        self.assertIn('Gamblers 777 /7', after['effects'][seat])
+        self.assertIn('Angel 777: /7', after['effects'][seat])
         self.assertEqual(after['effect_totals'][1 - seat], before['game']['effect_totals'][1 - seat])
         # nothing was played: the table, its version and what the rules have earned are untouched
-        self.assertEqual((self.room.version, game.gambler_earned, game.phase), (version, [False, False], 'choose'))
+        self.assertEqual((self.room.version, game.angels_earned, game.phase), (version, [set(), set()], 'choose'))
         self.assertEqual(self.state(mine)['game'], before['game'])
         # the card going out face down plays no part in it
         game.players[seat][2] = Slot(Card(1, 'H'))
@@ -252,7 +252,7 @@ class WebTests(unittest.TestCase):
             with self.subTest(ranks=ranks):
                 self.room.game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip(ranks, 'SHDCSH')]
                 public = self.state()['game']
-                self.assertIn('Roman 5s /2', public['effects'][0])
+                self.assertIn('V2 /2', public['effects'][0])
                 self.assertTrue(any(effect.startswith(f'Column {cancelled_column} pair: 0') for effect in public['effects'][0]))
                 self.assertEqual(public['effect_totals'][0], 10)
                 for rank, slot in zip(ranks, public['players'][0]):
@@ -503,6 +503,52 @@ class WebTests(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(self.room.game.current, 0)
         self.assertGreater(self.room.game.turns, 0)
+
+    def test_debug_menu_changes_a_practice_game_and_keeps_it_off_the_record(self):
+        state = self.host.post('/api/solo', json={'first': 'host', 'best_of': 3, 'practice': True}).json()
+        self.id, self.room = state['id'], self.store.rooms[state['id']]
+        url = f'/api/debug/practice/{self.id}'
+        with patch.dict('os.environ', {'GOLFBOT_DEBUG': ''}):
+            self.assertEqual(self.host.post(url, json={'op': 'end'}).status_code, 404)
+        with patch.dict('os.environ', {'GOLFBOT_DEBUG': '1'}):
+            self.assertEqual(self.outsider.post(url, json={'op': 'end'}).status_code, 403)
+            game = self.room.game
+            hidden = game.players[1][5].visible
+            self.assertEqual(self.host.post(url, json={'op': 'flip', 'ref': [1, 5]}).status_code, 200)
+            self.assertNotEqual(game.players[1][5].visible, hidden)
+            self.host.post(url, json={'op': 'set', 'ref': [0, 0], 'rank': 5, 'suit': 'D'})
+            self.assertEqual((game.players[0][0].card.rank, game.players[0][0].card.suit), (5, 'D'))
+            state = self.host.post(url, json={'op': 'end'}).json()
+        self.assertEqual(state['game']['phase'], 'over')
+        self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
+        self.assertEqual(len(self.room.history), 1)
+        self.assertEqual(self.store.history.results(), [])  # an edited game is never saved
+
+    def test_spectators_watch_any_game_send_emotes_and_follow_the_players(self):
+        state = self.host.post('/api/solo', json={'practice': True}).json()
+        room = self.store.rooms[state['id']]
+        games = self.guest.get('/api/spectate').json()
+        self.assertEqual([game['id'] for game in games], [room.id])
+        watched = self.guest.post(f'/api/spectate/{room.id}').json()
+        self.assertTrue(watched['spectator'])
+        self.assertEqual(watched['viewer'], 0)
+        legal = watched['game']['legal']
+        self.assertFalse(any(legal[key] for key in ('flip', 'swap', 'draw', 'discard', 'end_turn', 'bonus', 'guess')))
+        # a spectator can't move, but can emote, as "Spectator"
+        self.assertEqual(self.guest.post(f'/api/lobbies/{room.id}/action', json={'action': 'draw', 'version': room.version}).status_code, 403)
+        after = self.guest.post(f'/api/lobbies/{room.id}/emote', json={'emote': 'wow'}).json()
+        self.assertEqual([emote['player'] for emote in after['emotes']], ['spectator'])
+        with self.guest.websocket_connect(f'/ws/{room.id}') as socket:
+            socket.send_text('ping')
+            self.assertTrue(socket.receive_json()['spectator'])
+        # the player leaves and starts again: the spectator follows them to the new table
+        self.host.post(f'/api/lobbies/{room.id}/leave')
+        new = self.host.post('/api/solo', json={'practice': True}).json()
+        self.assertNotEqual(new['id'], room.id)
+        followed = self.guest.post('/api/spectate-follow').json()
+        self.assertEqual((followed['id'], followed['spectator']), (new['id'], True))
+        self.guest.post('/api/spectate-stop')
+        self.assertEqual(self.guest.post('/api/spectate-follow').status_code, 404)
 
     def test_solo_series_ties_next_round_champion_and_rematch(self):
         state = self.host.post('/api/solo', json={'first': 'alternate', 'best_of': 3, 'rules': {'roman_fives': True}}).json()

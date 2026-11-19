@@ -4,7 +4,8 @@ from itertools import combinations, permutations
 from collections import Counter
 from copy import copy
 import random
-from scoring import score_adjustments, column_score, opponent_adjustment, color_multiplier, scoring_rule_keys, POISON_POINTS
+from scoring import (score_adjustments, column_score, opponent_adjustment, color_multiplier, scoring_rule_keys,
+                     angel_divisor, angel_multiplier, ANGEL_RANKS, POISON_POINTS)
 
 
 @dataclass(frozen=True)
@@ -42,9 +43,7 @@ class Slot:
 @dataclass
 class Rules:
     royal_pairs: bool = False
-    devils_row: bool = False
-    gamblers_row: bool = False
-    angels_row: bool = False
+    angel_numbers: bool = False
     king_queen: bool = False
     holdem: bool = False
     v10: bool = False
@@ -56,27 +55,57 @@ class Rules:
     poisoned_card: bool = False
     suited_rows: bool = False
     all_in_color: bool = False
-    crazy_eights: bool = False
 
 
 RULE_OPTIONS = [
     ("royal_pairs", "J-J / Q-Q: bonus swap"),
-    ("devils_row", "Devils 666"),
-    ("gamblers_row", "Gamblers 777"),
-    ("crazy_eights", "Crazy 888"),
-    ("angels_row", "Angels 999"),
+    ("angel_numbers", "Angel numbers"),
     ("king_queen", "King-Queen: color scoring"),
     ("holdem", "Hold 'em"),
     ("v10", "V10 engine"),
     ("tricky_straights", "Tricky straights"),
     ("ripped_five", "The ripped 5"),
-    ("roman_fives", "Roman 5s"),
+    ("roman_fives", "V2"),
     ("beggars", "Beggars Will be Choosers"),
     ("four_kind", "4 of a Kind"),
     ("poisoned_card", "Poisoned Card"),
     ("suited_rows", "Suited rows"),
     ("all_in_color", "All in red/black"),
 ]
+
+# 666, 777, 888 and 999 were four rules before they became Angel numbers; saved
+# games, results and settings that name them read as Angel numbers.
+LEGACY_RULE_KEYS = {'devils_row': 'angel_numbers', 'gamblers_row': 'angel_numbers',
+                    'crazy_eights': 'angel_numbers', 'angels_row': 'angel_numbers'}
+
+
+def upgrade_rule_values(values):
+    """A rules dict with retired keys folded into the rule that replaced them."""
+    upgraded = {}
+    for key, value in values.items():
+        key = LEGACY_RULE_KEYS.get(key, key)
+        upgraded[key] = bool(upgraded.get(key)) or value
+    return upgraded
+
+
+def upgrade_rule_keys(keys):
+    """A list of rule keys with retired keys renamed, each kept once, in order."""
+    return list(dict.fromkeys(LEGACY_RULE_KEYS.get(key, key) for key in keys))
+
+
+def upgrade_rule_counts(counts):
+    """Per-rule counts with retired keys summed into the rule that replaced them."""
+    upgraded = {}
+    for key, value in counts.items():
+        key = LEGACY_RULE_KEYS.get(key, key)
+        upgraded[key] = upgraded.get(key, 0) + value
+    return upgraded
+
+
+def rules_from(values):
+    """Rules from a saved dict, including ones saved before a rule was retired."""
+    values = upgrade_rule_values(values)
+    return Rules(**{key: value for key, value in values.items() if key in Rules.__dataclass_fields__})
 
 
 class GolfGame:
@@ -113,9 +142,8 @@ class GolfGame:
         self.activated_rules = [set() for _ in self.players]
         self.scoring_reveal = False
         self.final_bonus_queue = []
-        self.locked_cards = set()
-        self.gambler_earned = [False] * player_count
-        self.angel_earned = [False] * player_count
+        # Angel numbers each player has earned (6, 7, 8, 9); kept if the row breaks
+        self.angels_earned = [set() for _ in self.players]
         self.four_offered = [set() for _ in self.players]
         self.arrange_pending = None
         self.guess_pending = None
@@ -128,9 +156,7 @@ class GolfGame:
         if self.phase != "setup" or key not in {key for key, _ in RULE_OPTIONS}:
             raise ValueError("Choose rules during the opening reveal, before the game starts.")
         setattr(self.rules, key, bool(enabled))
-        self.locked_cards.clear()
-        self.gambler_earned = [False] * self.player_count
-        self.angel_earned = [False] * self.player_count
+        self.angels_earned = [set() for _ in self.players]
         self.activated_rules = [set() for _ in self.players]
         self._update_combos()
 
@@ -149,7 +175,7 @@ class GolfGame:
 
     def score_divisor(self, player):
         divisor = score_adjustments(self.players[player], self.rules)[1]
-        return divisor * (7 if self.rules.gamblers_row and self.gambler_earned[player] else 1)
+        return divisor * angel_divisor(self.rules, self.angels_earned[player])
 
     def score(self, player, visible_only=False):
         total = column_score(self.players[player], self.rules, visible_only)
@@ -159,10 +185,9 @@ class GolfGame:
         if self.rules.poisoned_card and self.finisher == player:
             total += POISON_POINTS
         if not visible_only:
-            if self.rules.gamblers_row and self.gambler_earned[player]:
-                divisor *= 7
+            divisor *= angel_divisor(self.rules, self.angels_earned[player])
             for other in self.opponents(player):
-                total *= (9 if self.rules.angels_row and self.angel_earned[other] else 1)
+                total *= angel_multiplier(self.rules, self.angels_earned[other])
                 total *= color_multiplier(self.players[other], self.rules)
             total = (total + divisor - 1) // divisor
         return total
@@ -176,15 +201,10 @@ class GolfGame:
             for row in (layout[:3], layout[3:]):
                 if not all(slot.visible for slot in row):
                     continue
-                if self.rules.devils_row and all(slot.card.rank == 6 for slot in row):
-                    self.locked_cards.update(slot.card for slot in row)
-                    self.activated_rules[player].add("devils_row")
-                if self.rules.gamblers_row and all(slot.card.rank == 7 for slot in row):
-                    self.gambler_earned[player] = True
-                    self.activated_rules[player].add("gamblers_row")
-                if self.rules.angels_row and all(slot.card.rank == 9 for slot in row):
-                    self.angel_earned[player] = True
-                    self.activated_rules[player].add("angels_row")
+                rank = row[0].card.rank
+                if self.rules.angel_numbers and rank in ANGEL_RANKS and all(slot.card.rank == rank for slot in row):
+                    self.angels_earned[player].add(rank)
+                    self.activated_rules[player].add("angel_numbers")
         self._record_scoring_effects()
 
     def _mark_finish(self):
@@ -291,7 +311,7 @@ class GolfGame:
             self.phase = "guess_trade"
             self.message = "Correct guess! Select your highest and their lowest visible card; Swap."
         else:
-            self.last_move = "Beggars: passed." if rank is None else "Beggars: guess missed." if not correct else "Beggars: correct, but the trade is locked."
+            self.last_move = "Beggars: passed." if rank is None else "Beggars: guess missed." if not correct else "Beggars: correct, but there was nothing to trade."
             self._resume_guess()
 
     def guess_trade_targets(self):
@@ -304,8 +324,8 @@ class GolfGame:
             return [], []
         highest = max(self.table_slot(ref).card.base_points for ref in own)
         lowest = min(self.table_slot(ref).card.base_points for ref in other)
-        return ([ref for ref in own if self.table_slot(ref).card.base_points == highest and self.table_slot(ref).card not in self.locked_cards],
-                [ref for ref in other if self.table_slot(ref).card.base_points == lowest and self.table_slot(ref).card not in self.locked_cards])
+        return ([ref for ref in own if self.table_slot(ref).card.base_points == highest],
+                [ref for ref in other if self.table_slot(ref).card.base_points == lowest])
 
     def guess_trade(self, first, second):
         if self.phase != "guess_trade":
@@ -344,8 +364,6 @@ class GolfGame:
                     plan = [None] * 6
                     for i, slot in zip(destinations + remaining, ordered + leftover):
                         plan[i] = Slot(slot.card, slot.visible)
-                    if any(old.card in self.locked_cards and plan[i].card != old.card for i, old in enumerate(layout)):
-                        continue
                     moves = sum(old.card != plan[i].card for i, old in enumerate(layout))
                     if moves < movement:
                         best, movement = plan, moves
@@ -376,7 +394,7 @@ class GolfGame:
         if columns is not None:
             plan = self.arrangement_plan(player, pending["rank"], columns)
             if plan is None:
-                raise ValueError("This rearrangement would move a locked card.")
+                raise ValueError("Those columns can't hold the four matching cards.")
             flipped_card = self.players[self.current][self.flipped].card if self.flipped is not None else None
             self.players[player] = plan
             if player == self.current and flipped_card is not None:
@@ -422,7 +440,7 @@ class GolfGame:
             indexes = [self.flipped]
         else:
             indexes = []
-        return [i for i in indexes if self.players[self.current][i].card not in self.locked_cards]
+        return list(indexes)
 
     def swap(self, index, source=None):
         expected = "held" if self.held_card else "discard"
@@ -440,7 +458,7 @@ class GolfGame:
     def preview(self, index=None, refs=None):
         """A copy of the table as it would stand once a swap (or a table trade) is played.
 
-        Only what the face-up cards prove is worked out: combos, locks and who
+        Only what the face-up cards prove is worked out: combos and who
         has gone out. The turn does not advance and nothing hidden is turned
         over, so scoring the copy from its face-up cards gives nothing away.
         With neither argument the copy is the table as it is (a discard).
@@ -448,8 +466,7 @@ class GolfGame:
         sim = copy(self)
         sim.players = [list(layout) for layout in self.players]
         sim.draw_pile, sim.discard_pile = list(self.draw_pile), list(self.discard_pile)
-        sim.locked_cards = set(self.locked_cards)
-        sim.gambler_earned, sim.angel_earned = list(self.gambler_earned), list(self.angel_earned)
+        sim.angels_earned = [set(ranks) for ranks in self.angels_earned]
         sim.activated_rules = [set(keys) for keys in self.activated_rules]
         if refs is not None:
             first, second = refs
@@ -556,7 +573,6 @@ class GolfGame:
             self._resolve_scoring_reveal()
             return
         # Visibility follows cards into layouts. Piles use their own orientation.
-        # Bonus swaps override locks, but an already locked card retains its lock.
         self._update_combos()
         self._mark_finish()
         if self._offer_four("bonus", finish=True):
@@ -593,7 +609,7 @@ class GolfGame:
 
     def _resolve_scoring_reveal(self):
         # Reserve both players' earned swaps before either can break a pair.
-        # Only Q-Q/J-J activate here; scoring reveals do not earn 777 or Poison.
+        # Only Q-Q/J-J activate here; scoring reveals do not earn Angel numbers or Poison.
         for layout in self.players:
             for slot in layout:
                 slot.visible = True

@@ -200,10 +200,25 @@ function flipSlot(slot, faceUp, delay = 0, from = faceUp ? 180 : 0) {
     if (!slot.isConnected) return;
     motion.to({ face: faceUp ? 0 : 180, lift: 1, scale: 1.1 });
     motion.kick({ scale: 2.2, lean: (Math.random() - 0.5) * 70 });
+    if (faceUp) tearOpen(slot);
     setTimeout(() => motion.to({ lift: 0, scale: 1 }), 170);
   };
   if (delay) setTimeout(run, delay);
   else run();
+}
+
+/**
+ * The ripped 5, turned face up: its halves start pressed together and pull a
+ * little apart, as if torn just now (style.css, .tearing).
+ */
+function tearOpen(slot) {
+  const face = slot.querySelector(".face.front.ripped");
+  if (!face || reducedMotion.matches) return;
+  face.classList.remove("tearing");
+  void face.offsetWidth; // so a second flip plays it again
+  face.classList.add("tearing");
+  clearTimeout(face.tearTimer);
+  face.tearTimer = setTimeout(() => face.classList.remove("tearing"), 900);
 }
 
 /** A little squash-and-settle, for cards that land or change in place. */

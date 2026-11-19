@@ -105,17 +105,22 @@ def _played(results):
         yield match, game, [(seat, ids[seat], names[seat]) for seat in range(min(len(names), len(game.get('scores') or names)))]
 
 
-def best_pvp_streak(results):
-    """The most 1v1 games against another person a player has won in a row (a draw or loss ends it)."""
+def pvp_streaks(results):
+    """Each player's most 1v1 games against another person won in a row (a draw or loss ends it)."""
     games = sorted(((game.get('ended_at') or 0, game, seats) for match, game, seats in _played(results)
                     if not match.get('solo') and len(seats) == 2), key=lambda item: item[0])
-    current, best = {}, None
+    current, best = {}, {}
     for at, game, seats in games:
         for seat, player, name in seats:
             current[player] = current.get(player, 0) + 1 if game.get('winner') == seat else 0
-            if current[player] and (best is None or current[player] > best['streak']):
-                best = {'id': player, 'label': name, 'streak': current[player], 'at': at}
+            if current[player] and current[player] > best.get(player, {}).get('streak', 0):
+                best[player] = {'id': player, 'label': name, 'streak': current[player], 'at': at}
     return best
+
+
+def best_pvp_streak(results):
+    """The most 1v1 games against another person anyone has won in a row; the first to reach it holds it."""
+    return max(pvp_streaks(results).values(), key=lambda entry: (entry['streak'], -entry['at']), default=None)
 
 
 def most_games_today(results, now=None):
@@ -145,6 +150,19 @@ def most_modifiers_in_a_game(results):
                 best = {'id': player, 'label': name, 'count': len(keys),
                         'rules': [RULE_NAMES[key] for key in keys], 'at': game.get('ended_at')}
     return best
+
+
+HELD_RECORDS = ('highest_elo', 'pvp_streak', 'comeback', 'games_today', 'modifiers_in_game')
+
+
+def player_card(results, ratings, player):
+    """What the name-tag popup shows: a player's Elo, their best 1v1 win streak, and the records they hold."""
+    records = build_records(results, ratings)
+    rating = next((row for row in ratings if row['id'] == player), None)
+    return {'id': player, 'elo': rating['elo'] if rating else None,
+            'pvp_streak': (pvp_streaks(results).get(player) or {}).get('streak', 0),
+            'records': {key: records[key] for key in HELD_RECORDS
+                        if records.get(key) and records[key].get('id') == player}}
 
 
 def build_records(results, ratings=()):

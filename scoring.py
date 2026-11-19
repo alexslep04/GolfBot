@@ -5,6 +5,18 @@ from math import prod
 
 V_PATTERNS = ((0, 4, 2), (3, 1, 5))
 POISON_POINTS = 1
+# Angel numbers: a face-up row of three earns its rank for the rest of the game.
+ANGEL_MULTIPLIERS = (6, 8)  # every opponent's final score times the rank
+ANGEL_DIVISORS = (7, 9)     # your own final score divided by the rank
+ANGEL_RANKS = ANGEL_MULTIPLIERS + ANGEL_DIVISORS
+
+
+def angel_divisor(rules, earned):
+    return prod(rank for rank in ANGEL_DIVISORS if rank in earned) if rules.angel_numbers else 1
+
+
+def angel_multiplier(rules, earned):
+    return prod(rank for rank in ANGEL_MULTIPLIERS if rank in earned) if rules.angel_numbers else 1
 
 
 def v_pattern_effects(layout, rules, visible_only=False):
@@ -14,18 +26,10 @@ def v_pattern_effects(layout, rules, visible_only=False):
              if not visible_only or all(slot.visible for slot in pattern)]
     effects = []
     if rules.roman_fives and any(sum(card.base_points for card in pattern) == 10 for pattern in cards):
-        effects.append(("Roman 5s", 2))
+        effects.append(("V2", 2))
     if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in cards):
         effects.append(("V10 engine", 5))
     return effects
-
-
-def crazy_rows(layout, rules, visible_only=False):
-    """Rows (1 = top) of three 8s, for Crazy 888."""
-    if not rules.crazy_eights:
-        return []
-    return [row + 1 for row in range(2)
-            if all((layout[i].visible or not visible_only) and layout[i].card.rank == 8 for i in range(row * 3, row * 3 + 3))]
 
 
 def holdem_categories(cards):
@@ -115,8 +119,6 @@ def score_adjustments(layout, rules, visible_only=False):
         divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules))
         if all_color(layout, rules) is False:
             divisor *= 2
-        if crazy_rows(layout, rules):
-            divisor *= 8
     return adjustment, divisor
 
 
@@ -165,8 +167,6 @@ def scoring_rule_keys(layout, rules):
         keys.add('suited_rows')
     if all_color(layout, rules, True) is not None:
         keys.add('all_in_color')
-    if crazy_rows(layout, rules, True):
-        keys.add('crazy_eights')
     if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, True)):
         keys.add('ripped_five')
     if rules.king_queen and any(layout[i].visible and layout[i + 3].visible and
@@ -175,13 +175,12 @@ def scoring_rule_keys(layout, rules):
     return keys
 
 
-def modifier_instance_counts(layout, rules, gambler_earned=False, locked_cards=(), poisoned=False,
-                             angel_earned=False, *, visible_only=True):
+def modifier_instance_counts(layout, rules, angels_earned=(), poisoned=False, *, visible_only=True):
     """Count optional modifier instances caused by this player's current layout.
 
     Incoming effects and ordinary column cancellations are not optional modifiers.
-    Rows and King-Queen columns stack; V patterns, Hold 'em, earned multipliers,
-    color, locks and poison each apply once. Earned 777/999 effects survive swaps.
+    Rows, King-Queen columns and earned Angel numbers stack; V patterns, Hold 'em,
+    color and poison each apply once. Earned Angel numbers survive swaps.
     Hidden cards are ignored unless the caller explicitly requests final scoring.
     """
     counts = Counter()
@@ -194,20 +193,14 @@ def modifier_instance_counts(layout, rules, gambler_earned=False, locked_cards=(
     counts['suited_rows'] = sum(1 for _ in suited_rows(layout, rules, visible_only))
     if all_color(layout, rules, visible_only) is not None:
         counts['all_in_color'] = 1
-    if crazy_rows(layout, rules, visible_only):
-        counts['crazy_eights'] = 1
     if any(source == 'ripped' for _, source in cancellation_pairs(layout, rules, visible_only)):
         counts['ripped_five'] = 1
     if rules.king_queen:
         counts['king_queen'] = sum(
             (not visible_only or layout[i].visible and layout[i + 3].visible) and
             {layout[i].card.rank, layout[i + 3].card.rank} == {12, 13} for i in range(3))
-    if rules.devils_row and any(card in locked_cards for card in cards):
-        counts['devils_row'] = 1
-    if rules.gamblers_row and gambler_earned:
-        counts['gamblers_row'] = 1
-    if rules.angels_row and angel_earned:
-        counts['angels_row'] = 1
+    if rules.angel_numbers:
+        counts['angel_numbers'] = len(set(angels_earned) & set(ANGEL_RANKS))
     if rules.poisoned_card and poisoned:
         counts['poisoned_card'] = 1
     return {key: count for key, count in counts.items() if count}
@@ -222,8 +215,7 @@ def modifier_data(game, *, visible_only=True):
     Action-only rules (royal_pairs, beggars, four_kind) have no lasting modifier.
     """
     counts = [modifier_instance_counts(
-        layout, game.rules, game.gambler_earned[player], game.locked_cards,
-        poisoned=game.finisher == player, angel_earned=game.angel_earned[player],
+        layout, game.rules, game.angels_earned[player], poisoned=game.finisher == player,
         visible_only=visible_only) for player, layout in enumerate(game.players)]
     return {'modifier_counts': counts,
             'activations': [sorted(set(keys) | set(counts[player]))
@@ -242,8 +234,7 @@ def rule_preview_data(game):
     rules = game.rules
     for player, layout in enumerate(game.players):
         active = modifier_instance_counts(
-            layout, rules, game.gambler_earned[player], game.locked_cards,
-            poisoned=game.finisher == player, angel_earned=game.angel_earned[player])
+            layout, rules, game.angels_earned[player], poisoned=game.finisher == player)
         visible = [i for i, slot in enumerate(layout) if slot.visible]
         entries = {}
         for key in active:
@@ -273,14 +264,11 @@ def rule_preview_data(game):
                                & {'flush', 'straight', 'full_house', 'four_kind'})
             elif key == 'all_in_color':
                 indices = visible
-            elif key == 'crazy_eights':
-                indices = [i for row in crazy_rows(layout, rules, True) for i in range((row - 1) * 3, row * 3)]
-            elif key == 'devils_row':
-                indices = [i for i in visible if layout[i].card in game.locked_cards]
-            elif key in ('gamblers_row', 'angels_row'):
-                rank = 7 if key == 'gamblers_row' else 9
+            elif key == 'angel_numbers':
+                earned = game.angels_earned[player]
                 indices = [i for row in (range(3), range(3, 6))
-                           if all(layout[j].visible and layout[j].card.rank == rank for j in row)
+                           if all(layout[j].visible and layout[j].card.rank == layout[row[0]].card.rank for j in row)
+                           and layout[row[0]].card.rank in earned
                            for i in row]
                 if not indices:
                     note = 'Earned earlier; still applies.'
@@ -312,8 +300,8 @@ def rule_preview_data(game):
     return result
 
 
-def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), opponent_layout=None, poisoned=False,
-                        angel_earned=False, opponent_angel_earned=False, *, opponent_layouts=None, incoming_angels=None):
+def active_rule_effects(layout, rules, angels_earned=(), opponent_layout=None, poisoned=False,
+                        *, opponent_layouts=None, incoming_angels=()):
     """Report effects proven by visible cards, without exposing hidden cards."""
     effects = []
     cards = [slot.card for slot in layout if slot.visible]
@@ -326,15 +314,9 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
         label = "Ripped 5" if source == "ripped" else f"Column {pair[0] + 1} pair"
         effects.append(f"{label}: 0 ({reduction:+d})")
     effects.extend(f"{name} /{divisor}" for name, divisor in v_pattern_effects(layout, rules, True))
-    if rules.gamblers_row and gambler_earned:
-        effects.append("Gamblers 777 /7")
-    if rules.angels_row and angel_earned:
-        effects.append("Angels 999: opponent ×9")
-    angel_count = int(opponent_angel_earned) if incoming_angels is None else incoming_angels
-    if rules.angels_row and angel_count:
-        effects.append(f"Incoming Angels 999: ×{9 ** angel_count}")
-    if rules.devils_row and any(card in locked_cards for card in cards):
-        effects.append(f"Devils 666: {sum(card in locked_cards for card in cards)} locked")
+    if rules.angel_numbers:
+        for rank in sorted(set(angels_earned) & set(ANGEL_RANKS)):
+            effects.append(f"Angel {rank}{rank}{rank}: " + (f"opponents ×{rank}" if rank in ANGEL_MULTIPLIERS else f"/{rank}"))
     if rules.holdem:
         categories = holdem_categories(cards) & {"flush", "straight", "full_house", "four_kind"}
         if categories:
@@ -347,8 +329,6 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     color = all_color(layout, rules, True)
     if color is not None:
         effects.append("All in red: opponents ×2" if color else "All in black: /2")
-    if crazy_rows(layout, rules, True):
-        effects.append("Crazy 888 /8")
     incoming = opponent_layouts if opponent_layouts is not None else [opponent_layout] if opponent_layout is not None else []
     for other_index, other_layout in enumerate(incoming):
         source = f" (opponent {other_index + 1})" if len(incoming) > 1 else ""
@@ -360,6 +340,10 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
                 effects.append(f"Incoming suited row {row}{source}: {value:+d}")
         if all_color(other_layout, rules, True) is True:
             effects.append(f"Incoming All in red{source}: ×2")
+    for other_index, earned in enumerate(incoming_angels if rules.angel_numbers else ()):
+        source = f" (opponent {other_index + 1})" if len(incoming_angels) > 1 else ""
+        for rank in sorted(set(earned) & set(ANGEL_MULTIPLIERS)):
+            effects.append(f"Incoming Angel {rank}{rank}{rank}{source}: ×{rank}")
     if rules.poisoned_card and poisoned:
         effects.append(f"Poisoned Card: +{POISON_POINTS}")
     if rules.king_queen:
@@ -370,18 +354,18 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     return effects
 
 
-def visible_effect_total(layout, rules, gambler_earned=False, opponent_layout=None, poisoned=False,
-                         opponent_angel_earned=False, *, opponent_layouts=None, incoming_angels=None):
+def visible_effect_total(layout, rules, angels_earned=(), opponent_layout=None, poisoned=False,
+                         *, opponent_layouts=None, incoming_angels=()):
+    """incoming_angels: the Angel numbers each opponent has earned, one set per opponent."""
     subtotal = column_score(layout, rules, True) + score_adjustments(layout, rules, True)[0]
     incoming = opponent_layouts if opponent_layouts is not None else [opponent_layout] if opponent_layout is not None else []
     subtotal += sum(opponent_adjustment(other, rules, True) for other in incoming)
     if rules.poisoned_card and poisoned:
         subtotal += POISON_POINTS
-    divisor = 7 if rules.gamblers_row and gambler_earned else 1
+    divisor = angel_divisor(rules, angels_earned)
     divisor *= prod(factor for _, factor in v_pattern_effects(layout, rules, True))
     if all_color(layout, rules, True) is False:
         divisor *= 2
-    angel_count = int(opponent_angel_earned) if incoming_angels is None else incoming_angels
-    subtotal *= 9 ** angel_count if rules.angels_row else 1
+    subtotal *= prod(angel_multiplier(rules, earned) for earned in incoming_angels)
     subtotal *= prod(color_multiplier(other, rules, True) for other in incoming)
     return (subtotal + divisor - 1) // divisor

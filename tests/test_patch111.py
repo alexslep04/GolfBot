@@ -21,12 +21,13 @@ def hand(ranks, suits='SHDCHS', visible=True):
 
 
 class Scoring111Tests(unittest.TestCase):
-    def test_house_includes_all_in_color_but_excludes_four_kind_beggars_and_suited_rows(self):
+    def test_house_includes_all_in_color_and_suited_rows_but_excludes_four_kind_and_beggars(self):
         preset = house_rules()
-        for key in ('four_kind', 'beggars', 'suited_rows'):
+        for key in ('four_kind', 'beggars'):
             self.assertFalse(preset[key])
         self.assertTrue(preset['all_in_color'])
-        self.assertEqual(sum(preset.values()), 13)  # Crazy 888 joined in 1.3
+        self.assertTrue(preset['suited_rows'])
+        self.assertEqual(sum(preset.values()), 11)  # 666, 777, 888 and 999 became Angel numbers
 
     def test_red_and_black_suited_rows_use_middle_base_points(self):
         game = GolfGame(rules=Rules(suited_rows=True))
@@ -75,16 +76,17 @@ class Scoring111Tests(unittest.TestCase):
         self.assertNotIn('All in red: opponents ×2', active_rule_effects(game.players[0], game.rules))
 
     def test_multiple_opponents_stack_incoming_additions_and_multiplications(self):
-        game = GolfGame(rules=Rules(all_in_color=True, suited_rows=True, angels_row=True), multiplayer=True, player_count=3)
+        game = GolfGame(rules=Rules(all_in_color=True, suited_rows=True, angel_numbers=True), multiplayer=True, player_count=3)
         game.players = [hand([1, 3, 4, 5, 6, 8], 'HHHDDD'), hand([3, 4, 5, 6, 7, 8], 'DDDHHH'), hand([1, 4, 7, 3, 8, 12])]
-        game.angel_earned = [True, True, False]
-        expected = (column_score(game.players[2], game.rules) + 3 + 6 + 4 + 7) * 2 * 2 * 9 * 9
+        game.angels_earned = [{6}, {8}, set()]
+        expected = (column_score(game.players[2], game.rules) + 3 + 6 + 4 + 7) * 2 * 2 * 6 * 8
         self.assertEqual(game.score(2), expected)
         room = Room('r', 'Table', game.rules, 1, 'random', False, ['a', 'b', 'c'], ['A', 'B', 'C'], game=game, game_type='many', status='playing')
         room.resize_seats()
         view = snapshot(room, 'c')
         self.assertEqual(view['game']['effect_totals'][2], expected)
-        self.assertIn('Incoming Angels 999: ×81', view['game']['effects'][2])
+        self.assertIn('Incoming Angel 666 (opponent 1): ×6', view['game']['effects'][2])
+        self.assertIn('Incoming Angel 888 (opponent 2): ×8', view['game']['effects'][2])
 
 
 class ManyPlayerEngineTests(unittest.TestCase):

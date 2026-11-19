@@ -12,23 +12,20 @@ from game import Card, Slot
 def public_position(game):
     """Detach a position, removing every unknown card before search sees it."""
     position = copy(game)
-    # Eligible target indexes are public UI information, including a retained
-    # 666 lock on a card moved face down by a bonus swap.
+    # Eligible target indexes are public UI information.
     position._public_targets = (game._public_targets if any(slot.card is None for hand in game.players for slot in hand)
                                 else tuple(game.targets()))
     position.players = [[Slot(slot.card if slot.visible else None, slot.visible)
                          for slot in hand] for hand in game.players]
     position.draw_pile = [None] * len(game.draw_pile)
     position.discard_pile = list(game.discard_pile)
-    position.locked_cards = set(game.locked_cards)
     position.used_pairs = set(game.used_pairs)
     position.used_bonus_cards = set(game.used_bonus_cards)
     position.activated_rules = [set(keys) for keys in game.activated_rules]
     position.final_bonus_queue = list(game.final_bonus_queue)
     position.final_turn_queue = list(game.final_turn_queue) if game.final_turn_queue is not None else None
     position.turn_order = list(game.turn_order)
-    position.gambler_earned = list(game.gambler_earned)
-    position.angel_earned = list(game.angel_earned)
+    position.angels_earned = [set(ranks) for ranks in game.angels_earned]
     position.four_offered = [set(ranks) for ranks in game.four_offered]
     position.guess_pending = dict(game.guess_pending) if game.guess_pending else None
     position.arrange_pending = dict(game.arrange_pending) if game.arrange_pending else None
@@ -47,8 +44,8 @@ def observation(game):
         game.final_player, game.is_final_turn, game.bonus_remaining,
         game.scoring_reveal, game.final_bonus_queue, game.final_turn_queue, game.turn_order,
         sorted((sorted(pair, key=repr) for pair in game.used_pairs), key=repr),
-        sorted(game.locked_cards, key=repr), game.gambler_earned,
-        sorted(game.used_bonus_cards, key=repr), game.angel_earned,
+        [sorted(ranks) for ranks in game.angels_earned],
+        sorted(game.used_bonus_cards, key=repr),
         [sorted(ranks) for ranks in game.four_offered], game.guess_pending, game.arrange_pending,
     ))
 
@@ -69,16 +66,8 @@ def sample_positions(game, count):
         world = public_position(public)
         hidden = [(p, i, slot) for p, hand in enumerate(world.players)
                   for i, slot in enumerate(hand) if not slot.visible]
-        if public.phase == "choose":
-            # Assign publicly blocked hidden targets first, then preserve the
-            # complementary fact that an eligible target cannot be locked.
-            hidden.sort(key=lambda item: not (item[0] == public.current and item[1] not in public._public_targets))
         for player, index, slot in hidden:
-            pool = cards
-            if public.phase == "choose" and player == public.current:
-                blocked = index not in public._public_targets
-                pool = [card for card in cards if (card in public.locked_cards) == blocked]
-            slot.card = rng.choice(pool)
+            slot.card = rng.choice(cards)
             cards.remove(slot.card)
         world.draw_pile = cards[:len(public.draw_pile)]
         yield world
@@ -162,11 +151,6 @@ class Search:
             return []
         count = min(self.samples, max(1, budget[0] // len(actions)))
         worlds = list(sample_positions(game, count))
-        if game.phase == "arrange":
-            # A hidden, previously locked card can make a layout illegal. Do
-            # not assume that a plan legal in one sampled world works in all.
-            common = set.intersection(*(set(legal_actions(world)) for world in worlds))
-            actions = [action for action in actions if action in common]
         ranked = []
         for action in actions:
             if self.expired():

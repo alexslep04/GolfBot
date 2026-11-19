@@ -51,27 +51,17 @@ test('leaderboard defaults PVP, escapes names, formats fractional win rate',asyn
   assert.match(html,/1,210<small>Elo<\/small>/);assert.match(html,/3–1–2/);assert.match(html,/W–D–L/);
   assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
   assert.equal(h.requests[0].url,'/golf/api/leaderboards');
-  await h.run('leaderboardPage("solo")');assert.match(leaderHtml(h),/No Practice streaks yet/);assert.doesNotMatch(leaderHtml(h),/Best reached/);
+  await h.run('leaderboardPage("solo")');assert.match(leaderHtml(h),/No solo streaks yet/);assert.doesNotMatch(leaderHtml(h),/Best reached/);
 });
 
-test('Practice opens on the avatar and rules step, then starts without abandoning saved game',async()=>{
-  const h=harness();h.run('enterRoom = next => { globalThis.entered = next; }; centerAvatar = () => {}; session.room_id="saved";');
+test('Play solo starts a House rules game straight away, with no lobby, without abandoning a saved game',async()=>{
+  const h=harness();h.run('enterRoom = next => { globalThis.entered = next; }; session.room_id="saved"; saveAvatar("frog")');
   await h.run('navigate("solo")');
-  assert.equal(h.requests.length,1);assert.equal(h.requests[0].url,'/golf/api/practice');
-  const html=h.nodes.get('app').innerHTML;
-  assert.match(html,/class="avatar-pick/);assert.match(html,/data-rules-picker/);assert.match(html,/data-setup-go/);
-  assert.doesNotMatch(html,/data-setup-back/);
-  h.run('saveAvatar("frog")');
-  await h.run('submitSetup()');
-  assert.equal(h.requests.length,2);assert.equal(h.requests[1].url,'/golf/api/solo');
-  const body=JSON.parse(h.requests[1].options.body);
-  assert.equal(body.practice,true);assert.equal(body.house_rules,true);assert.equal(body.first,'random');assert.equal(body.best_of,null);
-  assert.equal(body.avatar,'frog');
-  h.run('applyPreset("vanilla"); draft.first="guest"');
-  assert.doesNotMatch(h.run('rulesPicker()'),/Only House rules games count/); // any rules count toward the streak
-  await h.run('submitSetup()');
-  const custom=JSON.parse(h.requests[2].options.body);
-  assert.equal(custom.house_rules,false);assert.equal(custom.first,'guest');
+  assert.deepEqual(h.requests.map(r=>r.url),['/golf/api/solo']);
+  const body=JSON.parse(h.requests[0].options.body);
+  assert.equal(body.practice,true);assert.equal(body.house_rules,true);assert.equal(body.best_of,null);assert.equal(body.avatar,'frog');
+  assert.equal('rules' in body,false);
+  assert.doesNotMatch(h.nodes.get('app').innerHTML,/data-rules-picker|continues with the rules/);
 });
 
 test('advanced defaults account vs bot and current patch even without history',async()=>{
@@ -127,11 +117,11 @@ test('guest sign-in choice retains the table while opening the account screen',a
 });
 
 test('every selectable rule has examples, hidden by default, with only necessary cards',()=>{
-  const h=harness();const examples=h.run('RULE_EXAMPLES');assert.equal(Object.keys(examples).length,16);
+  const h=harness();const examples=h.run('RULE_EXAMPLES');assert.equal(Object.keys(examples).length,13);
   assert.equal(examples.royal_pairs[0][1].filter(Boolean).length,2);
   assert.equal(examples.roman_fives[0][1].filter(Boolean).length,3);
   assert.equal(examples.all_in_color[0][1].filter(Boolean).length,6);
-  assert.equal(examples.crazy_eights[0][1].filter(Boolean).length,3);
+  assert.equal(examples.angel_numbers[2][1].filter(Boolean).length,3);
   for(const key of Object.keys(examples)) {
     const html=h.run(`ruleHelpCard({key:${JSON.stringify(key)},name:"Rule",description:"Description"})`);
     assert.match(html,/aria-expanded="false"/);assert.match(html,/class="rule-example"[^>]* hidden/);
@@ -282,12 +272,13 @@ test('the ranking shows guests as one row that opens no player page, and times r
   assert.equal(h.run('emoteNames.ofc'),'Ofc!');assert.ok(h.run('TEXT_EMOTES.includes("ofc")'));
 });
 
-test('the player popup has one View stats button for that player, and does not load the stats itself',()=>{
+test('the player popup has one View stats button for that player, and loads only their player card',()=>{
   const h=harness();const before=h.requests.length;
   h.run('state={id:"t",viewer:0,best_of:5,names:["Alice","Bob"],player_ids:["account:42","browser:abc"],seats:[1,2],history:[]};playerStatsSheet(1)');
   const html=h.nodes.get('sheet').innerHTML;
   assert.match(html,/data-stats-player="browser:abc">[\s\S]*View stats<\/button>/);
-  assert.doesNotMatch(html,/Leaderboard|Advanced stats|Full stats|Loading stats/);assert.equal(h.requests.length,before);
+  assert.doesNotMatch(html,/Leaderboard|Advanced stats|Full stats|Loading stats/);
+  assert.deepEqual(h.requests.slice(before).map(r=>r.url),['/golf/api/player-card?player=browser%3Aabc']);
   h.run('state.player_ids=[null,null];playerStatsSheet(1)');
   assert.match(h.nodes.get('sheet').innerHTML,/data-nav="stats">[\s\S]*View stats<\/button>/);
 });
@@ -306,14 +297,12 @@ test('void action posts corrected lobby endpoint and reply payload',async()=>{
   await click(event({voidReply:'accept'}));assert.equal(h.requests[1].url,'/golf/api/lobbies/room/void-reply');assert.deepEqual(JSON.parse(h.requests[1].options.body),{accept:true});
 });
 
-test('account unfinished Practice exit uses an in-game save explanation',async()=>{
+test('a signed-in player leaves an unfinished Practice game without a popup',async()=>{
   const h=harness();h.context.confirm=()=>{throw Error('Native popup used');};
-  h.run('session.room_id="room";state={id:"room",practice:true,game:{phase:"choose"}}');
-  const leaving=h.run('abandonExisting()');
-  assert.match(h.nodes.get('leave-dialog').innerHTML,/saved to your account/);
-  h.run('resolveLeavePrompt("stay")');
-  assert.equal(await leaving,false);
-  assert.equal(h.requests.length,0);
+  h.run('session.account={id:1,unique_name:"me"};session.room_id="room";state={id:"room",practice:true,game:{phase:"choose"}}');
+  assert.equal(await h.run('abandonExisting()'),true);
+  assert.equal(h.nodes.get('leave-dialog')?.open,undefined);
+  assert.equal(h.requests[0].url,'/golf/api/lobbies/room/leave');
 });
 
 test('rule eyes sit on the right of the card, outside description copy',()=>{
@@ -420,8 +409,8 @@ test('match preview never reveals a hidden card even if a stale mask includes it
 
 test('earned modifier with no remaining contributing cards stays active without invented cards',()=>{
   const h=harness();matchRulesFixture(h);
-  h.run('state.game.rule_previews[0]={gamblers_row:{indices:[],note:"Earned earlier; the row no longer needs to remain."}};');
-  const html=h.run('ruleHelpCard({key:"gamblers_row",name:"777",description:"Earned"},{player:0,on:true})');
+  h.run('state.game.rule_previews[0]={angel_numbers:{indices:[],note:"Earned earlier; the row no longer needs to remain."}};');
+  const html=h.run('ruleHelpCard({key:"angel_numbers",name:"Angel numbers",description:"Earned"},{player:0,on:true})');
   assert.match(html,/Earned earlier/);
   assert.equal((html.match(/example-card is-face/g)||[]).length,0);
   assert.match(html,/pill rule-state active">active/);

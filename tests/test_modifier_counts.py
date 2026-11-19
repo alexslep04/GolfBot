@@ -38,13 +38,12 @@ class ModifierCountTests(unittest.TestCase):
         # but not one in its own row
         self.assertEqual(modifier_instance_counts(layout([5, 5, 8, 5, 4, 9], "DSHCHS"), rules), {})
 
-    def test_earned_effects_and_locks_count_once_and_respect_enabled_rules(self):
+    def test_earned_effects_count_once_each_and_respect_enabled_rules(self):
         hand = layout([6, 6, 6, 6, 6, 6])
-        flags = dict(gambler_earned=True, angel_earned=True, poisoned=True,
-                     locked_cards={slot.card for slot in hand})
-        rules = Rules(devils_row=True, gamblers_row=True, angels_row=True, poisoned_card=True)
+        flags = dict(angels_earned={6, 7, 9}, poisoned=True)
+        rules = Rules(angel_numbers=True, poisoned_card=True)
         self.assertEqual(modifier_instance_counts(hand, rules, **flags),
-                         {"devils_row": 1, "gamblers_row": 1, "angels_row": 1, "poisoned_card": 1})
+                         {"angel_numbers": 3, "poisoned_card": 1})
         self.assertEqual(modifier_instance_counts(hand, Rules(), **flags), {})
 
     def test_public_counts_never_expose_hidden_patterns(self):
@@ -54,22 +53,22 @@ class ModifierCountTests(unittest.TestCase):
 
     def test_counts_belong_to_causer_even_with_many_recipients(self):
         game = GolfGame(player_count=3, multiplayer=True,
-                        rules=Rules(tricky_straights=True, suited_rows=True, all_in_color=True, angels_row=True))
+                        rules=Rules(tricky_straights=True, suited_rows=True, all_in_color=True, angel_numbers=True))
         game.players = [layout([3, 4, 5, 8, 9, 10], "HHHHHH"),
                         layout([1, 4, 8, 10, 6, 3]), layout([1, 4, 8, 10, 6, 3])]
-        game.angel_earned[0] = True
+        game.angels_earned[0] = {9}
         game.activated_rules[0].add("royal_pairs")
         data = modifier_data(game)
         self.assertEqual(data["modifier_counts"],
-                         [{"tricky_straights": 2, "suited_rows": 2, "all_in_color": 1, "angels_row": 1}, {}, {}])
-        self.assertEqual(data["activations"][0], ["all_in_color", "angels_row", "royal_pairs", "suited_rows", "tricky_straights"])
+                         [{"tricky_straights": 2, "suited_rows": 2, "all_in_color": 1, "angel_numbers": 1}, {}, {}])
+        self.assertEqual(data["activations"][0], ["all_in_color", "angel_numbers", "royal_pairs", "suited_rows", "tricky_straights"])
         self.assertEqual(game.activated_rules[0], {"royal_pairs"})
 
     def test_final_counts_do_not_reuse_cumulative_activation_keys(self):
-        game = GolfGame(rules=Rules(king_queen=True, gamblers_row=True, poisoned_card=True))
+        game = GolfGame(rules=Rules(king_queen=True, angel_numbers=True, poisoned_card=True))
         game.players = [layout([1, 4, 8, 10, 6, 3]), layout([1, 4, 8, 10, 6, 3])]
         game.activated_rules[0].add("king_queen")
-        game.gambler_earned[0] = True
+        game.angels_earned[0] = {7}
         game.finisher = 1
         self.assertEqual(modifier_data(game, visible_only=False)["modifier_counts"],
-                         [{"gamblers_row": 1}, {"poisoned_card": 1}])
+                         [{"angel_numbers": 1}, {"poisoned_card": 1}])

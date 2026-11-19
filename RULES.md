@@ -1,6 +1,6 @@
 # Golf rules
 
-The single source of truth for Golf. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers**, **4 of a Kind**, and **Suited rows**. Those three stay off. **All in red/black** is included in House rules. The preset and random first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
+The single source of truth for Golf. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers** and **4 of a Kind**. Those two stay off. **All in red/black** and **Suited rows** are included in House rules. The preset and random first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
 
 **Match length:** choose a single game; Best of 3, 5, or 9 (first to 2, 3, or 5 wins); a fixed 3-, 5-, or 9-game series (lowest total points wins, equal totals draw); or **Continuous**. Fixed series play every scheduled game, including after a player builds a lead. Continuous has no win target; ready up until someone leaves. After everyone leaves, most game wins decides Continuous; lower total points breaks a tie. Equal wins and points means no winner. Completed games count in stats; unfinished games do not. In solo, leaving closes Golfbot's seat too.
 
@@ -59,27 +59,12 @@ Two cards of the same rank in a column score zero, regardless of suit. Breaking 
 ### Queen-Queen and Jack-Jack bonus swaps
 <!-- rule: royal_pairs -->
 
-A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end or final reveal, including either hand and both pile tops. Overrides locks. Each physical Jack or Queen may activate a bonus only once per game. Both cards must be unused; replacing one with a third Jack or Queen cannot retrigger it. Fresh disjoint pairs can earn separate swaps.
+A visible Queen-Queen or Jack-Jack column earns a swap of any two table cards at turn end or final reveal, including either hand and both pile tops. Each physical Jack or Queen may activate a bonus only once per game. Both cards must be unused; replacing one with a third Jack or Queen cannot retrigger it. Fresh disjoint pairs can earn separate swaps.
 
-### Devils 666
-<!-- rule: devils_row -->
+### Angel numbers
+<!-- rule: angel_numbers -->
 
-Three visible 6s in a row lock those cards for the game. Only a bonus swap may move them; the locks remain.
-
-### Gamblers 777
-<!-- rule: gamblers_row -->
-
-Three visible 7s in a row earn final score /7, rounded up. Earn once per player; the benefit remains if the row breaks.
-
-### Crazy 888
-<!-- rule: crazy_eights -->
-
-Three 8s in a row earn final score /8, rounded up. Earn once per player, even with two rows of 8s; unlike Gamblers 777, the row must still be in place in the final hand.
-
-### Angels 999
-<!-- rule: angels_row -->
-
-Three visible 9s in a row multiply your opponent’s final score by 9. Earn once per player; the effect remains if the row breaks. Apply after additions and before the final rounded division. Final scoring reveals do not earn it.
+A visible row of three 6s, 7s, 8s, or 9s earns its number. 666 multiplies every opponent's final score by 6 and 888 by 8; 777 divides your own final score by 7 and 999 by 9, rounded up. Each number is earned once per player and stays earned if the row breaks; different numbers stack. Final scoring reveals do not earn them.
 
 ### King-Queen Column
 <!-- rule: king_queen -->
@@ -106,7 +91,7 @@ An ascending consecutive row adds its rightmost card's base Golf points to your 
 
 A 5 of diamonds cancels one other 5 in the opposite row to zero, along with itself, even in a different column. It does this even if it has already canceled a 5 in its own column. Ordinary column pairs cancel first; the ripped 5 is the first 5 left to right in the opposite row that is not already canceled.
 
-### Roman 5s
+### V2
 <!-- rule: roman_fives -->
 
 A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2, J/Q=10, K=0. Ignore column cancellations and other effects when checking the V. Either orientation counts; apply once.
@@ -114,12 +99,12 @@ A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2
 ### Beggars Will be Choosers
 <!-- rule: beggars -->
 
-The player with the highest visible card value may guess an opponent's chosen hidden card before it flips. At a table of three or more, only the next player in turn may guess, and only when they hold that highest value. A correct rank guess trades their highest visible card for the opponent's lowest visible card. Tied highest values give no guess; tied trade choices belong to the guesser. Locks apply.
+The player with the highest visible card value may guess an opponent's chosen hidden card before it flips. At a table of three or more, only the next player in turn may guess, and only when they hold that highest value. A correct rank guess trades their highest visible card for the opponent's lowest visible card. Tied highest values give no guess; tied trade choices belong to the guesser.
 
 ### 4 of a Kind
 <!-- rule: four_kind -->
 
-Four visible cards of one rank may immediately be moved into any two columns, or left in place. With extra decks, choose four of the matches with the least movement. Offer once per rank per player. Preserve hidden cards and locks; resume the turn afterward.
+Four visible cards of one rank may immediately be moved into any two columns, or left in place. With extra decks, choose four of the matches with the least movement. Offer once per rank per player. Preserve hidden cards; resume the turn afterward.
 
 ### Poisoned Card
 <!-- rule: poisoned_card -->
@@ -141,21 +126,21 @@ Six red cards multiply every opponent's final score by 2. Six black cards divide
 - Both Vs count: **top-left + bottom-middle + top-right**, or **bottom-left + top-middle + bottom-right**.
 - **Face rank** identifies the card (A=1, J=11, Q=12, K=13). **Base Golf points** are its unmodified value from the scoring table. **Adjusted hand score** includes column cancellations and rule effects. Effects change the hand score, never a card's rank or base points; each rule checks its own conditions independently.
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
-- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, All in black, and Crazy 888 divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
+- Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angel 666/888 and All in red multiplications and own Angel 777/999, V2, V10 engine, and All in black divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
 - The ripped 5 is the first uncanceled 5 in the opposite row from left to right. The 5 of diamonds rips one even when it is already in a column pair; no other card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.
-- Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips do not activate interactive abilities. Final scoring reveals activate only unused J-J/Q-Q bonuses; they do not earn Devils 666, Gamblers 777, Angels 999, 4 of a Kind, Beggars, or Poisoned Card.
+- Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips do not activate interactive abilities. Final scoring reveals activate only unused J-J/Q-Q bonuses; they do not earn Angel numbers, 4 of a Kind, Beggars, or Poisoned Card.
 - A bonus swap carries visibility into a hand; the go-fish pile stays face down and the discard pile face up. Unused pairs created by a bonus may earn another bonus. Empty piles have no card to select.
-- Roman 5s keeps the approved **V total of 10** interpretation from the merged game, rather than three cards each worth 10.
+- V2 keeps the approved **V total of 10** interpretation from the merged game, rather than three cards each worth 10.
 
-Roman 5s examples: `A-4-A / 5-J-A` qualifies via the bottom-left, top-middle, and bottom-right cards: 5+4+1=10, despite the right-column Aces canceling. `8-4-2 / 3-4-10` qualifies via top-left, bottom-middle, and top-right: 8+4+(-2)=10, despite the middle-column 4s canceling. With only Roman 5s enabled, both final scores are 10 (20/2 and 19/2, rounded up).
+V2 examples: `A-4-A / 5-J-A` qualifies via the bottom-left, top-middle, and bottom-right cards: 5+4+1=10, despite the right-column Aces canceling. `8-4-2 / 3-4-10` qualifies via top-left, bottom-middle, and top-right: 8+4+(-2)=10, despite the middle-column 4s canceling. With only V2 enabled, both final scores are 10 (20/2 and 19/2, rounded up).
 
 ## Revised draft rules — not selectable yet
 
 ### Joker Swap (54-card version)
 
-A joker grants one swap of any two table cards, overriding locks. Resolve the swap, then continue a normal turn. A dealt joker is removed from the game and replaced from either pile before resolving its swap. This prototype uses 52 cards and the Queen/Jack substitutes instead.
+A joker grants one swap of any two table cards. Resolve the swap, then continue a normal turn. A dealt joker is removed from the game and replaced from either pile before resolving its swap. This prototype uses 52 cards and the Queen/Jack substitutes instead.
 
 ### UNO
 
@@ -179,7 +164,7 @@ A player finishing within 3 points of an opponent may try a paper-football field
 
 ### Gambler's Row dice variants
 
-After 777, one die subtracts twice its result; two dice subtract their sum. Dice are not used in the prototype.
+After Angel 777, one die subtracts twice its result; two dice subtract their sum. Dice are not used in the prototype.
 
 ### Unfinished ideas
 

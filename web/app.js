@@ -20,7 +20,7 @@ let catalog = [],
   tableEpoch = 0,
   toastTimer;
 // Pages that can be read without leaving (or redrawing over) an open table.
-const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard"];
+const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard", "cards", "spectate"];
 
 const starter = {
   host: "Host first",
@@ -32,16 +32,13 @@ const starter = {
 };
 const RULE_SHORT = {
   royal_pairs: "J-J/Q-Q",
-  devils_row: "666",
-  gamblers_row: "777",
-  crazy_eights: "Crazy 888",
-  angels_row: "999",
+  angel_numbers: "Angels",
   king_queen: "K-Q Colors",
   holdem: "Hold 'em",
   v10: "V10",
   tricky_straights: "Straights",
   ripped_five: "Ripped 5",
-  roman_fives: "Roman 5s",
+  roman_fives: "V2",
   beggars: "Beggars",
   four_kind: "4 of a Kind",
   poisoned_card: "Poison",
@@ -50,14 +47,13 @@ const RULE_SHORT = {
 };
 const POPULAR_RULES = [
   "royal_pairs",
-  "gamblers_row",
-  "devils_row",
+  "angel_numbers",
   "king_queen",
   "v10",
   "ripped_five",
   "poisoned_card",
 ];
-const NEW_RULES = ["crazy_eights"];
+const NEW_RULES = ["angel_numbers"];
 
 /* ---------- emotes ---------- */
 const emoteNames = {
@@ -121,7 +117,7 @@ async function sendEmote(id) {
     const next = await api(`/api/lobbies/${roomId}/emote`, "POST", {
       emote: id,
     });
-    if (session.room_id === roomId) accept(next);
+    if (state?.id === roomId) accept(next);
   } catch (error) {
     toast(error.message);
   }
@@ -857,8 +853,33 @@ function patchChip() {
   if (!session?.patch || seen === session.patch) return "";
   return `<button type="button" class="chip patch-chip c-p4" data-nav="patches">${icon("newspaper.fill", 20, { idle: false })}<span>Updated to ${e(session.patch.replace(/\.0$/, ""))}: see what's new</span>${glyph("chevron.right", 12)}</button>`;
 }
+/* A guest is nudged to sign in once per visit: a tooltip under the settings
+   gear (where Profile and sign-in live) that goes away by itself after 10s. */
+let signInTipShown = false;
+function signInTip() {
+  if (signInTipShown || session.account || !session.google_client_id || prefs.hideTips) return;
+  const bar = document.querySelector(".page.home .topbar");
+  if (!bar) return;
+  signInTipShown = true;
+  bar.insertAdjacentHTML(
+    "beforeend",
+    // made like the Quickplay queue pill, with a Sign in sticker on its end
+    `<div class="queue-pill signin-tip" data-signin-tip><span class="queue-info" role="status"><span class="queue-text"><b>Not signed in</b><small>Keep your stats and streak</small></span></span><button type="button" class="act side-act queue-leave" aria-label="Sign in"><span class="act-ico">${icon("person.crop.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Sign in</span></button></div>`,
+  );
+  const tip = bar.querySelector("[data-signin-tip]");
+  tip.addEventListener("click", () => {
+    tip.remove();
+    accountPage();
+  });
+  setTimeout(() => {
+    tip.classList.add("leaving");
+    setTimeout(() => tip.remove(), 300);
+  }, 10000);
+}
 function home() {
   leaveAfterSignIn = null;
+  stopWatching();
+  setDebugTool(null);
   clearEmotes();
   emoteTable = "";
   document.title = "Golf";
@@ -877,16 +898,18 @@ function home() {
     ${patchChip()}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
-    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Practice</span>${practice[1]}</button>
-    <div class="row split">
+    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play solo</span>${practice[1]}</button>
+    <div class="row split three">
+      <button type="button" class="btn tile c-p1 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span></button>
       <button type="button" class="btn tile c-p4 grow" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span></button>
       <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
-    ${document.documentElement.dataset?.debug !== undefined ? `<button type="button" class="btn c-p2" data-debug-bots>${tilted("figure.2", 33)}<span>Debug: 8-bot table</span></button>` : ""}
+    ${document.documentElement.dataset?.debug !== undefined ? `<button type="button" class="btn c-p2" data-debug-bots>${tilted("figure.2", 33)}<span>Debug: 8-bot table</span></button><button type="button" class="btn c-p4" data-nav="cards">${tilted("rectangle.stack.fill", 33)}<span>Debug: card gallery</span></button>` : ""}
   </div><p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p></div>`,
   );
   renderQueueBanner();
   pollPresence();
+  signInTip();
 }
 /** On/off and choice rows for the settings kept on this device. */
 function prefsHtml() {
@@ -1009,21 +1032,104 @@ function settingsSheet() {
 function voidOfferButton() {
   if (!state?.rated) return "";
   const disabled = state.status !== "playing" || state.void_offer || state.void_offered?.[state.viewer];
-  return `<button type="button" class="btn c-p4" data-void-offer ${disabled ? "disabled" : ""}>Void game &amp; end series early</button>`;
+  return `<button type="button" class="btn c-p4" data-void-offer ${disabled ? "disabled" : ""}>${tilted("eject.fill", 26)} Void game &amp; end series early</button>`;
 }
+/* ---------- debug: change a Practice game by hand ----------
+   Debug servers only. The tools change the table on the server, which then
+   never records that game's result. */
+const DEBUG = document.documentElement.dataset?.debug !== undefined;
+let debugTool = null; // "flip" (god mode) or "edit" (suit and value), while one is on
+const DEBUG_TOOLS = {
+  flip: ["God mode", "Tap a card to flip it"],
+  edit: ["Change a card", "Tap a card to pick its suit and value"],
+};
+function debugMenuHtml() {
+  if (!DEBUG || !state?.practice || state.spectator) return "";
+  return `<p class="hint dark debug-label">Debug</p>
+      <button type="button" class="btn c-p2" data-debug-end>${tilted("flag.pattern.checkered", 26)} End game: flip all cards</button>
+      <button type="button" class="btn c-p1" data-debug-tool="flip">${tilted("sparkles", 26)} God mode: flip any card</button>
+      <button type="button" class="btn c-p4" data-debug-tool="edit">${tilted("pencil", 26)} Change a card's suit and value</button>`;
+}
+async function debugEdit(body) {
+  accept(await api(`/api/debug/practice/${state.id}`, "POST", body));
+}
+function setDebugTool(tool) {
+  debugTool = tool;
+  document.querySelector(".debug-bar")?.remove();
+  if (!tool) return;
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    // made like the Quickplay queue pill: what's on, and a sticker to stop
+    `<div class="debug-bar queue-pill"><span class="queue-info" role="status"><span class="queue-text"><b>${e(DEBUG_TOOLS[tool][0])}</b><small>${e(DEBUG_TOOLS[tool][1])}</small></span></span><button type="button" class="act side-act queue-leave" data-debug-done aria-label="Done"><span class="act-ico">${icon("checkmark.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Done</span></button></div>`,
+  );
+}
+/** The suit and value picker, made like the Beggars guess: suits, then rank stickers. */
+function debugCardPicker(ref) {
+  const card = state.game.players[ref[0]]?.[ref[1]]?.card;
+  let suit = card?.suit || "S";
+  const shade = document.createElement("div");
+  shade.className = "modal-shade debug-shade";
+  const draw = () => {
+    shade.innerHTML = `<section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Change a card"><button type="button" class="dialog-x" data-debug-pick="close" aria-label="Cancel">${icon("xmark.circle.fill", 26)}</button><h2>Change this card</h2><p>${card ? `Now ${e(card.label)} of ${SUIT_NAME[card.suit]}. ` : "Face down. "}Pick a suit, then a value.</p><div class="debug-suits">${["S", "H", "D", "C"]
+      .map((key) => `<button type="button" class="debug-suit${key === suit ? " on" : ""}${"HD".includes(key) ? " red" : ""}" data-debug-suit="${key}" aria-pressed="${key === suit}" aria-label="${SUIT_NAME[key]}">${icon(SUIT_ICON[key], 34, { idle: false })}</button>`)
+      .join("")}</div><div class="ranks">${Array.from({ length: 13 }, (_, i) => {
+      const label = { 1: "A", 11: "J", 12: "Q", 13: "K" }[i + 1] || String(i + 1);
+      return `<button type="button" class="rank-sticker" data-debug-rank="${i + 1}" aria-label="${label}">${stickerText(label, { key: `rank:${i}` })}</button>`;
+    }).join("")}</div></section>`;
+  };
+  draw();
+  shade.addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (event.target === shade || button?.dataset.debugPick === "close") return shade.remove();
+    if (button?.dataset.debugSuit) {
+      suit = button.dataset.debugSuit;
+      return draw();
+    }
+    if (button?.dataset.debugRank) {
+      shade.remove();
+      try {
+        await debugEdit({ op: "set", ref, rank: Number(button.dataset.debugRank), suit });
+      } catch (error) {
+        toast(error.message);
+      }
+    }
+  });
+  document.body.append(shade);
+}
+// While a tool is on, a press on a hand's card is the tool's, not the game's.
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (!debugTool || page !== "room" || !state?.game) return;
+    const slot = event.target.closest?.("[data-board] .slot");
+    if (!slot) return;
+    const ref = JSON.parse(slot.dataset.ref);
+    if (!Number.isInteger(ref[0])) return; // the piles stay as they are
+    event.preventDefault();
+    event.stopPropagation();
+    if (debugTool === "flip") debugEdit({ op: "flip", ref }).catch((error) => toast(error.message));
+    else debugCardPicker(ref);
+  },
+  true,
+);
 function gameMenuSheet() {
   const link = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Table menu">
     <div class="sheet-head"><h2>${e(state.name)}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    <p class="hint dark" style="margin-bottom:1.2rem">Game ${state.round} · ${e(matchLength(state))}</p>
-    <div class="menu-list">
+    <p class="hint dark" style="margin-bottom:1.2rem">${state.spectator ? "Spectating · " : ""}Game ${state.round} · ${e(matchLength(state))}${state.watchers ? ` · ${state.watchers} watching` : ""}</p>
+    ${state.spectator ? `<div class="menu-list">
+      <button type="button" class="btn c-p1" data-rules-for="me">${tilted("checklist", 26)} Rules &amp; scores</button>
+      <button type="button" class="btn c-p4" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
+      <button type="button" class="btn c-p2" data-leave>${tilted("eye.fill", 26)} Stop watching</button>
+    </div>` : `<div class="menu-list">
       <button type="button" class="btn c-p1" data-rules-for="me">${tilted("checklist", 26)} Rules &amp; scores</button>
       ${state.solo ? "" : `<button type="button" class="btn c-p3" data-copy="${e(link)}">${tilted("link", 26)} Copy invite link</button>`}
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p4" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
       ${voidOfferButton()}
+      ${debugMenuHtml()}
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
-    </div>
+    </div>`}
     ${prefsHtml()}
     ${padHelpHtml()}
   </section>`);
@@ -1051,12 +1157,10 @@ function entryButton(attribute, label) {
   const { color, glyph: symbol } = ENTRY_STYLE[draft.mode];
   return `<button type="button" class="btn ${color} grow" ${attribute}>${tilted(symbol, 33)}<span>${padTag("y")}${label}</span>${tilted(symbol, 33, { mirror: true })}</button>`;
 }
-function startSetup(mode, saved = null) {
+function startSetup(mode) {
   Object.assign(draft, {
     mode,
-    saved: saved?.saved ? saved : null,
-    // Practice has no table or match settings, so it starts on the avatar step
-    step: mode === "solo" ? 1 : 0,
+    step: 0,
     style: "wins",
     length: 3,
     preset: "house",
@@ -1077,7 +1181,7 @@ function styleHint() {
   return "One game. The lowest score wins.";
 }
 function setupPage() {
-  document.title = draft.mode === "solo" ? "Practice · Golf" : "Host · Golf";
+  document.title = "Host · Golf";
   if (draft.step === 0) {
     const fixed = ["wins", "points"].includes(draft.style);
     show(
@@ -1102,14 +1206,9 @@ function setupPage() {
     );
     return;
   }
-  const practice = draft.mode === "solo";
-  const back = practice
-    ? backButton()
-    : `<button type="button" class="btn round c-fw nav-float" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>`;
-  const rules = draft.saved
-    ? `<p class="hint dark">Your Practice game in progress continues with the rules it started with${draft.saved.house_rules ? " (House rules)" : ""}.</p>`
-    : `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
-  const go = draft.saved ? "Continue" : `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
+  const back = `<button type="button" class="btn round c-fw nav-float" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>`;
+  const rules = `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
+  const go = `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
   show(
     "setup",
     `<div class="page">${topbar()}<div class="stack wide">${profileChosen() ? "" : avatarPicker()}${rules}</div><div class="row">${back}${entryButton("data-setup-go", go)}</div></div>`,
@@ -1352,22 +1451,96 @@ function applyPreset(preset) {
   }
   refreshRulesPicker();
 }
+/**
+ * Play solo has no lobby: it picks up the saved game if there is one, or else
+ * starts a House rules game against Golfbot straight away.
+ */
+async function playSolo() {
+  const epoch = tableEpoch;
+  if (document.getElementById("username")) saveName(name());
+  const next = await api("/api/solo", "POST", {
+    practice: true,
+    best_of: null,
+    username: session.username,
+    avatar: session.avatar,
+    house_rules: true,
+  });
+  if (epoch === tableEpoch) enterRoom(next);
+}
+/* ---------- spectate ----------
+   Any game in play can be watched, from its first seat, with no moves. A
+   spectator can send emotes (every one shows as "Spectator"). When the table
+   closes, the spectator follows its players to the next game they start. */
+let watching = null, // the table being watched
+  followTimer = 0;
+async function spectatePage() {
+  stopWatching();
+  page = "spectate";
+  document.title = "Spectate · Golf";
+  history.replaceState({}, "", appPath("/spectate"));
+  const games = await api("/api/spectate");
+  if (page !== "spectate") return;
+  const others = games.filter((game) => !game.mine);
+  const kind = (game) => (game.solo ? "Solo" : game.game_type === "many" ? `${game.players} players` : "1v1");
+  const list = others
+    .map((game) => {
+      const players = game.names.map((name, p) => `${e(name)} <b>${game.scores[p]}</b>`).join(" · ");
+      const watchers = game.watchers ? ` · ${glyph("eye.fill", 12)} ${game.watchers}` : "";
+      return `<button type="button" class="list-item c-p1" data-watch="${e(game.id)}">${avatarBadge(game.avatars?.[0], "c-p1")}<div class="grow"><strong>${players}</strong><small>${kind(game)} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${glyph("chevron.right", 20)}</button>`;
+    })
+    .join("");
+  show(
+    "spectate",
+    `<div class="page scroll">${subHeader("Spectate", "home")}<div class="stack wide">
+    <div class="row" style="align-items:center"><p class="hint dark grow">Games in play right now, solo games included. Tap one to watch.</p><button type="button" class="btn small c-fw" data-nav="spectate">${glyph("arrow.clockwise", 18)} ${padTag("x")}Refresh</button></div>
+    <div class="list">${list || `<p class="hint dark">Nobody is playing right now. Check back soon!</p>`}</div></div></div>`,
+  );
+}
+async function watchGame(id) {
+  const next = await api(`/api/spectate/${id}`, "POST", {});
+  enterWatch(next);
+}
+function enterWatch(next) {
+  clearTimeout(followTimer);
+  watching = next.id;
+  page = "room";
+  history.replaceState({}, "", appPath("/spectate"));
+  board.selected = [];
+  state = null;
+  accept(next);
+  connectRoom(next.id);
+}
+/** Keep watching: the same table while it's open, else the players' next game. */
+async function followWatched() {
+  clearTimeout(followTimer);
+  const id = watching;
+  if (!id) return;
+  try {
+    const next = await api("/api/spectate-follow", "POST", {});
+    if (watching !== id) return;
+    if (next.id !== id) {
+      toast(`Following ${next.names.filter((_, p) => p !== 1 || !next.solo).join(" & ")} to their next game`);
+      return enterWatch(next);
+    }
+    accept(next);
+    if (next.status !== "closed" && socket?.readyState !== WebSocket.OPEN) connectRoom(id);
+    if (next.status === "closed") followTimer = setTimeout(followWatched, 4000);
+  } catch {
+    // nobody has sat down again yet: look again shortly
+    if (watching === id) followTimer = setTimeout(followWatched, 4000);
+  }
+}
+function stopWatching() {
+  clearTimeout(followTimer);
+  if (!watching) return;
+  watching = null;
+  closeSocket();
+  state = null;
+  api("/api/spectate-stop", "POST", {}).catch(() => {});
+}
 async function submitSetup() {
   const epoch = tableEpoch;
   const house = draft.preset === "house";
-  if (draft.mode === "solo") {
-    const next = await api("/api/solo", "POST", {
-      practice: true,
-      best_of: null,
-      username: session.username,
-      avatar: session.avatar,
-      house_rules: house,
-      first: house ? "random" : draft.first,
-      rules: Object.fromEntries(catalog.map((rule) => [rule.key, !!draft.rules[rule.key]])),
-    });
-    if (epoch === tableEpoch) enterRoom(next);
-    return;
-  }
   const requested = {
     username: session.username,
     avatar: session.avatar,
@@ -1457,7 +1630,7 @@ async function finishPracticeSignIn() {
   if (epoch !== tableEpoch || session.room_id !== null || state?.id !== roomId) return true;
   state = null;
   home();
-  toast("Your practice game and streak are saved.");
+  toast("Your solo game and streak are saved.");
   return true;
 }
 async function abandonExisting({confirmed = false} = {}) {
@@ -1465,7 +1638,10 @@ async function abandonExisting({confirmed = false} = {}) {
     epoch = tableEpoch;
   if (roomId) {
     const leaving = state?.id === roomId ? state : await api(`/api/lobbies/${roomId}/state`);
-    if (!confirmed && ((leaving.rated && ["playing", "round_over"].includes(leaving.status)) || leaving.practice)) {
+    // a signed-in player's Practice game is saved to their account, so it just leaves;
+    // a guest is offered sign-in first, and a rated table warns about the Elo cost
+    const guestPractice = leaving.practice && !session.account;
+    if (!confirmed && ((leaving.rated && ["playing", "round_over"].includes(leaving.status)) || guestPractice)) {
       const choice = await leavePrompt(leaving);
       if (choice === "signin") {
         leaveAfterSignIn = roomId;
@@ -1571,7 +1747,8 @@ function connectRoom(id) {
     // (dropped while in the background, it just reconnects on the way back)
     if (opened && page === "room" && document.visibilityState === "visible") toast("Reconnecting to the table…");
     retry = setTimeout(() => {
-      if (session.room_id === id) connectRoom(id);
+      if (watching === id) followWatched();
+      else if (session.room_id === id) connectRoom(id);
     }, 1800);
   };
 }
@@ -1597,7 +1774,10 @@ function accept(next) {
     state?.game?.decision_player !== next.game?.decision_player;
   state = next;
   renderVoidOffer();
-  session.room_id = next.id;
+  if (next.spectator) {
+    // the table being watched closed: look for the players' next one
+    if (next.status === "closed") followWatched();
+  } else session.room_id = next.id;
   if (SIDE_PAGES.includes(page)) return;
   page = "room";
   if (changed) board.selected = [];
@@ -1663,13 +1843,40 @@ function seriesTally(player) {
 function playerStatsSheet(player) {
   const id = state.player_ids?.[player];
   const color = colorFor(player);
-  // the full record lives on the stats page; the popup only links to it
+  // the full record lives on the stats page; the popup links to it
   const target = id ? `data-stats-player="${e(id)}"` : `data-nav="stats"`;
   openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
     <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    ${id && !id.startsWith("bot:") ? `<div class="player-card" data-player-card="${e(id)}"><div class="loading">Loading…</div></div>` : ""}
     ${seriesTally(player)}
     <div class="row" style="margin-top:1.2rem"><button type="button" class="btn small ${color} grow" ${target}>${tilted("medal", 22)} View stats</button></div>
   </section>`);
+  if (id && !id.startsWith("bot:")) loadPlayerCard(id);
+}
+/**
+ * The popup's Elo and best 1v1 streak, drawn as rows of the PVP leaderboard,
+ * and the records this player holds, drawn as the Records tab's cards.
+ */
+async function loadPlayerCard(id) {
+  let card;
+  try {
+    card = await api(`/api/player-card?player=${encodeURIComponent(id)}`);
+  } catch {
+    card = null;
+  }
+  const holder = [...document.querySelectorAll("[data-player-card]")].find((el) => el.dataset.playerCard === id);
+  if (!holder) return;
+  if (!card) return void (holder.innerHTML = `<p class="hint dark">Stats aren't available right now.</p>`);
+  const row = (color, symbol, label, value) =>
+    `<div class="list-item board-row ${color}"><span class="rank">${tilted(symbol, 30, { key: `card:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${value}</b></div>`;
+  const elo = card.elo === null ? "—" : `${statNumber(card.elo)}<small>Elo</small>`;
+  const streak = `${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(card.pvp_streak)}</span>`;
+  const held = recordCards(card.records).filter(({ record }) => record && record.id === id);
+  holder.innerHTML = `<div class="list leader-list">${row("c-p3", "crown.fill", "Elo", elo)}${row("c-s4", "flame.fill", "Best PvP win streak", streak)}</div>${
+    held.length
+      ? `<h3 class="player-card-head">Records held</h3><div class="records">${held.map(({ html }) => html).join("")}</div>`
+      : `<p class="hint dark">No records held yet.</p>`
+  }`;
 }
 /**
  * Send one table action. Resolves true when the server accepted it.
@@ -1716,6 +1923,78 @@ async function move(action, extra = {}, opts = {}) {
   }
   return ok;
 }
+
+/* ---------- debug: card gallery ---------- */
+/**
+ * Every card in one big grid, for checking card designs (debug servers only).
+ * Drag a card about and it springs back to its place; double-click, or
+ * double-tap, turns it over either way with the table's own flip.
+ */
+function cardGallery() {
+  document.title = "Card gallery · Golf";
+  const labels = { 1: "A", 11: "J", 12: "Q", 13: "K" };
+  // each card exactly as a hand card on the table: its size, and the hand's
+  // own slight tilts (in the same order, six to a hand)
+  const cards = ["S", "H", "D", "C"].flatMap((suit, row) =>
+    Array.from({ length: 13 }, (_, i) => {
+      const card = { rank: i + 1, label: labels[i + 1] || String(i + 1), suit };
+      const tilt = HAND_TILT[0][(row * 13 + i) % 6];
+      return `<button type="button" class="slot gallery-slot is-face" style="--rot:${tilt}deg" aria-label="${e(cardName(card))}"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(card)}</span></span></button>`;
+    }),
+  );
+  show(
+    "cards",
+    `<div class="page scroll">${subHeader("Card gallery")}<p class="hint dark">Drag cards around. Double-click (or double-tap) a card to turn it over.</p><div class="card-gallery">${cards.join("")}</div></div>`,
+  );
+}
+const gallery = { drag: null, lastTap: null, top: 1 };
+root.addEventListener("pointerdown", (event) => {
+  const slot = event.target.closest?.(".gallery-slot");
+  if (!slot || event.button > 0) return;
+  event.preventDefault();
+  const motion = motionFor(slot);
+  gallery.drag = {
+    slot,
+    motion,
+    pointer: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    fromX: motion.values.x?.value || 0,
+    fromY: motion.values.y?.value || 0,
+    moved: false,
+  };
+  slot.style.zIndex = String(++gallery.top); // the card in hand comes to the front
+  try {
+    slot.setPointerCapture(event.pointerId);
+  } catch {}
+  motion.to({ lift: 1, scale: 1.08 });
+});
+root.addEventListener("pointermove", (event) => {
+  const drag = gallery.drag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  const dx = event.clientX - drag.startX,
+    dy = event.clientY - drag.startY;
+  if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+  drag.moved = true;
+  drag.motion.to({ x: drag.fromX + dx, y: drag.fromY + dy, lean: Math.max(-12, Math.min(12, event.movementX * 0.8)) });
+});
+function endGalleryDrag(event) {
+  const drag = gallery.drag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  gallery.drag = null;
+  drag.motion.to({ x: 0, y: 0, lift: 0, scale: 1, lean: 0 }); // let go: back to its place
+  if (drag.moved || event.type === "pointercancel") return;
+  // a second tap on the same card, soon after the first: turn it over
+  const now = performance.now();
+  const last = gallery.lastTap;
+  if (last && last.slot === drag.slot && now - last.at < 350) {
+    gallery.lastTap = null;
+    haptic("flip");
+    flipSlot(drag.slot, !drag.slot.classList.contains("is-face"));
+  } else gallery.lastTap = { slot: drag.slot, at: now };
+}
+root.addEventListener("pointerup", endGalleryDrag);
+root.addEventListener("pointercancel", endGalleryDrag);
 
 /* ---------- account ---------- */
 let googleScript = null;
@@ -2183,10 +2462,12 @@ async function statsPage(fromUrl = false) {
 
 const RULE_EXAMPLES = {
   royal_pairs: [["Queen pair earns one bonus swap", ["QH",null,null,"QS",null,null]], ["Jack pair earns one bonus swap", ["JH",null,null,"JS",null,null]]],
-  devils_row: [["Three 6s lock this row", ["6H","6S","6D",null,null,null]]],
-  gamblers_row: [["Earn final score divided by 7, even if this row later breaks", ["7H","7S","7D",null,null,null]]],
-  crazy_eights: [["Earn final score divided by 8, as long as this row is still there at the end", ["8H","8S","8D",null,null,null]]],
-  angels_row: [["Earn opponent's final score times 9 during play", ["9H","9S","9D",null,null,null]]],
+  angel_numbers: [
+    ["666: every opponent's final score times 6", ["6H","6S","6D",null,null,null]],
+    ["777: your final score divided by 7", ["7H","7S","7D",null,null,null]],
+    ["888: every opponent's final score times 8", ["8H","8S","8D",null,null,null]],
+    ["999: your final score divided by 9", ["9H","9S","9D",null,null,null]],
+  ],
   king_queen: [["Same-color King-Queen column: 5 points", ["KH",null,null,"QD",null,null]], ["Different-color column: 15 points", ["KH",null,null,"QS",null,null]]],
   holdem: [["Five-card flush: -5 points", ["AH","3H","6H","8H","JH",null]], ["Five-card straight: -5 points", ["3H","4S","5D","6C","7H",null]], ["Full house: -5 points", ["3H","3S","3D","8C","8H",null]], ["Four of a kind: -5 points", ["4H","4S","4D","4C","AH",null]]],
   v10: [["10, J, Q in a V: final score divided by 5", ["10H",null,"JS",null,"QD",null]], ["Inverted V also counts", [null,"10H",null,"JS",null,"QD"]]],
@@ -2245,20 +2526,21 @@ function renderVoidOffer() {
   if (!dialog) {
     dialog = document.createElement("dialog");
     dialog.id = "void-dialog";
-    dialog.className = "social-dialog";
+    // laid out like the Leave dialog: a stacked sticker on the left, the wide choice beside it
+    dialog.className = "social-dialog leave-dialog";
     dialog.setAttribute("aria-label", "Void game offer");
     dialog.addEventListener("cancel", event => event.preventDefault());
     document.body.append(dialog);
   }
   const offer = state?.void_offer;
   if (!offer) { if (dialog.open) dialog.close(); delete dialog.dataset.offer; return; }
-  const own = offer.by === state.viewer;
+  const own = offer.by === state.viewer && !state.spectator;
   const expiry = typeof offer.expires_at === "number" ? offer.expires_at * 1000 : Date.parse(offer.expires_at);
   const seconds = Math.max(0, Math.min(30, Math.ceil((expiry - Date.now()) / 1000)));
   const signature = `${state.id}|${offer.by}|${offer.expires_at}`;
   if (dialog.dataset.offer !== signature) {
     dialog.dataset.offer = signature;
-    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO ELO CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own ? "" : `<div class="dialog-actions"><button type="button" class="btn c-p3" data-void-reply="accept">${padTag("y")}Accept</button><button type="button" class="btn c-p2" data-void-reply="decline">${padTag("x")}Decline</button></div>`}`;
+    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO ELO CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own || state.spectator ? "" : `<div class="dialog-actions signin-actions"><button type="button" class="close-btn c-p2" data-void-reply="decline">${icon("xmark.circle.fill", 30)}<span>${padTag("x")}Decline</span></button><button type="button" class="btn c-p3 grow" data-void-reply="accept">${tilted("eject.fill", 26)}<span>${padTag("y")}Accept</span></button></div>`}`;
   }
   dialog.querySelector("[data-void-seconds]").textContent = Number.isFinite(seconds) ? seconds : 30;
   if (!dialog.open) dialog.showModal();
@@ -2276,9 +2558,9 @@ function leaderboardBody(tab, result) {
   const solo = tab === "solo",
     rows = result[tab] || [];
   const mine = session.account ? "account:" + session.account.id : null;
-  const intro = `<p class="hint dark">${solo ? "Ranked by best Practice streak against Golfbot" : "Ranked by Elo from rated games"} · Patch ${e(result.patch)}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
+  const intro = `<p class="hint dark">${solo ? "Ranked by best solo streak against Golfbot" : "Ranked by Elo from rated games"} · Patch ${e(result.patch)}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
   if (!rows.length)
-    return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "Practice streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>`;
+    return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>`;
   const value = (row) => (solo ? row.best_streak : row.elo);
   const record = (row) => `${statNumber(row.wins)}–${statNumber(row.draws)}–${statNumber(row.losses)}`;
   const rate = (row) => (row.win_rate === null || row.win_rate === undefined ? "—" : statPercent(row.win_rate));
@@ -2307,6 +2589,12 @@ function leaderboardBody(tab, result) {
 }
 /** Records: the all-time bests, one card each. */
 function recordsBody(records = {}) {
+  return `<p class="hint dark">All-time bests from every saved game.</p><div class="records">${recordCards(records)
+    .map(({ html }) => html)
+    .join("")}</div>`;
+}
+/** Every record's card, with the record it shows (null while nobody holds it). */
+function recordCards(records = {}) {
   const mine = session.account ? "account:" + session.account.id : null;
   const who = (record) => `${record.id && record.id === mine ? youStar() : ""}${e(record.label)}`;
   const when = (at) => (at ? new Date(at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
@@ -2318,7 +2606,7 @@ function recordsBody(records = {}) {
         : `<p class="hint dark">${empty}</p>`
     }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
   const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked } = records;
-  return `<p class="hint dark">All-time bests from every saved game.</p><div class="records">${[
+  const cards = [
     card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
     card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet."),
     card(2, "c-p2", "arrow.up.right", "Biggest comeback", comeback, comeback?.points, "pts", comeback && `<strong>${who(comeback)}</strong> was ${comeback.points} pts behind${comeback.opponents?.length ? ` ${e(comeback.opponents.length === 1 ? comeback.opponents[0] : `${comeback.opponents.length} players`)}` : ""} and won${comeback.scores ? ` ${e(comeback.scores.join("–"))}` : ""}${comeback.at ? ` · ${when(comeback.at)}` : ""}`, "No comebacks yet. The winner has to have been behind at some point."),
@@ -2327,7 +2615,9 @@ function recordsBody(records = {}) {
     card(5, "c-p4", "wand.and.stars", "Least common modifier", least, least && statPercent(least.rate), "", least && `<strong>${e(least.name)}</strong> came into play in ${statNumber(least.active)} of ${games(least.games)} it was on`, "Not enough games with modifiers yet."),
     card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet."),
     card(7, "c-s6", "sparkles", "Most modifiers in a game", stacked, stacked?.count, "", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with modifiers yet."),
-  ].join("")}</div>`;
+  ];
+  const held = [elo, streak, comeback, today, most, least, clutch, stacked];
+  return cards.map((html, i) => ({ html, record: held[i] }));
 }
 /**
  * The leaderboard views (Solo, PVP, Records, Advanced stats) share one page: its header
@@ -2442,18 +2732,15 @@ async function navigate(target) {
   if (target === "patches") return patchesPage();
   if (target === "account") return accountPage();
   if (target === "rules") return rulesPage();
+  if (target === "cards") return cardGallery();
   if (target === "friends") return friendsPage();
+  if (target === "spectate") return spectatePage();
   if (target === "resume") {
     closeSheet();
     page = "room";
     return resume();
   }
-  if (target === "solo") {
-    // Practice goes straight to the avatar and rules step; a saved game keeps its own rules
-    const saved = await api("/api/practice");
-    startSetup("solo", saved);
-    return;
-  }
+  if (target === "solo") return playSolo();
   if (target === "host") {
     if (document.getElementById("username")) saveName(name());
     return startSetup(target);
@@ -2532,6 +2819,11 @@ document.addEventListener("click", async (event) => {
     }
     if ("summaryEmotes" in data) {
       board.summaryEmotes = !board.summaryEmotes;
+      return renderSummary();
+    }
+    if ("chartCycle" in data) {
+      const views = chartViews();
+      board.chartView = views[(views.indexOf(chartView()) + 1) % views.length];
       return renderSummary();
     }
     if ("summaryToggle" in data) {
@@ -2650,6 +2942,16 @@ document.addEventListener("click", async (event) => {
       Object.assign(session, keep);
       return home();
     }
+    if ("debugEnd" in data) {
+      closeSheet();
+      setDebugTool(null);
+      return debugEdit({ op: "end" });
+    }
+    if (data.debugTool) {
+      closeSheet();
+      return setDebugTool(data.debugTool);
+    }
+    if ("debugDone" in data) return setDebugTool(null);
     if ("debugBots" in data) {
       if (!(await abandonExisting())) return;
       saveName(name());
@@ -2721,6 +3023,8 @@ document.addEventListener("click", async (event) => {
       if (epoch === tableEpoch) enterRoom(next);
       return;
     }
+    if ("leave" in data && state?.spectator) return spectatePage();
+    if ("watch" in data) return watchGame(data.watch);
     if ("leave" in data) {
       const epoch = tableEpoch;
       if (!(await abandonExisting())) return;
@@ -2907,6 +3211,7 @@ function route() {
   if (path === "/leaderboard") return leaderboardPage();
   if (path === "/stats") return statsPage(true);
   if (path === "/history") return historyPage();
+  if (path === "/spectate") return spectatePage();
   const id = path.match(/^\/lobby\/([^/]+)$/)?.[1];
   if (id) return publicLobby(id);
   return home();

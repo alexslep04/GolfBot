@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from records import build_records, most_games_today
+from records import build_records, most_games_today, player_card
 
 
 def match(rounds, names=('Ann', 'Bob')):
@@ -33,9 +33,9 @@ class RecordTests(unittest.TestCase):
     def test_comeback_modifier_counts_only_the_winners_modifiers_in_comeback_wins(self):
         comeback = lambda winner, active: {'winner': winner, 'timeline': [[20, 5], [5, 20]] if winner == 0 else [[5, 20], [20, 5]],
                                             'activations': active}
-        results = [match([comeback(0, [['devils_row', 'royal_pairs'], ['king_queen']]),
-                          comeback(1, [['devils_row'], ['royal_pairs']]),
-                          {'winner': 0, 'timeline': [[1, 9]], 'activations': [['devils_row'], []]}])]  # never behind
+        results = [match([comeback(0, [['angel_numbers', 'royal_pairs'], ['king_queen']]),
+                          comeback(1, [['angel_numbers'], ['royal_pairs']]),
+                          {'winner': 0, 'timeline': [[1, 9]], 'activations': [['angel_numbers'], []]}])]  # never behind
         record = build_records(results)['comeback_modifier']
         self.assertEqual((record['key'], record['wins']), ('royal_pairs', 2))
 
@@ -48,12 +48,12 @@ class RecordTests(unittest.TestCase):
     def test_most_common_is_the_most_activated_never_beggars(self):
         # Devil's Row is on in only one game but activated by both players twice over;
         # Royal Pairs is on in every game but activated less often in total
-        often = {'rules': {'royal_pairs': True, 'devils_row': True, 'beggars': True},
-                 'activations': [['devils_row', 'beggars'], ['devils_row', 'beggars']]}
+        often = {'rules': {'royal_pairs': True, 'angel_numbers': True, 'beggars': True},
+                 'activations': [['angel_numbers', 'beggars'], ['angel_numbers', 'beggars']]}
         rare = {'rules': {'royal_pairs': True, 'beggars': True}, 'activations': [['royal_pairs', 'beggars'], ['beggars']]}
         records = build_records([match([often, often, rare, rare])])
         most = records['most_modifier']
-        self.assertEqual((most['key'], most['activations']), ('devils_row', 4))
+        self.assertEqual((most['key'], most['activations']), ('angel_numbers', 4))
 
     def test_pvp_streak_counts_1v1_wins_in_a_row_against_people_only(self):
         won = lambda winner, at: {'winner': winner, 'scores': [1, 2], 'ended_at': at}
@@ -62,6 +62,18 @@ class RecordTests(unittest.TestCase):
                    {**match([won(0, 8)] * 5), 'solo': True}]  # wins against Golfbot never count
         streak = build_records(results)['pvp_streak']
         self.assertEqual((streak['label'], streak['streak']), ('Bob', 3))
+
+    def test_player_card_has_elo_own_best_streak_and_only_records_held(self):
+        won = lambda winner, at: {'winner': winner, 'scores': [1, 2], 'ended_at': at}
+        results = [match([won(0, 1), won(0, 2), won(1, 3), won(0, 4)]),  # Ann: 2
+                   match([won(0, 5), won(0, 6), won(0, 7)], names=('Bob', 'Cy'))]  # Bob: 3
+        ratings = [{'id': 'player:Ann', 'label': 'Ann', 'elo': 1080}, {'id': 'player:Bob', 'label': 'Bob', 'elo': 1010}]
+        ann = player_card(results, ratings, 'player:Ann')
+        self.assertEqual((ann['elo'], ann['pvp_streak']), (1080, 2))
+        self.assertEqual(set(ann['records']), {'highest_elo'})
+        bob = player_card(results, ratings, 'player:Bob')
+        self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak'}))
+        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'elo': None, 'pvp_streak': 0, 'records': {}})
 
     def test_most_games_today_skips_earlier_days_and_bots(self):
         now = time.time()
@@ -73,17 +85,17 @@ class RecordTests(unittest.TestCase):
         self.assertEqual((record['label'], record['games']), ('Ann', 3))
 
     def test_most_modifiers_in_a_single_game(self):
-        game = {'winner': 0, 'scores': [1, 2], 'activations': [['royal_pairs', 'devils_row'], ['holdem', 'v10', 'beggars']]}
+        game = {'winner': 0, 'scores': [1, 2], 'activations': [['royal_pairs', 'angel_numbers'], ['holdem', 'v10', 'beggars']]}
         record = build_records([match([game])])['modifiers_in_game']
         self.assertEqual((record['label'], record['count']), ('Bob', 3))
 
     def test_modifiers_rank_by_how_often_they_come_into_play_when_on(self):
-        game = lambda active: {'rules': {'royal_pairs': True, 'devils_row': True, 'beggars': False},
+        game = lambda active: {'rules': {'royal_pairs': True, 'angel_numbers': True, 'beggars': False},
                                'activations': [active, []]}
-        results = [match([game(['royal_pairs']), game(['royal_pairs', 'devils_row']), game([])])]
+        results = [match([game(['royal_pairs']), game(['royal_pairs', 'angel_numbers']), game([])])]
         records = build_records(results)
         self.assertEqual((records['most_modifier']['key'], records['most_modifier']['active']), ('royal_pairs', 2))
-        self.assertEqual((records['least_modifier']['key'], records['least_modifier']['games']), ('devils_row', 3))
+        self.assertEqual((records['least_modifier']['key'], records['least_modifier']['games']), ('angel_numbers', 3))
 
 
 if __name__ == '__main__':

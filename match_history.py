@@ -7,6 +7,8 @@ import sqlite3
 import threading
 import time
 
+from game import upgrade_rule_counts, upgrade_rule_keys, upgrade_rule_values
+
 
 def browser_key(token):
     return hashlib.sha256(token.encode()).hexdigest() if token else None
@@ -72,13 +74,31 @@ class MatchHistory:
                     self.connection.execute('INSERT INTO match_seats VALUES (?, ?, ?) ON CONFLICT(match_id, seat) DO UPDATE SET browser=excluded.browser',
                                             (room.match_id, seat, browser_key(token)))
 
+    @staticmethod
+    def _upgrade(match):
+        """A saved match with retired rule keys read as the rules that replaced them."""
+        if isinstance(match.get('rules'), dict):
+            match['rules'] = upgrade_rule_values(match['rules'])
+        for game in match.get('rounds') or []:
+            if not isinstance(game, dict):
+                continue
+            if isinstance(game.get('rules'), dict):
+                game['rules'] = upgrade_rule_values(game['rules'])
+            if isinstance(game.get('activations'), list):
+                game['activations'] = [upgrade_rule_keys(keys) if isinstance(keys, list) else keys
+                                       for keys in game['activations']]
+            if isinstance(game.get('modifier_counts'), list):
+                game['modifier_counts'] = [upgrade_rule_counts(counts) if isinstance(counts, dict) else counts
+                                           for counts in game['modifier_counts']]
+        return match
+
     def for_browser(self, token, limit=100, offset=0):
         """List everyone's matches; identify the viewer's seat only if they played."""
         key = browser_key(token)
         with self.lock:
             rows = self.connection.execute("SELECT id, host, guest, payload FROM matches ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
             viewers = {match_id: seat for match_id, seat in self.connection.execute('SELECT match_id, seat FROM match_seats WHERE browser=?', (key,))} if key else {}
-        return [{**json.loads(payload), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
+        return [{**self._upgrade(json.loads(payload)), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
                 for match_id, host, guest, payload in rows]
 
     def solo_streak(self, token):
@@ -113,7 +133,7 @@ class MatchHistory:
                 seats.setdefault(match_id, {})[seat] = browser
         results = []
         for match_id, host, guest, payload in rows:
-            match = json.loads(payload)
+            match = self._upgrade(json.loads(payload))
             browsers = {0: host, 1: guest, **seats.get(match_id, {})}
             names = match.get('names') or []
             participants = list(match.get('participants') or [])

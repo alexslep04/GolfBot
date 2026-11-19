@@ -1,6 +1,7 @@
 import unittest
 from itertools import product
 from game import Card, GolfGame, Rules, Slot
+from scoring import modifier_data
 
 
 def place_cards(game, player, placements):
@@ -297,14 +298,14 @@ class GolfTests(unittest.TestCase):
         self.assert_conservation(game)
 
     def test_final_reveal_does_not_activate_disabled_pairs_or_other_reveal_rewards(self):
-        game = self.start(rules=Rules(gamblers_row=True, poisoned_card=True))
+        game = self.start(rules=Rules(angel_numbers=True, poisoned_card=True))
         place_cards(game, 0, {0: Card(7, 'H'), 1: Card(7, 'D'), 2: Card(7, 'S'),
                               3: Card(12, 'H'), 4: Card(4, 'H'), 5: Card(12, 'S')})
         game.players[0][2].visible = False
         game.current, game.finisher, game.final_player, game.is_final_turn = 0, 1, 0, True
         game._complete_turn()
         self.assertEqual(game.phase, 'over')
-        self.assertEqual(game.gambler_earned, [False, False])
+        self.assertEqual(game.angels_earned, [set(), set()])
         self.assertEqual(game.finisher, 1)
         self.assertEqual(game.used_pairs, set())
 
@@ -352,35 +353,58 @@ class GolfTests(unittest.TestCase):
                 self.assert_conservation(game)
 
     def test_angels_persists_and_multiplies_opponents_score_before_rounding(self):
-        game = self.start(rules=Rules(angels_row=True, v10=True, roman_fives=True))
+        game = self.start(rules=Rules(angel_numbers=True, v10=True, roman_fives=True))
         game.players = [
             [Slot(Card(rank, suit), True) for rank, suit in zip([9, 9, 9, 3, 4, 5], 'SHDCSH')],
             [Slot(Card(rank, suit), True) for rank, suit in zip([10, 4, 11, 5, 12, 1], 'SHDCSH')],
         ]
         game.players[0][2].visible = False
         game._update_combos()
-        self.assertFalse(game.angel_earned[0])
+        self.assertEqual(game.angels_earned[0], set())
         self.assertEqual(game.score(1), 4)  # 40 / 10.
         game.players[0][2].visible = True
         game._update_combos()
-        self.assertTrue(game.angel_earned[0])
-        self.assertEqual(game.score(1), 36)  # 40 * 9 / 10.
-        self.assertIn('angels_row', game.activated_rules[0])
+        self.assertEqual(game.angels_earned[0], {9})
+        # 999 now divides its owner's score; it no longer touches the opponent
+        self.assertEqual(game.score(1), 4)
+        self.assertEqual(game.score(0), 5)  # 9 + 9 + 9 + 3 + 4 + 5 = 39, /9 rounded up
+        self.assertIn('angel_numbers', game.activated_rules[0])
         game.players[0][2] = Slot(Card(13, 'C'), True)
         game._update_combos()
-        self.assertEqual(game.score(1), 36)
-        game.players[1] = [Slot(Card(2, suit), True) for suit in 'SHDC'] + [Slot(Card(13, suit), True) for suit in 'SH']
-        self.assertEqual(game.score(1), -36)  # Unpaired twos still use their negative Golf value.
+        self.assertEqual(game.angels_earned[0], {9})
+        self.assertEqual(game.score(0), 4)  # 30 / 9 rounded up: the row broke, 999 stays
+
+    def test_angel_666_and_888_multiply_every_opponent_and_stack(self):
+        game = GolfGame(rules=Rules(angel_numbers=True), multiplayer=True, player_count=3)
+        game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip([6, 6, 6, 8, 8, 8], 'SHDSHD')]
+        game.players[1] = [Slot(Card(rank, suit), True) for rank, suit in zip([1, 3, 4, 13, 13, 13], 'SHDCSH')]
+        game.players[2] = [Slot(Card(rank, suit), True) for rank, suit in zip([1, 1, 3, 4, 4, 13], 'CDSCDH')]
+        game._update_combos()
+        self.assertEqual(game.angels_earned[0], {6, 8})
+        self.assertEqual(game.score(1), 8 * 48)  # 1 + 3 + 4 = 8, times 6 times 8
+        self.assertEqual(game.score(2), 13 * 48)  # every opponent, not just one
+        self.assertEqual(game.score(0), 42)  # multipliers never touch their owner
+        game.players[0][0] = Slot(Card(13, 'C'), True)
+        game._update_combos()
+        self.assertEqual(game.score(1), 8 * 48)  # broken rows keep their numbers
+
+    def test_angel_777_and_999_divide_their_owner_and_stack(self):
+        game = self.start(rules=Rules(angel_numbers=True))
+        game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip([7, 7, 7, 9, 9, 9], 'SHDSHD')]
+        game._update_combos()
+        self.assertEqual(game.angels_earned[0], {7, 9})
+        self.assertEqual(game.score(0), 1)  # 48 / 63 rounded up
+        self.assertEqual(modifier_data(game)['modifier_counts'][0], {'angel_numbers': 2})
 
     def test_final_forced_reveal_does_not_earn_angels(self):
-        game = self.start(rules=Rules(angels_row=True))
+        game = self.start(rules=Rules(angel_numbers=True))
         place_cards(game, 0, {0: Card(9, 'S'), 1: Card(9, 'H'), 2: Card(9, 'D')})
         game.players[0][2].visible = False
         game.is_final_turn = True
         game._complete_turn()
         self.assertEqual(game.phase, 'over')
-        self.assertEqual(game.angel_earned, [False, False])
-        self.assertNotIn('angels_row', game.activated_rules[0])
+        self.assertEqual(game.angels_earned, [set(), set()])
+        self.assertNotIn('angel_numbers', game.activated_rules[0])
 
     def test_activation_log_keeps_rules_that_triggered_before_layout_changed(self):
         game = self.prepare_pair()
@@ -389,12 +413,12 @@ class GolfTests(unittest.TestCase):
         game.bonus_swap((0, 0), (1, 1))
         self.assertIn('royal_pairs', game.activated_rules[0])
         place_cards(game, 0, {0: Card(6, 'H'), 1: Card(6, 'S'), 2: Card(6, 'D')})
-        game.rules.devils_row = True
+        game.rules.angel_numbers = True
         for slot in game.players[0][:3]:
             slot.visible = True
         game._update_combos()
         game.players[0][2].visible = False
-        self.assertIn('devils_row', game.activated_rules[0])
+        self.assertIn('angel_numbers', game.activated_rules[0])
 
     def test_bonus_swaps_opponent_and_piles_without_peeking(self):
         pairs = [((0, 1), (1, 5)), (("draw", None), (1, 5)), (("discard", None), (1, 5)), (("draw", None), ("discard", None))]
@@ -475,35 +499,32 @@ class GolfTests(unittest.TestCase):
         self.assertEqual(game.turns, 2)
         self.assert_conservation(game)
 
-    def test_666_locks_only_revealed_row_and_bonus_overrides(self):
-        game = self.prepare_pair(rules=Rules(royal_pairs=True, devils_row=True))
+    def test_angel_666_row_does_not_lock_its_cards(self):
+        game = self.prepare_pair(rules=Rules(royal_pairs=True, angel_numbers=True))
         place_cards(game, 1, {0: Card(6, "H"), 1: Card(6, "S"), 2: Card(6, "D")})
         for slot in game.players[1][:3]:
             slot.visible = True
         game.reveal(2)
-        self.assertEqual(len(game.locked_cards), 3)
+        self.assertEqual(game.angels_earned[1], {6})
         game.end_turn()
         six = game.players[1][0].card
         game.bonus_swap((1, 0), (0, 1))
         self.assertEqual(game.players[0][1].card, six)
-        self.assertIn(six, game.locked_cards)
         game.opponent_turn()
-        self.assertNotIn(1, game.targets())
-        with self.assertRaises(ValueError):
-            game.swap(1)
+        self.assertIn(1, game.targets())
         self.assert_conservation(game)
 
     def test_777_earned_once_persists_and_rounds_up(self):
-        game = self.start(rules=Rules(gamblers_row=True))
+        game = self.start(rules=Rules(angel_numbers=True))
         place_cards(game, 0, {0: Card(7, "H"), 1: Card(7, "S"), 2: Card(7, "D"), 3: Card(13, "H"), 4: Card(13, "S"), 5: Card(13, "D")})
-        self.assertFalse(game.gambler_earned[0])
+        self.assertEqual(game.angels_earned[0], set())
         game.reveal(2)
-        self.assertTrue(game.gambler_earned[0])
+        self.assertEqual(game.angels_earned[0], {7})
         self.assertEqual(game.score(0), 3)
         self.assertEqual(game.score(0, True), 21)
         game.draw()
         game.swap(2)
-        self.assertTrue(game.gambler_earned[0])
+        self.assertEqual(game.angels_earned[0], {7})
         self.assertEqual(game.score(0), (game.score(0, True) + 6) // 7)
 
     def test_king_queen_color_scores_and_disabled_baseline(self):
@@ -518,7 +539,9 @@ class GolfTests(unittest.TestCase):
 
     def test_five_hundred_rounds_with_rules_and_every_path(self):
         for seed in range(500):
-            game = self.start(seed, Rules(**{key: bool(seed & (1 << i)) for i, key in enumerate(Rules.__dataclass_fields__)}))
+            # this driver plays no guess or arrange phases, so Beggars and 4 of a Kind stay off
+            keys = [key for key in Rules.__dataclass_fields__ if key not in ('beggars', 'four_kind')]
+            game = self.start(seed, Rules(**{key: bool(seed & (1 << i)) for i, key in enumerate(keys)}))
             for step in range(100):
                 if game.phase == "over":
                     break

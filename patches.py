@@ -10,9 +10,11 @@ PATCH_NOTES = [{
             "The Ripped 5: the 5 of diamonds now cancels out any other 5 in the opposite row, regardless of whether or not it is in an already canceled-out column.",
             "Poisoned Card: going out first now adds 1 point instead of 2.",
             "Beggars Will be Choosers: at a table of three or more, only the player who comes next can guess.",
+            "Roman 5s is now called V2.",
+            "Suited rows is now part of House rules.",
         ],
         "additions": [
-            "Crazy 888! Three 8s in a row divide your final score by 8, rounded up. Check the final hand; apply once, even with two rows of 8s, after additions and before rounding up once.",
+            "Angel numbers! 666, 777, 888 and 999 are now one rule. A face-up row of three 6s or 8s multiplies every opponent's final score by 6 or 8; three 7s or 9s divide your own by 7 or 9. Once earned, a number counts even if the row breaks.",
         ],
     },
     "changes": [
@@ -27,6 +29,8 @@ PATCH_NOTES = [{
         "New stat: average time spent on move.",
         "Notifications! Get alerted when it's your turn.",
         "High contrast cards! Turn them on in settings for orange diamonds and blue clubs.",
+        "Practice is now Play solo: one tap starts a House rules game against Golfbot, or picks up the one you left.",
+        "Spectate! Watch any game in play, solo games included, and cheer with emotes as a Spectator. You'll follow the players to their next game.",
     ],
 }, {
     "version": "1.2.0",

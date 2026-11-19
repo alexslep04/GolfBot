@@ -102,36 +102,47 @@ class RevisedRulesTests(unittest.TestCase):
 
     def test_live_totals_agree_with_scores_when_all_cards_known(self):
         for seat in (0, 1):
-            game = GolfGame(rules=Rules(tricky_straights=True, poisoned_card=True, v10=True, roman_fives=True, gamblers_row=True))
+            game = GolfGame(rules=Rules(tricky_straights=True, poisoned_card=True, v10=True, roman_fives=True, angel_numbers=True))
             game.players = [hand([1, 2, 3, 6, 6, 6]), hand([12, 4, 10, 5, 11, 1])]
             game.finisher = seat
-            game.gambler_earned = [True, True]
+            game.angels_earned = [{7}, {7}]
             for player in (0, 1):
-                self.assertEqual(game.score(player), visible_effect_total(game.players[player], game.rules, True, game.players[1-player], seat == player))
+                self.assertEqual(game.score(player), visible_effect_total(game.players[player], game.rules, {7}, game.players[1-player], seat == player))
 
 
 if __name__ == '__main__':
     unittest.main()
 
 
-class CrazyEightsTests(unittest.TestCase):
-    def test_a_row_of_three_eights_divides_the_final_score_by_eight(self):
-        game = GolfGame(rules=Rules(crazy_eights=True))
-        game.players[0] = hand([8, 8, 8, 10, 4, 12])  # 3 x 8 + 10 + 4 + 10 = 48
-        self.assertEqual(game.score(0), 6)  # 48 / 8
-        self.assertIn('crazy_eights', scoring_rule_keys(game.players[0], game.rules))
-        self.assertIn('Crazy 888 /8', active_rule_effects(game.players[0], game.rules))
-        # off, or with one 8 hidden, nothing divides
-        self.assertEqual(score_adjustments(game.players[0], Rules())[1], 1)
-        game.players[0][1].visible = False
-        self.assertNotIn('crazy_eights', scoring_rule_keys(game.players[0], game.rules))
+class AngelNumbersTests(unittest.TestCase):
+    def test_a_row_of_three_eights_multiplies_every_opponent_by_eight(self):
+        game = GolfGame(rules=Rules(angel_numbers=True), multiplayer=True, player_count=3)
+        game.players[0] = hand([8, 8, 8, 10, 4, 12])
+        game.players[1] = hand([1, 3, 4, 13, 13, 13])  # 8
+        game.players[2] = hand([1, 1, 1, 13, 13, 13])  # 3
+        game._update_combos()
+        self.assertEqual(game.angels_earned[0], {8})
+        self.assertEqual((game.score(0), game.score(1), game.score(2)), (48, 64, 24))
+        self.assertIn('Angel 888: opponents ×8', active_rule_effects(game.players[0], game.rules, game.angels_earned[0]))
+        # its owner keeps 888 once the row breaks
+        game.players[0][1] = Slot(Card(13, 'S'), True)
+        game._update_combos()
+        self.assertEqual(game.score(1), 64)
 
-    def test_two_rows_of_eights_still_divide_once(self):
-        game = GolfGame(rules=Rules(crazy_eights=True), multiplayer=True, player_count=3)
-        game.players[0] = hand([8, 8, 8, 8, 8, 8])  # every column a pair: 0
-        game.players[0][0] = Slot(Card(8, 'S'), True)
-        self.assertEqual(score_adjustments(game.players[0], game.rules)[1], 8)
+    def test_two_rows_of_one_number_earn_it_once(self):
+        game = GolfGame(rules=Rules(angel_numbers=True))
+        game.players[0] = hand([8, 8, 8, 8, 8, 8])
+        game.players[1] = hand([1, 3, 4, 13, 13, 13])
+        game._update_combos()
+        self.assertEqual(game.score(1), 64)
 
-    def test_crazy_eights_is_a_house_rule(self):
+    def test_angel_numbers_is_a_house_rule(self):
         from match_settings import house_rules
-        self.assertTrue(house_rules()['crazy_eights'])
+        self.assertTrue(house_rules()['angel_numbers'])
+
+    def test_saved_rules_and_results_with_the_old_rules_read_as_angel_numbers(self):
+        from game import rules_from, upgrade_rule_counts, upgrade_rule_keys
+        self.assertTrue(rules_from({'gamblers_row': True, 'crazy_eights': False, 'v10': True}).angel_numbers)
+        self.assertFalse(rules_from({'devils_row': False, 'angels_row': False}).angel_numbers)
+        self.assertEqual(upgrade_rule_keys(['devils_row', 'v10', 'angels_row']), ['angel_numbers', 'v10'])
+        self.assertEqual(upgrade_rule_counts({'gamblers_row': 1, 'angels_row': 1, 'v10': 1}), {'angel_numbers': 2, 'v10': 1})

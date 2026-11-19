@@ -11,7 +11,7 @@ from game import GolfGame
 def mirror(game):
     """Temporarily map seat zero to the legacy bot's seat-one interface."""
     game.players.reverse()
-    game.gambler_earned.reverse()
+    game.angels_earned.reverse()
     game.four_offered.reverse()
     for attr in ("current", "first_player", "finisher", "final_player"):
         value = getattr(game, attr)

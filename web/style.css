@@ -187,7 +187,7 @@
    Golf uses pale green. The few rules a theme needs beyond its tokens (its
    backdrop, its card back) sit beside the rule they replace, marked "Poker:". */
 :root[data-theme="poker"] {
-  --bg: #0d3525;
+  --bg: #021b14;
   --felt: #17573b; /* the lit middle of the table */
   --gold: #c9a961;
   --fw: #3f8a64;
@@ -429,23 +429,15 @@ body {
   background: var(--bg) url(assets/fairway.svg) center / auto
     min(148vh, max(122vh, 250vw)) no-repeat;
 }
-/* Poker: no fairway. The table is felt, lit from above the middle and falling
-   away to a dark rail, with a fine grain and one thin gold line set in from
-   the edge, like the betting line on a card table. */
+/* Night Golf: the same course after dark */
 :root[data-theme="night"] #backdrop {
   background-image: url(assets/fairway-night.svg);
 }
+/* Poker: a felt card table in place of the fairway, the same shape and size,
+   with the dark room around it running out to every edge of the screen */
 :root[data-theme="poker"] #backdrop {
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.11 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-    radial-gradient(ellipse 90% 70% at 50% 42%, var(--felt) 0%, #124a32 58%, var(--bg) 100%);
-}
-:root[data-theme="poker"] #backdrop::after {
-  content: "";
-  position: absolute;
-  inset: max(1.2rem, env(safe-area-inset-top)) 1.2rem max(1.2rem, env(safe-area-inset-bottom));
-  border: 0.15rem solid color-mix(in srgb, var(--gold) 34%, transparent);
-  border-radius: 3.2rem;
+  background-color: #021b14;
+  background-image: url(assets/poker-table.svg);
 }
 .svg-defs {
   position: absolute;
@@ -900,6 +892,16 @@ p {
 /* room for the controller glyph beside "Leaderboard" */
 :root.pad-on .split .btn.tile {
   font-size: 1.85rem;
+}
+/* three across (Spectate, Leaderboard, Rules): smaller still, and tighter */
+.split.three {
+  gap: 0.8rem;
+}
+.split.three .btn.tile,
+:root.pad-on .split.three .btn.tile {
+  min-width: 0;
+  padding-inline: 0.4rem;
+  font-size: 1.6rem;
 }
 .btn.round {
   width: 7.2rem;
@@ -2131,6 +2133,89 @@ button.tag-rules:active > .tag-in {
 :root.contrast-cards[data-theme="night"] .face.front.suit-C {
   background-image: url(assets/card-face-blue-night.png);
 }
+/* The ripped 5 (the 5 of diamonds): the same face, torn across the middle.
+   Its faces are made from the ordinary ones by tools/design/make_ripped_five.py
+   (the torn edges carry that face's own border), so rerun it when the faces
+   change. The face is drawn as two halves, each masked to its side of the
+   tear, so the halves can come apart as the card turns over. */
+.face.front.ripped {
+  --rip-face: url(assets/card-face-red-ripped.png);
+  /* the halves draw the face; the whole face behind them would fill the tear
+     (and every theme's face rule outranks this one, hence !important) */
+  background-image: none !important;
+}
+:root:is([data-theme="poker"], [data-theme="night"]) .face.front.ripped {
+  --rip-face: url(assets/card-face-red-dark-ripped.png);
+}
+:root[data-theme="night"] .face.front.ripped {
+  --rip-face: url(assets/card-face-red-night-ripped.png);
+}
+:root.contrast-cards .face.front.ripped {
+  --rip-face: url(assets/card-face-orange-ripped.png);
+}
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"]) .face.front.ripped {
+  --rip-face: url(assets/card-face-orange-dark-ripped.png);
+}
+:root.contrast-cards[data-theme="night"] .face.front.ripped {
+  --rip-face: url(assets/card-face-orange-night-ripped.png);
+}
+.rip-half {
+  position: absolute;
+  inset: 0;
+  background: var(--rip-face) center / 100% 100% no-repeat;
+}
+.rip-half.top {
+  -webkit-mask: url(assets/ripped-five-top.svg) center / 100% 100% no-repeat;
+  mask: url(assets/ripped-five-top.svg) center / 100% 100% no-repeat;
+  transform-origin: 0% 55%; /* the tear starts at the left: it opens from there */
+}
+.rip-half.bottom {
+  -webkit-mask: url(assets/ripped-five-bottom.svg) center / 100% 100% no-repeat;
+  mask: url(assets/ripped-five-bottom.svg) center / 100% 100% no-repeat;
+  transform-origin: 100% 45%;
+}
+/* the rank and suit ride on their own halves, above them */
+.ripped > .corner {
+  position: relative;
+  z-index: 1;
+}
+/* layered like this, each part needs hiding on its own when the card is face
+   down (the face's backface-visibility no longer covers them) */
+.ripped > * {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+/* Turned face up: the halves start pressed together over the tear, pull
+   apart a touch past where they rest, and settle. Small: it's a tear, not a
+   card falling in two. (translate/rotate, so the corners keep their tilt.) */
+.ripped.tearing > .rip-half.top,
+.ripped.tearing > .rip-half + .rip-half + .corner {
+  animation: tear-top 0.75s cubic-bezier(0.25, 0.9, 0.3, 1.25) 0.12s backwards;
+}
+.ripped.tearing > .rip-half.bottom,
+.ripped.tearing > .corner + .corner {
+  animation: tear-bottom 0.75s cubic-bezier(0.25, 0.9, 0.3, 1.25) 0.12s backwards;
+}
+@keyframes tear-top {
+  from {
+    translate: 0.3% 2.6%;
+    rotate: 1.2deg;
+  }
+  45% {
+    translate: -0.5% -0.9%;
+    rotate: -1.6deg;
+  }
+}
+@keyframes tear-bottom {
+  from {
+    translate: -0.3% -2.6%;
+    rotate: 1.2deg;
+  }
+  45% {
+    translate: 0.5% 0.9%;
+    rotate: -1.4deg;
+  }
+}
 .corner {
   display: flex;
   flex-direction: column;
@@ -2228,19 +2313,6 @@ button.tag-rules:active > .tag-in {
 }
 .slot.incoming .card {
   visibility: hidden;
-}
-.slot.locked .lock {
-  display: grid;
-}
-.lock {
-  display: none;
-  position: absolute;
-  inset: 0;
-  place-items: center;
-  --fill: var(--p3);
-  --stroke: var(--paper);
-  pointer-events: none;
-  transform: translateZ(1px);
 }
 /* drop targets shown while a drag (or a selection) is active */
 .slot.target::before {
@@ -2372,6 +2444,22 @@ button.tag-rules:active > .tag-in {
 }
 .callout.pop {
   animation: pop 0.4s var(--spring);
+}
+/* "Sign in to keep your stats", hanging under the settings gear */
+.topbar {
+  position: relative;
+}
+.queue-pill.signin-tip {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0.4rem;
+  z-index: 20;
+  cursor: pointer;
+  animation: pop 0.4s var(--spring);
+  transition: opacity 0.3s;
+}
+.queue-pill.signin-tip.leaving {
+  opacity: 0;
 }
 @keyframes pop {
   from {
@@ -2782,6 +2870,17 @@ button.tag-rules:active > .tag-in {
   box-shadow: 0.25rem 0.25rem 0 var(--shadow);
   transform-origin: 100% 50%;
 }
+/* a spectator's emote: the same white tooltip, floating mid-table with no arrow */
+.player-emote.other.spectator {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  translate: -50% 0;
+  transform-origin: 50% 50%;
+}
+.player-emote.other.spectator::after {
+  content: none;
+}
 .player-emote.other::after {
   content: "";
   position: absolute;
@@ -3172,6 +3271,40 @@ button.tag-rules:active > .tag-in {
   padding: 0 0.6rem 0.4rem;
   font-size: 1.4rem;
 }
+/* the name-tag popup's Elo, streak and records */
+.player-card {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+.player-card .leader-list {
+  margin: 0;
+}
+.player-card-head {
+  font-size: 1.6rem;
+}
+.chart-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+/* steps the graph between this game, each game, and the series */
+.chart-cycle {
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  padding: 0;
+  border: 0.2rem solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.chart-cycle:active {
+  transform: scale(0.9);
+}
 .eval-chart figcaption small {
   font-size: 1.1rem;
   color: var(--gray);
@@ -3441,6 +3574,43 @@ button.tag-rules:active > .tag-in {
 .rank-sticker:active {
   transform: scale(0.88);
   transition-duration: 0.08s;
+}
+/* debug: the card picker's suits, and the bar shown while a card tool is on */
+.debug-suits {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.2rem;
+}
+.debug-suit {
+  display: grid;
+  place-items: center;
+  width: 5.6rem;
+  height: 5.6rem;
+  border: 0.3rem solid transparent;
+  border-radius: 1.6rem;
+  background: var(--paper);
+  cursor: pointer;
+  --fill: var(--ink);
+  --stroke: var(--paper);
+}
+.debug-suit.red {
+  --fill: var(--p2);
+}
+.debug-suit.on {
+  border-color: var(--c);
+}
+.debug-bar {
+  position: fixed;
+  left: 50%;
+  top: calc(0.8rem + env(safe-area-inset-top));
+  z-index: 90;
+  max-width: calc(100% - 3.2rem);
+  transform: translateX(-50%);
+  animation: pop 0.4s var(--spring);
+}
+.debug-label {
+  margin-top: 0.8rem;
 }
 .cols .btn {
   min-height: 4.8rem;
@@ -4329,6 +4499,25 @@ button:disabled > .haptic-switch {
   gap: 0.8rem;
   padding: 2.8rem 1.6rem;
   text-align: center;
+}
+/* Debug card gallery: every card, laid out in suits, free to drag about */
+/* (cards keep the table's own card size, 8.822 x 12.3rem, which their faces
+   and labels are drawn for, and the hand's spacing) */
+.card-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 8.822rem);
+  justify-content: center;
+  gap: 0.8rem;
+  margin-top: 1.6rem;
+}
+.gallery-slot {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: grab;
+}
+.gallery-slot:active {
+  cursor: grabbing;
 }
 .leader-empty > p:first-of-type {
   font: 700 2rem/1.2 var(--text);

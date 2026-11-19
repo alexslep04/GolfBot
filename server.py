@@ -21,14 +21,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from copy import copy
-from game import Card, GolfGame, Rules, RULE_OPTIONS, Slot
+from game import Card, GolfGame, Rules, RULE_OPTIONS, Slot, upgrade_rule_values, rules_from
 from rule_help import load_rule_help
 from match_history import MatchHistory
 from progression import Progression
 import practice_save
 from player_stats import build_stats
-from records import build_records
-from scoring import active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data, scoring_rule_keys
+from records import build_records, player_card
+from scoring import (active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data,
+                     scoring_rule_keys, ANGEL_RANKS)
 from bot import fallback_action, legal_actions, play_action, public_position
 from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
@@ -110,6 +111,14 @@ class InviteReply(BaseModel):
     avatar: str | None = Field(default=None, max_length=32)
 
 
+class DebugEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    op: Literal["end", "flip", "set"]
+    ref: list[StrictInt] | None = Field(default=None, min_length=2, max_length=2)
+    rank: StrictInt | None = Field(default=None, ge=1, le=13)
+    suit: Literal["S", "H", "D", "C"] | None = None
+
+
 class Move(BaseModel):
     model_config = ConfigDict(extra="forbid")
     action: Literal["flip", "draw", "swap", "discard", "end_turn", "guess", "arrange", "set_rule", "set_rules", "ready", "start", "next_round", "rematch"]
@@ -156,6 +165,9 @@ class Session:
     online_until: float = 0
     invite_times: list = field(default_factory=list)
     avatar: str = DEFAULT_AVATAR
+    # spectating: the table being watched, and its players (to follow them to their next table)
+    watching: str | None = None
+    watch_tokens: list = field(default_factory=list)
 
 
 @dataclass
@@ -209,6 +221,10 @@ class Room:
     move_seconds: list = field(default_factory=list)
     move_counts: list = field(default_factory=list)
     turn_clock: dict | None = None
+    # a Practice game changed from the debug menu: its result is never recorded
+    debug_edited: bool = False
+    # spectators' sockets by session token; they see the table from the first seat
+    watchers: dict = field(default_factory=dict)
 
     practice: bool = False
     rated: bool = False
@@ -415,13 +431,15 @@ class Room:
         # The game is already over at the table: a storage failure here must not
         # stop the move's broadcast, or the players never see the final cards.
         try:
-            if self.progression:
+            if self.debug_edited:
+                pass  # cards were changed by hand: no stats, streak or history
+            elif self.progression:
                 event_id = self.match_id + ':' + str(len(self.history))
                 if self.rated:
                     self.history[-1]['elo'] = self.progression.rate_game(event_id, self.progression_players, winner, self.patch)
                 if self.counts_streak:
                     self.progression.practice_result(event_id, self.progression_players[0], winner, self.patch)
-            if self.history_store:
+            if self.history_store and not self.debug_edited:
                 self.history_store.save(self)
         except Exception:
             log.exception("Could not record the result of table %s", self.id)
@@ -497,7 +515,7 @@ def clean_name(value):
 
 
 def parse_rules(values):
-    values = dict(values)
+    values = upgrade_rule_values(values)
     legacy = values.pop('queen_swap', False) or values.get('jack_swap', False)
     values.pop('jack_swap', None)
     if legacy:
@@ -523,19 +541,19 @@ def card_view(card):
 def showing_scores(game):
     """What each player's face-up cards are worth with the rules in play (their score tag)."""
     return [game.score(p) if game.phase == "over" else visible_effect_total(
-        game.players[p], game.rules, game.gambler_earned[p], poisoned=game.finisher == p,
+        game.players[p], game.rules, game.angels_earned[p], poisoned=game.finisher == p,
         opponent_layouts=[game.players[q] for q in game.opponents(p)],
-        incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)]
+        incoming_angels=[game.angels_earned[q] for q in game.opponents(p)]) for p in range(game.player_count)]
 
 
 def score_view(game):
     """Every score tag and the rules behind it, read off the cards anyone can see."""
     return {
         "effect_totals": showing_scores(game),
-        "effects": [active_rule_effects(game.players[p], game.rules, game.gambler_earned[p], game.locked_cards,
-            poisoned=game.finisher == p, angel_earned=game.angel_earned[p],
+        "effects": [active_rule_effects(game.players[p], game.rules, game.angels_earned[p],
+            poisoned=game.finisher == p,
             opponent_layouts=[game.players[q] for q in game.opponents(p)],
-            incoming_angels=sum(game.angel_earned[q] for q in game.opponents(p))) for p in range(game.player_count)],
+            incoming_angels=[game.angels_earned[q] for q in game.opponents(p)]) for p in range(game.player_count)],
         "modifier_counts": [sum(counts.values()) for counts in modifier_data(game)["modifier_counts"]],
     }
 
@@ -608,12 +626,14 @@ def public_emotes(room):
             for emote in room.emotes.values() if emote["expires_at"] > now]
 
 
-def snapshot(room, token):
-    if token not in room.seats:
+def snapshot(room, token, watch=False):
+    """The table as one seat sees it; a spectator (watch) sees the first seat's view, with no moves."""
+    if token not in room.seats and not watch:
         raise HTTPException(403, "You do not have a seat in this lobby.")
     room.expire_offer()
-    viewer = room.seats.index(token)
+    viewer = 0 if watch else room.seats.index(token)
     state = {**public_room(room), "viewer": viewer, "version": room.version,
+             "spectator": watch, "watchers": sum(bool(sockets) for sockets in room.watchers.values()),
              "emotes": public_emotes(room),
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
@@ -627,7 +647,8 @@ def snapshot(room, token):
     if room.progression:
         if room.rated:
             state['ratings'] = [room.progression.profile(identity)['elo'] for identity in room.progression_players]
-            state['forfeit_elo_loss'] = room.progression.forfeit_loss(room.progression_players, viewer)
+            if not watch:
+                state['forfeit_elo_loss'] = room.progression.forfeit_loss(room.progression_players, viewer)
         if room.counts_streak:
             profile = room.progression.profile(room.progression_players[0])
             state['streak'] = {'current': profile['current_streak'], 'best': profile['best_streak'], 'draws': profile['draws_in_row']}
@@ -637,8 +658,8 @@ def snapshot(room, token):
     game = room.game
     if game is None:
         return state
-    active = room.status == "playing" and not room.void_offer and game.decision_player == viewer
-    opening = room.status == "playing" and not room.void_offer and game.phase == "setup" and game.visible_count(viewer) < 2
+    active = not watch and room.status == "playing" and not room.void_offer and game.decision_player == viewer
+    opening = not watch and room.status == "playing" and not room.void_offer and game.phase == "setup" and game.visible_count(viewer) < 2
     legal = {
         "flip": [i for i, slot in enumerate(game.players[viewer]) if not slot.visible]
                 if opening or active and game.phase in ("choose", "drawn") else [],
@@ -653,7 +674,7 @@ def snapshot(room, token):
                     if game.arrangement_plan(game.arrange_pending["player"], game.arrange_pending["rank"], cols)]
                     if active and game.phase == "arrange" else [],
         "keep_layout": active and game.phase == "arrange",
-        "set_rules": room.solo and not room.house_rules and game.phase == "setup",
+        "set_rules": not watch and room.solo and not room.house_rules and game.phase == "setup",
     }
     last_move = game.last_move
     actor = re.match(r'^Player (\d+) ', last_move)
@@ -668,7 +689,7 @@ def snapshot(room, token):
         "first_player": game.first_player, "final_turn": game.is_final_turn, "ending": game.finisher is not None,
         "turn_order": game.turn_order, "turns": game.turns, "deck_count": game.deck_count,
         "next_up": game.next_up,
-        "players": [[{"visible": slot.visible, "locked": slot.visible and slot.card in game.locked_cards,
+        "players": [[{"visible": slot.visible,
                       "card": card_view(slot.card) if slot.visible else None} for slot in layout] for layout in game.players],
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),
         "held": card_view(game.held_card) if game.held_card else None,
@@ -679,7 +700,7 @@ def snapshot(room, token):
         **score_view(game),
         "rule_previews": rule_preview_data(game),
         # part of the score preview, so a host who turns that off turns this off too
-        "near_rules": one_move_rules(game, viewer) if (room.score_preview or room.solo) and room.status == "playing" else [],
+        "near_rules": one_move_rules(game, viewer) if not watch and (room.score_preview or room.solo) and room.status == "playing" else [],
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
         "last_guess": getattr(game, "last_guess", None),
@@ -794,9 +815,8 @@ def hand_rule_keys(layout, rules, can_go_out):
         ranks = {layout[i].card.rank for i in row if layout[i].visible}
         if len(ranks) == 1 and all(layout[i].visible for i in row):
             rank = ranks.pop()
-            for flag, needed in (('devils_row', 6), ('gamblers_row', 7), ('angels_row', 9)):
-                if getattr(rules, flag) and rank == needed:
-                    keys.add(flag)
+            if rules.angel_numbers and rank in ANGEL_RANKS:
+                keys.add('angel_numbers')
     if rules.royal_pairs and any(layout[i].visible and layout[i + 3].visible and layout[i].card.rank == layout[i + 3].card.rank
                                  and layout[i].card.rank in (11, 12) for i in range(3)):
         keys.add('royal_pairs')
@@ -811,9 +831,9 @@ EVERY_CARD = [Card(rank, suit) for rank in range(1, 14) for suit in "SHDC"]
 def one_move_rules(game, player):
     """Rules not in play for this player that a single card would bring into play.
 
-    One move is one card placed in one of their spots (bar locked cards): every
+    One move is one card placed in one of their spots: every
     rank and suit is tried, whatever is on the discard right now, so a V one card
-    short of Roman 5s shows. Only face-up cards count; the rest stay unknown.
+    short of V2 shows. Only face-up cards count; the rest stay unknown.
     """
     if game.phase in ("setup", "over"):
         return []
@@ -822,8 +842,6 @@ def one_move_rules(game, player):
     now = set(rule_preview_data(game)[player]) | hand_rule_keys(layout, rules, can_go_out)
     near = set()
     for index, slot in enumerate(layout):
-        if slot.visible and slot.card in game.locked_cards:
-            continue
         trial = list(layout)
         for card in EVERY_CARD:
             trial[index] = Slot(card, True)
@@ -965,6 +983,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             state = snapshot(room, token)
             for ws in list(sockets):
                 deliveries.append((ws, sockets, state))
+        if any(room.watchers.values()):
+            watched = snapshot(room, None, watch=True)
+            for sockets in list(room.watchers.values()):
+                for ws in list(sockets):
+                    deliveries.append((ws, sockets, watched))
 
         async def send(ws, sockets, state):
             try:
@@ -1181,6 +1204,50 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room.version += 1
         kick_bot(room)
         return snapshot(room, session.token)
+
+    @app.post("/api/debug/practice/{room_id}")
+    async def debug_practice(room_id: str, edit: DebugEdit, request: Request):
+        """Change a Practice game by hand (debug servers only): end it, or flip or replace any card."""
+        if not debug_mode():
+            raise HTTPException(404, "Not found.")
+        session = session_for(request)
+        room = find_room(room_id)
+        if not room.practice or session.token not in room.seats:
+            raise HTTPException(403, "Only your own Practice games can be changed.")
+        async with room.lock:
+            game = room.game
+            if game is None or game.phase == "over":
+                raise HTTPException(409, "There is no game in play.")
+            room.debug_edited = True
+            if edit.op == "end":
+                # every card turns over and the game is scored, as at a final reveal
+                if game.held_card:
+                    game.discard_pile.append(game.held_card)
+                game.held_card = game.flipped = game.guess_pending = game.arrange_pending = None
+                game.bonus_remaining = 0
+                game.scoring_reveal = True
+                game._resolve_scoring_reveal()
+            else:
+                if edit.ref is None:
+                    raise HTTPException(422, "Choose a card.")
+                player, index = edit.ref
+                if not (0 <= player < game.player_count and 0 <= index < 6):
+                    raise HTTPException(422, "That card is not on the table.")
+                slot = game.players[player][index]
+                if edit.op == "flip":
+                    game.players[player][index] = Slot(slot.card, not slot.visible)
+                else:
+                    if edit.rank is None or edit.suit is None:
+                        raise HTTPException(422, "Choose a rank and a suit.")
+                    game.players[player][index] = Slot(Card(edit.rank, edit.suit, slot.card.deck), slot.visible)
+                game._update_combos()
+            room.track_scores()
+            room.record_result()
+            room.version += 1
+            room.save_practice()
+            await broadcast(room)
+            kick_bot(room)
+            return snapshot(room, session.token)
 
     class PushSubscription(BaseModel):
         subscription: dict | None = None
@@ -1416,6 +1483,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         results = await asyncio.to_thread(store.history.stats_results)
         boards['records'] = await asyncio.to_thread(build_records, results, ratings)
         return boards
+
+    @app.get('/api/player-card')
+    async def player_card_view(request: Request, player: str = Query(max_length=64)):
+        """A player's Elo, best 1v1 streak and held records, for their name-tag popup."""
+        session_for(request)
+        ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
+        results = await asyncio.to_thread(store.history.stats_results)
+        return await asyncio.to_thread(player_card, results, ratings, player)
 
     @app.get("/api/lobbies")
     async def lobbies():
@@ -1732,7 +1807,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if settings.practice and session.account:
             saved = store.progression.load_practice(session.account["id"])
             if saved and (saved.get("schema") != practice_save.SCHEMA or saved.get("patch") != PATCH_VERSION):
-                reset_notice = "Your saved game was reset for this update. Your practice streak is preserved."
+                reset_notice = "Your saved game was reset for this update. Your solo streak is preserved."
         if settings.practice:
             choose_avatar(session, settings.avatar)
             resumed = await resume_practice(session)
@@ -1743,11 +1818,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if len(store.rooms) >= 200:
             raise HTTPException(503, "The server has too many tables.")
         if settings.practice:
-            # Practice is one open-ended run against Golfbot. The rules are the
-            # player's choice; a request that doesn't say plays house rules.
-            house = settings.house_rules or 'house_rules' not in settings.model_fields_set
-            settings = settings.model_copy(update={'best_of': None, 'series_mode': 'wins', 'house_rules': house,
-                                                   **({'first': 'random'} if house else {})})
+            # Play solo (Practice) is one open-ended run against Golfbot, always on House rules
+            settings = settings.model_copy(update={'best_of': None, 'series_mode': 'wins', 'house_rules': True,
+                                                   'first': 'random'})
         set_name(session, settings.username)
         choose_avatar(session, settings.avatar)
         if settings.game_type != '1v1':
@@ -1777,7 +1850,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         saved = store.progression.load_practice(session.account['id']) if session.account else None
         if not saved or saved.get('schema') != practice_save.SCHEMA or saved.get('patch') != PATCH_VERSION:
             return {'saved': False}
-        return {'saved': True, 'house_rules': bool(saved['room'].get('house_rules')), 'rules': saved['rules']}
+        return {'saved': True, 'house_rules': bool(saved['room'].get('house_rules')), 'rules': upgrade_rule_values(saved['rules'])}
 
     async def resume_practice(session):
         if not session.account:
@@ -1795,7 +1868,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room = store.rooms.get(saved['room']['id'])
         if room is None:
             fields = dict(saved['room'])
-            room = Room(rules=Rules(**saved['rules']), solo=True, seats=[session.token, None],
+            room = Room(rules=rules_from(saved['rules']), solo=True, seats=[session.token, None],
                         history_store=store.history, practice=True, progression=store.progression,
                         practice_account=account_id, progression_players=[progression_profile(session)], **fields)
             room.game = practice_save.restore_game(saved['game'])
@@ -1896,17 +1969,94 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         session = session_for(request)
         room = find_room(room_id)
         async with room.lock:
-            if session.token not in room.seats:
+            watching = session.token not in room.seats and session.watching == room.id
+            if session.token not in room.seats and not watching:
                 raise HTTPException(403, "You do not have a seat in this lobby.")
             if room.game is None or room.status not in ("playing", "round_over", "finished"):
                 raise HTTPException(409, "Emotes are available at the game table.")
-            player = room.seats.index(session.token)
+            # every spectator speaks as one "Spectator"
+            player = "spectator" if watching else room.seats.index(session.token)
             room.emote_sequence += 1
             room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
                                    "expires_at": time.time() + EMOTE_SECONDS}
             # Cosmetic events must not invalidate a simultaneous card action.
             await broadcast(room)
-            return snapshot(room, session.token)
+            return snapshot(room, session.token, watch=watching)
+
+    # ---------- spectating ----------
+    def watchable(room):
+        return room.game is not None and room.status in ("playing", "round_over") and not all(room.departed)
+
+    @app.get("/api/spectate")
+    async def spectate_list(request: Request):
+        """Every game in play anyone can watch, solo games included, newest first."""
+        session = session_for(request)
+        rooms = sorted((room for room in store.rooms.values() if watchable(room)),
+                       key=lambda room: room.started_at or 0, reverse=True)
+        return [{**public_room(room), "round": len(room.history) + (0 if room.round_recorded else 1),
+                 "turns": room.game.turns, "scores": showing_scores(room.game),
+                 "watchers": sum(bool(sockets) for sockets in room.watchers.values()),
+                 "mine": session.token in room.seats} for room in rooms]
+
+    def start_watching(session, room):
+        session.watching = room.id
+        session.watch_tokens = [token for token in room.seats if token in store.sessions and token != session.token]
+        return snapshot(room, session.token, watch=True)
+
+    @app.post("/api/spectate/{room_id}")
+    async def spectate(room_id: str, request: Request):
+        session = session_for(request)
+        room = find_room(room_id)
+        if session.token in room.seats:
+            raise HTTPException(409, "You're playing at this table.")
+        if room.game is None or room.status == "closed":
+            raise HTTPException(409, "That game has ended.")
+        result = start_watching(session, room)
+        await broadcast(room)
+        return result
+
+    @app.post("/api/spectate-follow")
+    async def spectate_follow(request: Request):
+        """Keep watching: the same table while it's open, else the next one its players sit down at."""
+        session = session_for(request)
+        room = store.rooms.get(session.watching)
+        if room is not None and room.status != "closed" and room.game is not None:
+            return snapshot(room, session.token, watch=True)
+        tokens = set(session.watch_tokens)
+        found = [other for other in store.rooms.values() if watchable(other) and session.token not in other.seats
+                 and any(token in tokens and not other.departed[seat] for seat, token in enumerate(other.seats))]
+        if not found:
+            raise HTTPException(404, "The players haven't started another game yet.")
+        room = max(found, key=lambda other: other.started_at or 0)
+        session.watching = room.id  # the players being followed stay the same
+        return snapshot(room, session.token, watch=True)
+
+    @app.post("/api/spectate-stop")
+    async def spectate_stop(request: Request):
+        session = session_for(request)
+        session.watching, session.watch_tokens = None, []
+        return {"stopped": True}
+
+    async def watch_socket(ws, room, token):
+        await ws.accept()
+        room.watchers.setdefault(token, set()).add(ws)
+        try:
+            await broadcast(room)  # the players see one more watching
+            while True:
+                await ws.receive_text()
+                session = store.sessions.get(token)
+                if session is None or session.watching != room.id:
+                    await ws.close(code=4403)
+                    return
+                session.touched = time.time()
+                await ws.send_json(snapshot(room, token, watch=True))
+        except WebSocketDisconnect:
+            pass
+        finally:
+            room.watchers.get(token, set()).discard(ws)
+            if not room.watchers.get(token):
+                room.watchers.pop(token, None)
+            await broadcast(room)
 
     @app.post("/api/lobbies/{room_id}/leave")
     async def leave(room_id: str, request: Request):
@@ -2055,6 +2205,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             return
         token = ws.cookies.get(COOKIE)
         room = store.rooms.get(room_id)
+        if (token in store.sessions and room is not None and token not in room.seats
+                and store.sessions[token].watching == room_id):
+            await watch_socket(ws, room, token)
+            return
         if token not in store.sessions or room is None or token not in room.seats:
             await ws.close(code=4403)
             return
@@ -2137,6 +2291,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get("/history")
     @app.get("/stats")
     @app.get("/leaderboard")
+    @app.get("/spectate")
     @app.get("/patch-notes")
     @app.get("/account")
     @app.get("/lobby/{room_id}")

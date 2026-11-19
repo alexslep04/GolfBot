@@ -39,18 +39,17 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(state['first'], 'random')
         self.assertEqual(state['streak']['current'], 0)
 
-    def test_practice_with_custom_rules_counts_toward_the_streak(self):
+    def test_play_solo_is_always_house_rules_and_counts_toward_the_streak(self):
         response = self.client.post('/api/solo', json={'username': 'Tester', 'practice': True, 'house_rules': False,
                                                        'first': 'host', 'rules': {}})
         self.assertEqual(response.status_code, 200, response.text)
         state = response.json()
         self.assertTrue(state['practice'])
-        self.assertFalse(state['house_rules'])
+        self.assertTrue(state['house_rules'])  # a request for other rules still plays House rules
         self.assertIsNone(state['best_of'])
-        self.assertEqual(state['first'], 'host')
+        self.assertEqual(state['first'], 'random')
         self.assertEqual(state['streak']['current'], 0)
         room = self.store.rooms[state['id']]
-        # any ruleset counts toward the streak against Golfbot, not just House rules
         self.assertTrue(room.counts_streak)
         room.game.phase = 'over'
         with patch.object(self.store.progression, 'practice_result') as result:

@@ -32,7 +32,7 @@ def match(names, rounds, winner=None, status='finished', solo=False, rules=None)
 class StatsTests(unittest.TestCase):
     def setUp(self):
         self.matches = [
-            match(['tester', 'GolfBot'], [result([-2, 5], activations=[['v10', 'royal_pairs'], []]), result([3, 3]), result([4, 10], activations=[['v10'], ['gamblers_row']])], 0, solo=True),
+            match(['tester', 'GolfBot'], [result([-2, 5], activations=[['v10', 'royal_pairs'], []]), result([3, 3]), result([4, 10], activations=[['v10'], ['angel_numbers']])], 0, solo=True),
             match(['Rival', 'tester'], [result([2, 8], activations=[[], ['poisoned_card']])], 0),
             match(['tester', 'GolfBot'], [result([10, 1], activations=[[], []])], status='interrupted', solo=True),
         ]
@@ -51,7 +51,7 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(build_stats(self.matches, 'player:Rival')['player']['overall']['round_win_rate'], 1)
         self.assertEqual(build_stats(self.matches, 'player:tester')['player']['overall']['round_win_rate'], 2 / 5)
         # A filter nobody has played under leaves every rate empty, and nobody is dropped.
-        empty = build_stats(self.matches, enabled=['devils_row'])['leaderboard']
+        empty = build_stats(self.matches, enabled=['angel_numbers'])['leaderboard']
         self.assertEqual(len(empty), 2)
         self.assertTrue(all(row['rounds'] == 0 and row['round_win_rate'] is None for row in empty))
 
@@ -83,7 +83,7 @@ class StatsTests(unittest.TestCase):
         rules = {row['key']: row for row in overall['rule_activations']}
         self.assertEqual((rules['v10']['games'], rules['v10']['rate'], rules['v10']['win_rate']), (2, .5, 1))
         self.assertEqual(rules['poisoned_card']['win_rate'], 0)
-        self.assertIsNone(rules['angels_row']['win_rate'])
+        self.assertIsNone(rules['angel_numbers']['win_rate'])
 
     def test_rule_filters_use_round_settings_and_full_matching_series_only(self):
         matches = [
@@ -263,12 +263,12 @@ class StatsApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / 'history.sqlite3'
             history = MatchHistory(database)
-            room = Room('room', 'Table', Rules(v10=True, roman_fives=True, gamblers_row=True), 3, 'host', True,
+            room = Room('room', 'Table', Rules(v10=True, roman_fives=True, angel_numbers=True), 3, 'host', True,
                         ['secret-token', None], ['tester', 'GolfBot'], history_store=history)
             room.start_round()
             # Top V is three ten-valued ranks; bottom V has 5+4+1=10.
             room.game.players[0] = [Slot(Card(rank, suit), True) for rank, suit in zip([10, 4, 11, 5, 12, 1], 'SHDCSH')]
-            room.game.gambler_earned[0] = True
+            room.game.angels_earned[0] = {7}
             room.game.phase = 'over'
             with patch.object(room.game, 'score', side_effect=lambda seat: [1, 2][seat]):
                 room.record_result()

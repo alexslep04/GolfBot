@@ -17,10 +17,7 @@ const SEAT_COLORS = ["c-s0", "c-s1", "c-s2", "c-s3", "c-s4", "c-s5", "c-s6", "c-
 const OPPONENT_COLORS = ["c-p1", ...SEAT_COLORS]; // every class a tag may be wearing
 const RULE_ICON = {
   royal_pairs: "crown.fill",
-  devils_row: "flame.fill",
-  gamblers_row: "dice.fill",
-  crazy_eights: "8.circle.fill",
-  angels_row: "sparkles",
+  angel_numbers: "sparkles",
   king_queen: "paintpalette.fill",
   holdem: "hand.raised.fill",
   v10: "v.circle",
@@ -36,6 +33,12 @@ const RULE_ICON = {
 // Rules with more than one way to trigger get a sticker per variant, drawn from
 // one visual family so they read as siblings: [symbol, what it means].
 const RULE_VARIANTS = {
+  angel_numbers: [
+    ["flame.fill", "666: opponents ×6"],
+    ["dice.fill", "777: your score ÷7"],
+    ["8.circle.fill", "888: opponents ×8"],
+    ["star.fill", "999: your score ÷9"],
+  ],
   royal_pairs: [
     ["j.circle.fill", "Jack pair"],
     ["q.circle.fill", "Queen pair"],
@@ -67,16 +70,13 @@ const RULE_VARIANTS = {
 const EFFECT_RULE = [
   [/Ripped 5/, "ripped_five"],
   [/V10/, "v10"],
-  [/Roman/, "roman_fives"],
-  [/Gamblers/, "gamblers_row"],
-  [/Angels/, "angels_row"],
-  [/Devils/, "devils_row"],
+  [/^V2 /, "roman_fives"],
+  [/Angel \d{3}/, "angel_numbers"],
   [/Hold/, "holdem"],
   [/traight row/, "tricky_straights"],
   [/uited row/, "suited_rows"],
   [/All in/, "all_in_color"],
   [/Poisoned/, "poisoned_card"],
-  [/Crazy 888/, "crazy_eights"],
   [/King-Queen/, "king_queen"],
 ];
 const HAND_TILT = [
@@ -349,10 +349,14 @@ function faceHtml(card) {
     return `<span class="face front"></span><span class="face back"></span>`;
   const red = card.suit === "H" || card.suit === "D";
   const corner = `<span class="corner"><b>${e(card.label)}</b>${icon(SUIT_ICON[card.suit], 16, { idle: false, flat: true, sw: 2.4 })}</span>`;
-  return `<span class="face front${red ? " red" : ""} suit-${card.suit}">${corner}${corner}</span><span class="face back"></span>`;
+  // the 5 of diamonds is the ripped 5: torn across the middle
+  const ripped = card.suit === "D" && card.rank === 5 ? " ripped" : "";
+  // (its two halves are drawn apart, so they can tear open as it turns over)
+  const halves = ripped ? `<span class="rip-half top"></span><span class="rip-half bottom"></span>` : "";
+  return `<span class="face front${red ? " red" : ""} suit-${card.suit}${ripped}">${halves}${corner}${corner}</span><span class="face back"></span>`;
 }
 function slotHtml(ref, tilt, extra = "") {
-  return `<button type="button" class="slot ${extra}" data-ref='${e(JSON.stringify(ref))}' style="--rot:${tilt}deg"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(null)}</span><span class="lock">${icon("lock.fill", 28, { idle: false })}</span></span><span class="move-label"></span></button>`;
+  return `<button type="button" class="slot ${extra}" data-ref='${e(JSON.stringify(ref))}' style="--rot:${tilt}deg"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(null)}</span></span><span class="move-label"></span></button>`;
 }
 function cardName(card) {
   return `${{ A: "Ace", J: "Jack", Q: "Queen", K: "King" }[card.label] || card.label} of ${SUIT_NAME[card.suit]}`;
@@ -508,7 +512,6 @@ function boardView() {
     g.players[player].map((slot) => ({
       key: slot.visible ? cardKey(slot.card) : "X",
       card: slot.card,
-      locked: slot.locked,
     }));
   const table = {};
   for (const player of [me, opp])
@@ -528,7 +531,6 @@ function applySlot(slot, entry, ref) {
   const faceUp = key !== "" && key !== "X";
   slot.classList.toggle("is-face", faceUp);
   slot.classList.toggle("empty", key === "");
-  slot.classList.toggle("locked", !!entry.locked);
   if (ref[0] === "under") {
     slot.setAttribute("aria-hidden", "true");
     slot.tabIndex = -1;
@@ -548,7 +550,7 @@ function applySlot(slot, entry, ref) {
         ? `Discard pile, ${entry.card ? cardName(entry.card) : "empty"}`
         : ref[0] === "held"
           ? `Drawn card, ${entry.card ? cardName(entry.card) : "none"}`
-          : `${owner} ${faceUp ? cardName(entry.card) : "face-down card"}${entry.locked ? ", locked" : ""}, row ${Math.floor(ref[1] / 3) + 1}, column ${(ref[1] % 3) + 1}`,
+          : `${owner} ${faceUp ? cardName(entry.card) : "face-down card"}, row ${Math.floor(ref[1] / 3) + 1}, column ${(ref[1] % 3) + 1}`,
   );
 }
 
@@ -818,8 +820,8 @@ function scoreDigits(value, side) {
  */
 /**
  * An effect line split into the rule and what it does to the score, so the
- * maths can sit in the right-hand column: "Poisoned Card: +1" and "Roman 5s /2"
- * become "Poisoned Card" | "+1" and "Roman 5s" | "/2".
+ * maths can sit in the right-hand column: "Poisoned Card: +1" and "V2 /2"
+ * become "Poisoned Card" | "+1" and "V2" | "/2".
  */
 function effectParts(effect) {
   const colon = effect.indexOf(": ");
@@ -843,6 +845,7 @@ function effectStickers(effect) {
     add(rule, /Incoming|opponent/.test(effect) ? 0 : 1);
   else if (rule === "suited_rows") add(rule, /Incoming|opponents/.test(effect) ? 0 : 1);
   else if (rule === "all_in_color") add(rule, /red/.test(effect) ? 0 : 1);
+  else if (rule === "angel_numbers") add(rule, Number(effect.match(/Angel (\d)/)[1]) - 6);
   else add(rule);
   return found;
 }
@@ -911,9 +914,11 @@ function faceValue(player) {
 }
 const signed = (points) => `${points > 0 ? "+" : ""}${points}`;
 /** True while the table is waiting on this player (including opening flips). */
+/** The seat on show at the bottom is yours, unless you are only watching. */
+const isYou = (p) => !state.spectator && p === state.viewer;
 function myTurn() {
   const g = state.game;
-  if (!g || state.status !== "playing" || g.phase === "over") return false;
+  if (!g || state.spectator || state.status !== "playing" || g.phase === "over") return false;
   return g.phase === "setup"
     ? g.legal.flip.length > 0
     : g.decision_player === state.viewer;
@@ -930,6 +935,7 @@ function turnPlayer() {
 /** True while it is this player's turn, even while an opponent guesses at their card. */
 function ownTurn() {
   const g = state.game;
+  if (state.spectator) return false;
   if (["guess", "guess_trade"].includes(g?.phase)) return state.status === "playing" && g.current === state.viewer;
   return myTurn();
 }
@@ -966,7 +972,7 @@ function renderStreak() {
   // a draw puts a saved streak on notice: it fades until the next win
   holder.classList.toggle("hot", count > 0 && saved?.draws !== 1);
   holder.style.setProperty("--heat", Math.min(count, 10));
-  holder.setAttribute("aria-label", saved ? `Practice streak: ${count}. Best: ${saved.best}. Draws in a row: ${saved.draws}.` : `Win streak against Golfbot: ${count}`);
+  holder.setAttribute("aria-label", saved ? `Solo streak: ${count}. Best: ${saved.best}. Draws in a row: ${saved.draws}.` : `Win streak against Golfbot: ${count}`);
   holder.title = saved ? `Best streak: ${saved.best}` : "";
   const before = board.signatures.streak;
   const changed = patch(
@@ -1018,7 +1024,8 @@ function renderTags() {
     // the band of a score tag says whose turn it is (in white), and who plays
     // after it (darker, like the frame); the wording only changes as the label
     // comes in, never while it fades out
-    const theirs = side === "opp" && theirTurn(player);
+    // (a spectator's bottom seat is someone else's too)
+    const theirs = (side === "opp" || state.spectator) && theirTurn(player);
     const next = player === upNext && !theirs && !(side === "me" && turn);
     scoreTag.classList.toggle("their-turn", theirs);
     scoreTag.classList.toggle("up-next", next);
@@ -1136,9 +1143,14 @@ function promptText() {
 function promptFor() {
   const g = state.game,
     me = state.viewer;
-  if (state.status === "closed") return ["Table closed", "me"];
+  if (state.status === "closed") return [state.spectator ? "Table closed · waiting for their next game…" : "Table closed", "me"];
   if (state.status !== "playing") return [null, "me"];
   const final = g.final_turn ? "Final turn · " : "";
+  if (state.spectator) {
+    if (g.phase === "setup") return ["Opening flips…", "opp"];
+    const p = turnPlayer();
+    return [`${final}${state.names[p]}'s turn`, p === me ? "me" : "opp"];
+  }
   if (g.phase === "setup")
     return g.legal.flip.length
       ? [`Double-tap ${2 - g.players[me].filter((s) => s.visible).length === 1 ? "one more card" : "two cards"} to flip`, "me"]
@@ -1298,7 +1310,7 @@ function renderEmotes() {
   const layer = board.el.querySelector("[data-emote-layer]");
   const signature = state.names
     .map((_, p) => activeEmotes[p]?.sequence || 0)
-    .join();
+    .join() + `|${activeEmotes.spectator?.sequence || 0}`;
   // you and the opponent showing react beside your own cards; anyone else
   // speaks up from the cycle button that leads to them
   const players = state.names.map((_, p) => p);
@@ -1306,8 +1318,9 @@ function renderEmotes() {
   // on the results everyone has a tile, and reacts from above it instead
   const tiles = [...(board.el.querySelectorAll?.("[data-tile-emote]") ?? [])];
   const results = tiles.length > 0;
+  // spectators all speak as one "Spectator", from the middle of the table (results too)
   patch("emotes", layer, signature + board.view.opp + results, () =>
-    results ? "" : players.filter(showing).map((p) => playerEmote(p)).join(""),
+    (results ? "" : players.filter(showing).map((p) => playerEmote(p)).join("")) + playerEmote("spectator"),
   );
   patch("emotes-others", board.el.querySelector("[data-emote-others]"), signature + board.view.opp + results, () =>
     results ? "" : players.filter((p) => !showing(p)).map((p) => playerEmote(p)).join(""),
@@ -1356,15 +1369,18 @@ document.addEventListener?.(
 );
 /** A face emote is its sticker; a text emote is a speech bubble saying it. */
 function emoteArt(item, player) {
+  const who = player === "spectator" ? "Spectator" : state.names[player];
   if (TEXT_EMOTES.includes(item.id))
-    return `<span class="emote-say" aria-label="${e(state.names[player])}: ${e(emoteNames[item.id])}">${e(emoteNames[item.id])}</span>`;
-  return `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(state.names[player])}: ${emoteNames[item.id]} emote">`;
+    return `<span class="emote-say" aria-label="${e(who)}: ${e(emoteNames[item.id])}">${e(emoteNames[item.id])}</span>`;
+  return `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(who)}: ${emoteNames[item.id]} emote">`;
 }
 function playerEmote(player, onTile = false) {
   if (opponentEmotesMuted && player !== state.viewer) return "";
   const item = activeEmotes[player];
   if (!item || item.ends <= Date.now()) return "";
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
+  if (player === "spectator")
+    return `<div class="player-emote other spectator c-fw" data-emote-player="spectator" role="status" style="animation-delay:-${age}ms"><span class="emote-who">${icon("eye.fill", 26, { idle: false })}<b>Spectator</b></span>${emoteArt(item, player)}</div>`;
   const where =
     player === state.viewer ? "me" : player === board.view.opp ? "them" : "other";
   const image = emoteArt(item, player);
@@ -1382,8 +1398,53 @@ function playerEmote(player, onTile = false) {
  * dark tone so the yellow still reads) and are named at their right-hand end.
  */
 const CHART = { w: 300, h: 160, left: 24, right: 84, top: 12, bottom: 22 };
+/**
+ * What the graph can show. Once a series has two or more games, a cycle button
+ * steps through: this game turn by turn, each game's points, and the running
+ * total through the series.
+ */
+const CHART_VIEWS = {
+  game: "Points through the game",
+  games: "Points per game",
+  series: "Points through the series",
+};
+function chartViews() {
+  // a game ended before anyone moved has no turns to plot
+  const views = (state.timeline || []).length >= 2 ? ["game"] : [];
+  if ((state.history || []).length >= 2) views.push("games", "series");
+  return views;
+}
+function chartView() {
+  const views = chartViews();
+  return views.includes(board.chartView) ? board.chartView : views[0] || "game";
+}
+/** The chosen view's points: {scores, label} in order, and the labels under the axis. */
+function chartPoints() {
+  const view = chartView();
+  const games = state.history || [];
+  if (view === "games") {
+    const points = games.map((game, i) => ({ scores: game.scores, label: `Game ${i + 1}` }));
+    return { points, axis: ["Game 1", "", `Game ${games.length}`] };
+  }
+  if (view === "series") {
+    const totals = state.names.map(() => 0);
+    const points = [{ scores: [...totals], label: "Start" }];
+    games.forEach((game, i) => {
+      game.scores.forEach((score, p) => (totals[p] += score));
+      points.push({ scores: [...totals], label: `After game ${i + 1}` });
+    });
+    return { points, axis: ["Start", "", `Game ${games.length}`] };
+  }
+  const timeline = state.timeline || [];
+  const points = timeline.map((point, i) => ({
+    scores: point.scores,
+    label: point.final ? "Reveal" : i === 0 ? "Start" : `Turn ${point.turn}`,
+  }));
+  const turns = timeline.filter((point) => !point.final).at(-1)?.turn ?? 0;
+  return { points, axis: ["Start", `${turns} turn${turns === 1 ? "" : "s"}`, "Reveal"] };
+}
 function evalScale() {
-  const points = state.timeline || [];
+  const { points } = chartPoints();
   const all = points.flatMap((point) => point.scores);
   let lo = Math.min(0, ...all),
     hi = Math.max(...all);
@@ -1410,7 +1471,7 @@ function evalChart() {
   const { w, h, left, right, top, bottom } = CHART;
   const featured = evalFeatured();
   const short = (p) => {
-    const name = p === state.viewer ? "You" : state.names[p];
+    const name = isYou(p) ? "You" : state.names[p];
     return name.length > 7 ? `${name.slice(0, 6)}…` : name;
   };
   // top, bottom and zero first; the middle one only where it has room
@@ -1462,17 +1523,23 @@ function evalChart() {
         `<span class="end-tag" style="--tip:var(--s${p % 8});--on:var(--s${p % 8}on);left:${(((endX + 10) / w) * 100).toFixed(2)}%;top:${((at / h) * 100).toFixed(2)}%">${e(short(p))} <b>${points.at(-1).scores[p]}</b></span>`,
     )
     .join("");
-  const turns = points.filter((point) => !point.final).at(-1).turn;
-  const axis = `<text class="axis" x="${left}" y="${h - 6}" text-anchor="start">Start</text><text class="axis" x="${(left + w - right) / 2}" y="${h - 6}">${turns} turn${turns === 1 ? "" : "s"}</text><text class="axis" x="${w - right}" y="${h - 6}" text-anchor="end">Reveal</text>`;
+  const [first, middle, last] = chartPoints().axis;
+  const axis = `<text class="axis" x="${left}" y="${h - 6}" text-anchor="start">${first}</text><text class="axis" x="${(left + w - right) / 2}" y="${h - 6}">${middle}</text><text class="axis" x="${w - right}" y="${h - 6}" text-anchor="end">${last}</text>`;
   const summary = featured
-    .map((p) => `${p === state.viewer ? "You" : state.names[p]}: ${points.map((point) => point.scores[p]).join(", ")}`)
+    .map((p) => `${isYou(p) ? "You" : state.names[p]}: ${points.map((point) => point.scores[p]).join(", ")}`)
     .join("; ");
-  return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${arrows}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg>${tags}<div class="eval-tip" hidden></div></div></figure>`;
+  const views = chartViews();
+  const view = chartView();
+  const next = views[(views.indexOf(view) + 1) % views.length];
+  const cycle =
+    views.length > 1
+      ? `<button type="button" class="chart-cycle" data-chart-cycle aria-label="Show ${CHART_VIEWS[next].toLowerCase()}">${glyph("arrow.left.arrow.right", 14)}</button>`
+      : "";
+  return `<figure class="eval-chart" data-eval-chart><figcaption><span class="chart-title">${cycle}${CHART_VIEWS[view]}</span> <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${CHART_VIEWS[view]}. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${arrows}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg>${tags}<div class="eval-tip" hidden></div></div></figure>`;
 }
 const RESULTS_DELAY = 750; // ms between a game's last move and its results
 /** The big result word: sticker letters that celebrate, or droop. */
-function resultTitle(mood, sentence, sub) {
-  const word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood];
+function resultTitle(mood, sentence, sub, word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood]) {
   // letters keep their place in the animation when the card redraws (someone readies up)
   const key = `${state.id}|${state.round}|${state.status}`;
   if (board.resultShown?.key !== key) {
@@ -1510,11 +1577,11 @@ function evalHover(event) {
   cross.setAttribute("x1", x(i));
   cross.setAttribute("x2", x(i));
   cross.classList.add("on");
-  const label = points[i].final ? "Reveal" : i === 0 ? "Start" : `Turn ${points[i].turn}`;
+  const label = points[i].label;
   const rows = evalFeatured()
     .map((p) => ({ p, v: points[i].scores[p] }))
     .sort((a, b) => a.v - b.v)
-    .map(({ p, v }) => `<div><i style="background:var(--s${p % 8})"></i><span>${p === state.viewer ? "You" : e(state.names[p])}</span><b>${v}</b></div>`)
+    .map(({ p, v }) => `<div><i style="background:var(--s${p % 8})"></i><span>${isYou(p) ? "You" : e(state.names[p])}</span><b>${v}</b></div>`)
     .join("");
   tip.innerHTML = `<strong>${label}</strong>${rows}`;
   tip.hidden = false;
@@ -1562,7 +1629,8 @@ function renderSummary() {
     return;
   }
   settleLifted();
-  const viewer = state.viewer;
+  // a spectator has no seat: every result is told by name
+  const viewer = state.spectator ? -1 : state.viewer;
   const result = state.history.at(-1);
   const finished = state.status === "finished";
   const closed = state.status === "closed";
@@ -1587,6 +1655,7 @@ function renderSummary() {
     board.summaryEmotes,
     state.history.length,
     (state.timeline || []).length,
+    chartView(),
     opponentEmotesMuted,
   ].join("|");
   patch("summary", holder, signature, () => {
@@ -1623,7 +1692,9 @@ function renderSummary() {
     // the main move is a full button, filling the room between Quit and View
     const wide = (attrs, symbol, label, extra = "") =>
       `<button type="button" class="btn c-p1 summary-main" ${attrs}>${tilted(symbol, 30)}<span>${extra}${label}</span></button>`;
-    const main = between
+    const main = state.spectator
+      ? wide("disabled", "eye.fill", "Watching…")
+      : between
       ? state.ready[viewer]
         ? wide("disabled", "hourglass", "Waiting…")
         : wide('data-action="next_round"', "checkmark.circle.fill", "Ready", padTag("y"))
@@ -1631,7 +1702,10 @@ function renderSummary() {
         ? wide('data-action="rematch"', "arrow.clockwise", "Play again", padTag("y"))
         : wide('disabled title="The host can start a rematch."', "hourglass", "Host's call");
     const action = `<div class="summary-actions">${quit}${main}${look}</div>`;
-    const heading = resultTitle(mood, title, sub);
+    // spectators get the result told plainly: who won is the line under it
+    const heading = state.spectator
+      ? resultTitle("draw", title, title, verdict === null || verdict === undefined ? "Draw" : finished ? "Series Over" : "Game Over")
+      : resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     // the verdict and the graph float over the table; the green panel holds the rest
     return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div>${summaryEmotesHtml()}</section>`;
@@ -2597,7 +2671,7 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}

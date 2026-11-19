@@ -95,17 +95,6 @@ class BotTests(unittest.TestCase):
             for before, after in zip(game.players, world.players):
                 self.assertEqual([s.card for s in before if s.visible], [s.card for s in after if s.visible])
 
-    def test_publicly_blocked_hidden_lock_remains_ineligible(self):
-        game = self.start(rules=Rules(devils_row=True))
-        locked = game.players[1][3].card
-        game.locked_cards.add(locked)
-        game.players[1][3].visible = False
-        for world in sample_positions(game, 8):
-            self.assertNotIn(3, world.targets())
-        action = Search(samples=4, transitions=700).choose(game)
-        self.assertNotEqual(action, ("swap", 3))
-        play_action(game, action)
-
     def test_search_handles_special_decisions_and_refill(self):
         game = self.start(rules=Rules(**dict.fromkeys(Rules.__dataclass_fields__, True)))
         game.phase, game.bonus_remaining = "bonus", 1
@@ -118,22 +107,6 @@ class BotTests(unittest.TestCase):
         play_action(game, ("draw",))
         self.assertIsNotNone(game.held_card)
         self.assertIn(Search(samples=3, transitions=500).choose(game), legal_actions(game))
-
-    def test_four_kind_search_preserves_a_hidden_retained_lock(self):
-        game = self.start(rules=Rules(four_kind=True, devils_row=True))
-        game.players[1] = hand([9, 9, 1, 9, 9, 6], "SHSCDH")
-        game.players[1][5].visible = False
-        game.locked_cards = {game.players[1][5].card}
-        game.phase, game.flipped = "arrange", 0
-        game.arrange_pending = {"player": 1, "rank": 9, "resume": "revealed", "finish": False}
-        allowed = legal_actions(game)
-        self.assertNotIn(("arrange", (0, 2)), allowed)
-        observation = public_position(game)
-        observation._root_actions = set(allowed)
-        action = Search(samples=4, transitions=700).choose(observation)
-        self.assertIn(action, allowed)
-        play_action(game, action)
-        self.assertEqual(game.players[1][5].card, Card(6, "H"))
 
     def test_all_rule_search_smoke_games_preserve_cards_and_legality(self):
         policy = Search(samples=3, transitions=350, beam=2, root_beam=4)

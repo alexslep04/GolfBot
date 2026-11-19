@@ -141,7 +141,7 @@ const prefs = {
 // "golf" is the original sticker look and needs no attribute.
 const THEMES = [
   ["golf", "Original", "#c4efab"],
-  ["poker", "Poker", "#0d3525"],
+  ["poker", "Poker", "#021b14"], // the dark room around the table
   ["night", "Night Golf", "#0f2018"],
 ];
 try {

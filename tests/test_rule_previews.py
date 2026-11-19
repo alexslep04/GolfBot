@@ -51,22 +51,21 @@ class RulePreviewTests(unittest.TestCase):
         game.players[0][5].visible = False
         self.assertEqual(self.preview(game)[0], {})
 
-    def test_color_locks_and_poison_only_visible_slots(self):
-        game = self.game([1, 3, 5, 8, 10, 13], Rules(all_in_color=True, devils_row=True, poisoned_card=True), 'HHHHHH')
-        game.locked_cards = {game.players[0][1].card, game.players[0][4].card}
+    def test_color_and_poison_only_visible_slots(self):
+        game = self.game([1, 3, 5, 8, 10, 13], Rules(all_in_color=True, poisoned_card=True), 'HHHHHH')
         game.finisher = 0
         self.assertEqual(self.preview(game)[0]['all_in_color']['indices'], list(range(6)))
         game.players[0][4].visible = False
         data = self.preview(game)[0]
         self.assertNotIn('all_in_color', data)
-        self.assertEqual(data['devils_row']['indices'], [1])
         self.assertEqual(data['poisoned_card']['indices'], [0, 1, 2, 3, 5])
         self.assertIn('note', data['poisoned_card'])
 
     def test_earned_effects_survive_broken_or_hidden_rows(self):
-        for key, rank, flag in [('gamblers_row', 7, 'gambler_earned'), ('angels_row', 9, 'angel_earned')]:
-            game = self.game([rank] * 3 + [1, 4, 8], Rules(**{key: True}))
-            getattr(game, flag)[0] = True
+        key = 'angel_numbers'
+        for rank in (6, 7, 8, 9):
+            game = self.game([rank] * 3 + [1, 4, 3], Rules(angel_numbers=True))
+            game.angels_earned[0] = {rank}
             self.assertEqual(self.preview(game)[0][key]['indices'], [0, 1, 2])
             game.players[0][0].visible = False
             entry = self.preview(game)[0][key]
