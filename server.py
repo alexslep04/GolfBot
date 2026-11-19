@@ -65,7 +65,7 @@ class VersionedStatic(StaticFiles):
 
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emote: Literal["unamused", "shocked", "laughing", "nervous", "thanks", "oops", "wow", "save", "ofc"]
+    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc"]
 
 
 class Settings(BaseModel):

@@ -60,6 +60,7 @@ const emoteNames = {
   unamused: "Unamused",
   shocked: "Shocked",
   laughing: "Laughing",
+  cackling: "Cackling",
   nervous: "Nervous",
   thanks: "Thanks!",
   oops: "Oops!",

@@ -229,7 +229,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.state()['emotes'], [])
 
     def test_supplied_emote_images_are_served_and_solo_remains_playable(self):
-        for name in ('unamused', 'shocked', 'laughing', 'nervous'):
+        for name in ('unamused', 'shocked', 'laughing', 'cackling', 'nervous'):
             response = self.host.get(f'/static/emotes/{name}.png')
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers['content-type'], 'image/png')

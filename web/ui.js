@@ -132,7 +132,7 @@ const prefs = {
   padDrag: "hold", // controller: hold the trigger to carry a card, or "toggle"
   haptics: true,
   hideTips: false,
-  autoQueue: true, // join the Quickplay queue as soon as the site opens
+  autoQueue: false, // join the Ranked queue as soon as the site opens (off unless chosen)
   turnAlerts: false, // a notification (and a buzz) when it's your turn while Golf is in the background
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
@@ -145,7 +145,12 @@ const THEMES = [
   ["night", "Night Golf", "#0f2018"],
 ];
 try {
-  Object.assign(prefs, JSON.parse(localStorage.getItem("golf-prefs") || "{}"));
+  const saved = JSON.parse(localStorage.getItem("golf-prefs") || "{}");
+  // "Join Ranked on open" used to be on by default, and every setting is saved
+  // together, so a saved "on" from then was never chosen: only one turned on
+  // since (marked autoQueueChosen) counts. A saved "off" was always a choice.
+  if (saved.autoQueue && !saved.autoQueueChosen) delete saved.autoQueue;
+  Object.assign(prefs, saved);
 } catch {}
 function applyPrefs() {
   const html = document.documentElement.classList;
@@ -160,6 +165,7 @@ function applyPrefs() {
 }
 function setPref(key, value) {
   prefs[key] = value;
+  if (key === "autoQueue") prefs.autoQueueChosen = true;
   try {
     localStorage.setItem("golf-prefs", JSON.stringify(prefs));
   } catch {}

@@ -2760,6 +2760,22 @@ button.tag-rules:active > .tag-in {
   display: flex;
   gap: 0.6rem;
 }
+/* five faces and the bell: on a narrow phone the menu keeps inside the screen
+   (it starts 7rem in) and the buttons shrink to fit, staying square */
+.emote-pop:not(.summary-emotes) {
+  max-width: calc(100vw - 8.2rem);
+}
+.emote-row button {
+  flex: 0 1 5.2rem;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 1;
+}
+.emote-row img {
+  width: 88%;
+  height: 88%;
+}
 /* the text emotes: a row of short sayings under the faces, scrolling sideways
    (it takes the faces' width and never widens the pop-up itself) */
 .emote-words {
