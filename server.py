@@ -911,6 +911,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             session.google_nonce, session.nonce_expires = secrets.token_urlsafe(32), time.time() + 600
         response.set_cookie(COOKIE, token, path=request.scope.get("root_path", "") + "/",
                             httponly=True, samesite="lax", secure=request.url.scheme == "https", max_age=365 * 86400)
+        request.state.golf_session = session
         return session_view(session)
 
     @app.post('/api/auth/google')
@@ -1112,6 +1113,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                                   'first': 'random', 'house_rules': True, 'rules': house_rules()}}
         return {'status': 'waiting' if session.token in store.queue else 'off',
                 'notice': store.queue_notices.pop(session.token, None)}
+
+    def boot_queue(session):
+        """Where this session stands in the queue, for the first page (leaves any notice for the poll)."""
+        prune_queue()
+        if session.token in store.queue_results or any(session.token in offer['seats']
+                                                       for offer in store.queue_offers.values()):
+            return queue_view(session)
+        return {'status': 'waiting' if session.token in store.queue else 'off'}
 
     @app.post('/api/queue/join')
     async def join_queue(body: Join, request: Request):
@@ -1687,11 +1696,20 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         base = request.scope.get("root_path", "").rstrip("/") + "/"
         html = (ROOT / "web" / filename).read_text(encoding="utf-8").replace("__GOLF_BASE__", base)
         cookies = Response()  # collects the session cookie, if this page opens one
+        if os.environ.get("GOLFBOT_DEBUG", "") not in ("", "0", "false"):
+            # a debug build (launch.py --debug): DEBUG in the tab title and a bug
+            # on the icon, so it is never mistaken for the real site
+            html = re.sub(r"<title>(.*?)</title>", r"<title>DEBUG · \1</title>", html, count=1)
+            html = html.replace('"static/assets/icon.png"', '"static/assets/icon-debug.png"')
+            html = html.replace("<html", '<html data-debug', 1)
         if boot:
             # What the app needs for its first page, in the page itself: no round
             # trips before anything can be drawn (a blank screen on a refresh).
             data = {"session": open_session(request, cookies), "rules": rules_data(),
                     "matchOptions": match_options_data(), "avatars": avatars_data()}
+            # the Quickplay pill is drawn with the first page instead of popping
+            # in once the first presence poll answers
+            data["queue"] = boot_queue(request.state.golf_session)
             script = '<script id="boot-data" type="application/json">' + json.dumps(data).replace("</", "<\\/") + "</script>"
             html = html.replace("</head>", f"    {script}\n  </head>", 1)
         # Version every script and stylesheet the page loads, so a release never mixes old and new files.

@@ -11,11 +11,11 @@ function harness() {
     return {innerHTML:'', textContent:'', dataset:{}, hidden:true, open:false, attributes:{},
       classList:{add(){},remove(){},toggle(){}}, style:{setProperty(){}}, addEventListener(){},
       setAttribute(k,v){this.attributes[k]=v;},
-      querySelector(key){if(!children.has(key)) children.set(key,element());return children.get(key);},
+      querySelector(key){if(!children.has(key)) children.set(key,element());return children.get(key);}, querySelectorAll:()=>[],
       showModal(){this.open=true;},close(){this.open=false;},
       append(node){nodes.set(node.id,node);}, get firstElementChild(){return this.querySelector('first');}};
   }
-  for(const id of ['app','sheet','toast','social-dialog']) nodes.set(id,element());
+  for(const id of ['app','sheet','toast','social-dialog','queue-banner']) nodes.set(id,element());
   const context = vm.createContext({console,URL,URLSearchParams,Intl,Date,JSON,Math,Set,Map,
     // browser pieces the redesigned UI touches while loading
     performance,queueMicrotask,requestAnimationFrame:()=>1,cancelAnimationFrame(){},navigator:{},
@@ -40,16 +40,18 @@ function harness() {
   return {run,context,nodes,requests,listeners};
 }
 
+// The leaderboard page is drawn once; each view then lands in its body, under the header and tabs.
+const leaderHtml=h=>{const app=h.nodes.get('app');return app.innerHTML+app.querySelector('[data-leader-shell]').querySelector('[data-leader-body]').innerHTML;};
 test('leaderboard defaults PVP, escapes names, formats fractional win rate',async()=>{
   const h=harness();await h.run('leaderboardPage()');
-  const html=h.nodes.get('app').innerHTML;
+  const html=leaderHtml(h);
   assert.match(html,/data-leader-tab="pvp" aria-pressed="true"/);
   // the leader's card and a ranked row for each player, with Elo and W–D–L
   assert.match(html,/class="panel c-p3 stat-hero leader-hero"/);assert.match(html,/class="list-item board-row c-p3"/);
   assert.match(html,/1,210<small>Elo<\/small>/);assert.match(html,/3–1–2/);assert.match(html,/W–D–L/);
   assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
   assert.equal(h.requests[0].url,'/golf/api/leaderboards');
-  await h.run('leaderboardPage("solo")');assert.match(h.nodes.get('app').innerHTML,/No Practice streaks yet/);assert.doesNotMatch(h.nodes.get('app').innerHTML,/Best reached/);
+  await h.run('leaderboardPage("solo")');assert.match(leaderHtml(h),/No Practice streaks yet/);assert.doesNotMatch(leaderHtml(h),/Best reached/);
 });
 
 test('Practice opens on the avatar and rules step, then starts without abandoning saved game',async()=>{
@@ -392,7 +394,8 @@ test('match eye toggles remain open across live updates and are isolated by play
 test('Solo shows best streak with W-D-L and win rate instead of current streak',async()=>{
   const h=harness();h.context.fetch=async()=>({ok:true,json:async()=>({patch:'1.2.0',solo:[{label:'Alice',best_streak:8,current_streak:3,wins:6,draws:2,losses:2,win_rate:.6}]})});
   await h.run('leaderboardPage("solo")');
-  const html=h.nodes.get('app').innerHTML;
+  assert.match(h.nodes.get('app').innerHTML,/data-leader-shell/);
+  const html=leaderHtml(h);
   assert.match(html,/best streak/);assert.match(html,/best streak 8/);
   assert.match(html,/W–D–L/);assert.match(html,/win rate/);
   assert.match(html,/6–2–2/);assert.match(html,/60%/);

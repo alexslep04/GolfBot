@@ -45,7 +45,9 @@ class SubpathTests(unittest.TestCase):
         self.assertIn('golf_session=', response.headers['set-cookie'])
         self.assertIn('Path=/golf/', response.headers['set-cookie'])
         boot = json.loads(re.search(r'<script id="boot-data" type="application/json">(.*?)</script>', response.text).group(1))
-        self.assertEqual(set(boot), {'session', 'rules', 'matchOptions', 'avatars'})
+        self.assertEqual(set(boot), {'session', 'rules', 'matchOptions', 'avatars', 'queue'})
+        # a new visitor is not in the Quickplay queue
+        self.assertEqual(boot['queue'], {'status': 'off'})
         self.assertEqual(boot['session'], fresh.get('/golf/api/session').json())
         self.assertEqual(boot['rules'], fresh.get('/golf/api/rules').json())
         self.assertEqual(boot['avatars'], fresh.get('/golf/api/avatars').json())

@@ -27,7 +27,11 @@ def main():
     parser = argparse.ArgumentParser(description="Host Golf on your computer.")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--debug", action="store_true",
+                        help="mark the site as a debug build: DEBUG in the title and a bug on the icon")
     args = parser.parse_args()
+    if args.debug:
+        os.environ["GOLFBOT_DEBUG"] = "1"
     try:
         with urlopen(f"http://127.0.0.1:{args.port}/health", timeout=0.5) as response:
             running = json.load(response).get('status') == 'ok'
@@ -40,7 +44,7 @@ def main():
         return
     if not args.no_browser:
         threading.Thread(target=open_when_ready, args=(args.port,), daemon=True).start()
-    print(f"Golf: http://localhost:{args.port}/golf/")
+    print(f"Golf{' (DEBUG)' if args.debug else ''}: http://localhost:{args.port}/golf/")
     print("Keep this window open to host. Press Ctrl+C to stop.")
     pid_file = Path(__file__).parent / '.artifacts' / 'server.pid'
     pid_file.parent.mkdir(exist_ok=True)

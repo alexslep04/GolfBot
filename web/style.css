@@ -2214,10 +2214,24 @@ button.tag-rules:active > .tag-in {
   align-items: center;
   gap: 0.8rem;
 }
-.board-btns .icon-btn.queue {
-  --fill: var(--p3b);
-  --stroke: var(--p3);
-  height: 4.6rem;
+/* the Quickplay sparkle is a little badge on the gear's top corner, so it never
+   makes the column taller (pushing the action bar off the screen) and the
+   turn tooltip above the hand never covers it */
+.b-bottom .b-side {
+  position: relative;
+}
+.board-extra {
+  position: absolute;
+  top: -0.8rem;
+  left: calc(50% + 0.9rem);
+  z-index: 21;
+}
+.board-extra .icon-btn.queue {
+  --fill: var(--p3);
+  --stroke: var(--paper);
+  width: 3.2rem;
+  height: 3.2rem;
+  animation: pop 0.4s var(--spring);
 }
 .actionbar {
   display: none;
@@ -3287,16 +3301,55 @@ button:disabled > .haptic-switch {
   bottom: max(2.4rem, env(safe-area-inset-bottom));
   z-index: 200;
   transform: translateX(-50%);
-  max-width: min(36rem, calc(100vw - 3.2rem));
-  padding: 1rem 1.6rem;
+  /* wide and low: a line or two of text, read from the left */
+  width: max-content;
+  max-width: min(46rem, calc(100vw - 3.2rem));
+  padding: 0.7rem 1.9rem 0.7rem 1.4rem;
   border: 0.4rem solid var(--ink);
-  border-radius: 2rem;
+  border-radius: 1.6rem;
   background: var(--paper);
   color: var(--ink);
-  font-size: 1.5rem;
-  text-align: center;
+  font-size: 1.4rem;
+  line-height: 1.3;
+  text-align: left;
   box-shadow: 0.3rem 0.3rem 0 var(--shadow);
   animation: toast-in 0.4s var(--spring);
+  /* it can be swiped away (app.js) */
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  transition:
+    translate 0.3s var(--spring),
+    opacity 0.25s;
+}
+/* the ✕ sticker on the top right corner also dismisses it */
+.toast-close {
+  position: absolute;
+  top: -1.2rem;
+  right: -1.2rem;
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  cursor: pointer;
+  --fill: var(--ink);
+  --stroke: var(--paper);
+  transition: transform 0.28s var(--spring);
+}
+.toast-close:active {
+  transform: scale(0.85);
+  transition-duration: 0.08s;
+}
+/* on its way out: an ease that speeds up as it drops off the screen */
+.toast.leaving {
+  pointer-events: none;
+  transition:
+    translate 0.3s cubic-bezier(0.4, 0, 0.9, 0.6),
+    opacity 0.18s ease-in 0.12s;
+}
+.toast.dragging {
+  transition: none;
+  cursor: grabbing;
 }
 @keyframes toast-in {
   from {
@@ -3304,31 +3357,118 @@ button:disabled > .haptic-switch {
     opacity: 0;
   }
 }
+/* Quickplay: a small pill in the page's top bar, between its buttons (or,
+   on a page without one, floating at the top). Never on the game board. */
 .queue-banner {
-  position: fixed;
-  left: 50%;
-  top: max(0.8rem, env(safe-area-inset-top));
+  position: absolute;
+  left: 0;
+  top: 0;
   z-index: 90;
-  transform: translateX(-50%);
+  --safe-top: env(safe-area-inset-top);
+}
+.queue-slot {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+.queue-slot.end {
+  margin-left: auto;
+}
+/* the copy in the top bar only keeps the pill's room */
+.queue-slot > * {
+  visibility: hidden;
+}
+.queue-pill {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  padding: 0.6rem 0.8rem 0.6rem 1.4rem;
-  border: 0.4rem solid var(--p3);
-  border-radius: 2.4rem;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.3rem 0.8rem 0.3rem 1.1rem;
+  border: 0.3rem solid var(--p3);
+  border-radius: 2rem;
   background: var(--p3b);
   color: var(--p3t);
-  font-size: 1.4rem;
-  white-space: nowrap;
-  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+  box-shadow: 0.25rem 0.25rem 0 var(--shadow);
   --c: var(--p3);
   --c2: var(--p3b);
   --ct: var(--p3t);
 }
-.queue-banner .btn.small {
-  min-height: 3.6rem;
+.queue-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  color: inherit;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+.queue-text {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+  line-height: 1.15;
+}
+.queue-text b {
   font-size: 1.3rem;
-  padding: 0.3rem 1rem;
+}
+.queue-text small {
+  font-size: 1.1rem;
+  opacity: 0.75;
+}
+.queue-text :is(b, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-pill.offer .queue-text small {
+  opacity: 1;
+}
+.side-act.queue-leave {
+  flex: none;
+  gap: 0;
+  font-size: 1.05rem;
+  line-height: 1.1;
+  color: var(--p3t);
+  --fill: var(--p3);
+  animation: none;
+}
+.side-act.queue-leave .act-ico {
+  height: 2.8rem;
+}
+.queue-tip {
+  position: absolute;
+  z-index: 300;
+  padding: 0.5rem 1.2rem;
+  border-radius: 1.6rem;
+  background: var(--p3);
+  color: var(--p3t);
+  font: 700 1.4rem/1.3 var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0.25rem 0.25rem 0 var(--shadow);
+  animation: pop 0.35s var(--spring);
+  transition: opacity 0.25s;
+}
+.queue-tip.out {
+  opacity: 0;
+}
+.queue-tip::after {
+  content: "";
+  position: absolute;
+  left: var(--tip-x, 50%);
+  top: calc(100% - 0.1rem);
+  margin-left: -0.8rem;
+  border: 0.8rem solid transparent;
+  border-top-color: var(--p3);
+  border-bottom: 0;
+}
+.queue-tip.below::after {
+  top: auto;
+  bottom: calc(100% - 0.1rem);
+  border: 0.8rem solid transparent;
+  border-bottom-color: var(--p3);
+  border-top: 0;
 }
 :root.in-game .queue-banner {
   display: none;

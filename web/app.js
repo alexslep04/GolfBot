@@ -162,13 +162,78 @@ function saveAvatar(id) {
 }
 function toast(text) {
   const el = document.getElementById("toast");
-  el.textContent = text;
+  el.innerHTML = `<span class="toast-text">${e(text)}</span><button type="button" class="toast-close" data-toast-close aria-label="Dismiss">${icon("xmark.circle.fill", 20)}</button>`;
   el.hidden = true;
+  el.classList.remove("leaving");
+  el.style.removeProperty("translate");
+  el.style.removeProperty("opacity");
   void el.offsetWidth;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 4200);
+  toastTimer = setTimeout(dismissToast, 4200);
 }
+/**
+ * Info cards leave by sliding down off the bottom of the screen (or, swiped,
+ * the way they were thrown).
+ */
+function dismissToast(translate = "0px calc(100% + 4rem)") {
+  const el = document.getElementById("toast");
+  clearTimeout(toastTimer);
+  if (el.hidden) return;
+  el.classList.add("leaving");
+  el.style.translate = translate;
+  el.style.opacity = "0";
+  toastTimer = setTimeout(() => {
+    el.hidden = true;
+    el.classList.remove("leaving");
+  }, 320);
+}
+// A toast can be swiped away, sideways or down; a short drag springs back.
+(() => {
+  const el = document.getElementById("toast");
+  if (!el?.addEventListener) return;
+  let start = null;
+  const dismiss = dismissToast;
+  el.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-toast-close]")) dismiss();
+  });
+  const offset = (event) => {
+    const dx = event.clientX - start.x,
+      dy = event.clientY - start.y;
+    // it follows the finger sideways and downwards, and only a little upwards
+    return [dx, dy < 0 ? dy / 4 : dy];
+  };
+  el.addEventListener("pointerdown", (event) => {
+    if (event.target.closest?.("[data-toast-close]")) return; // a tap on the ✕, not a swipe
+    start = { x: event.clientX, y: event.clientY };
+    el.setPointerCapture(event.pointerId);
+    el.classList.add("dragging");
+    clearTimeout(toastTimer);
+  });
+  el.addEventListener("pointermove", (event) => {
+    if (!start) return;
+    const [dx, dy] = offset(event);
+    el.style.translate = `${dx}px ${dy}px`;
+    el.style.opacity = String(Math.max(0.3, 1 - Math.hypot(dx, dy) / 260));
+  });
+  const release = (event) => {
+    if (!start) return;
+    const [dx, dy] = offset(event);
+    start = null;
+    el.classList.remove("dragging");
+    if (Math.abs(dx) > 60 || dy > 40) {
+      // off it goes, the way it was thrown
+      const far = Math.max(innerWidth, 600);
+      dismiss(Math.abs(dx) > dy ? `${Math.sign(dx) * far}px ${dy}px` : `${dx}px calc(100% + 4rem)`);
+    } else {
+      el.style.removeProperty("translate");
+      el.style.removeProperty("opacity");
+      toastTimer = setTimeout(dismissToast, 2500);
+    }
+  };
+  el.addEventListener("pointerup", release);
+  el.addEventListener("pointercancel", release);
+})();
 async function api(url, method = "GET", body) {
   const response = await fetch(appPath(url), {
     method,
@@ -193,6 +258,16 @@ async function api(url, method = "GET", body) {
   }
   return data;
 }
+// A debug build (launch.py --debug) keeps "DEBUG" at the front of every
+// title the pages set, as the server already put it on the first one.
+if (document.documentElement.dataset?.debug !== undefined) {
+  const title = Object.getOwnPropertyDescriptor(Document.prototype, "title");
+  Object.defineProperty(document, "title", {
+    configurable: true,
+    get: () => title.get.call(document),
+    set: (text) => title.set.call(document, String(text).startsWith("DEBUG") ? text : `DEBUG · ${text}`),
+  });
+}
 let shownFirstPage = false;
 function show(name, html) {
   page = name;
@@ -200,12 +275,14 @@ function show(name, html) {
   closeSheet();
   root.innerHTML = html;
   // a load or refresh lands on its page without the slide-in (it read as a flicker)
-  if (!shownFirstPage) {
+  const first = !shownFirstPage;
+  if (first) {
     shownFirstPage = true;
     root.firstElementChild?.classList.add("instant");
-    booted();
   }
   window.scrollTo(0, 0);
+  renderQueueBanner();
+  if (first) booted();
 }
 function openSheet(html, player = "") {
   // `player` marks a rules sheet, which is kept in step with the table
@@ -218,10 +295,10 @@ function closeSheet() {
   sheetRoot.innerHTML = "";
 }
 function topbar() {
-  return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}${padTag("start", "under")}</button>${logoHtml()}</header>`;
+  return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}${padTag("start", "under")}</button><div class="queue-slot"></div>${logoHtml()}</header>`;
 }
 function subHeader(title, back = session?.room_id ? "resume" : "home") {
-  return `<header class="topbar"><button type="button" class="btn round c-fw nav-float" style="width:5.2rem;height:5.2rem" data-nav="${back}" aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button><h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1></header>`;
+  return `<header class="topbar"><button type="button" class="btn round c-fw nav-float" style="width:5.2rem;height:5.2rem" data-nav="${back}" aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button><h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1><div class="queue-slot end"></div></header>`;
 }
 function field(label, body, iconName, extra = "") {
   return `<label class="field ${extra}"><span class="label">${e(label)}</span>${iconName ? tilted(iconName, 24) : ""}${body}</label>`;
@@ -284,13 +361,148 @@ function renderHomeLive() {
 function renderQueueBanner() {
   const banner = document.getElementById("queue-banner");
   const queue = presenceState.queue;
-  const visible =
-    queue && ["waiting", "offer"].includes(queue.status) && page !== "home";
-  banner.hidden = !visible;
-  if (visible)
-    banner.innerHTML = `<span>${queue.status === "offer" ? (queue.accepted ? "Waiting for opponent" : "Match found!") : "In the Quickplay queue"}</span>${queue.status === "offer" ? `<button type="button" class="btn small" data-queue-view>View</button>` : ""}<button type="button" class="btn small" data-queue-leave>Leave</button>`;
+  const onBoard = page === "room" && !!state?.game;
+  const visible = !!queue && ["waiting", "offer"].includes(queue.status) && !onBoard;
+  const html = visible ? queuePillHtml(queue) : "";
+  // Each page's top bar keeps an invisible copy, which holds the pill's room
+  // between its buttons; the one real pill sits over it.
+  root.querySelectorAll(".queue-slot").forEach((holder) => {
+    if (holder.dataset.html !== html) {
+      holder.dataset.html = html;
+      holder.innerHTML = html;
+    }
+  });
+  if (!visible) hideQueuePill(banner, onBoard);
+  else {
+    if (banner.dataset.html !== html) {
+      banner.dataset.html = html;
+      banner.innerHTML = html;
+    }
+    placeQueuePill(banner);
+  }
   renderHomeLive();
   if (page === "room" && state?.game && board.el?.isConnected) renderChrome();
+}
+/*
+ * The Quickplay pill is one element for the whole site, so moving between
+ * pages never redraws it: it glides from its spot in the old page's top bar to
+ * the new one's (or the top centre, on a page without one).
+ */
+let queuePillAt = null; // where the pill rests, in page coordinates; null while hidden
+/** An element's place in the page, as laid out (a page's slide-in transform aside). */
+function layoutBox(el) {
+  let left = 0,
+    top = 0;
+  for (let node = el; node; node = node.offsetParent) {
+    left += node.offsetLeft;
+    top += node.offsetTop;
+  }
+  return { left, top, width: el.offsetWidth, height: el.offsetHeight };
+}
+function placeQueuePill(banner, animate = true) {
+  const wasHidden = banner.hidden;
+  banner.hidden = false;
+  const slot = root.querySelector(".queue-slot");
+  const width = banner.offsetWidth,
+    height = banner.offsetHeight;
+  let to;
+  if (slot) {
+    const box = layoutBox(slot);
+    to = { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2 };
+  } else
+    to = {
+      left: (document.documentElement.clientWidth - width) / 2,
+      top: Math.max(8, parseFloat(getComputedStyle(banner).getPropertyValue("--safe-top")) || 0),
+    };
+  // start from wherever it shows now, mid-glide included
+  const now = banner.getBoundingClientRect();
+  const from = queuePillAt && !wasHidden ? { left: now.left + scrollX, top: now.top + scrollY } : null;
+  banner.style.left = `${to.left}px`;
+  banner.style.top = `${to.top}px`;
+  queuePillAt = to;
+  if (!animate || reducedMotion.matches) return;
+  // the first page after a load is simply there, pill included
+  const instant = root.firstElementChild?.classList.contains("instant") && wasHidden && !shownQueuePill;
+  shownQueuePill = true;
+  if (instant) return;
+  if (!from) {
+    banner.getAnimations().forEach((animation) => animation.cancel());
+    banner.animate(
+      [{ transform: "scale(0.6)", opacity: 0 }, { transform: "none", opacity: 1 }],
+      { duration: 400, easing: "cubic-bezier(0.34, 1.5, 0.64, 1)" },
+    );
+    return;
+  }
+  const dx = from.left - to.left,
+    dy = from.top - to.top;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  banner.animate(
+    [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }],
+    { duration: 450, easing: "cubic-bezier(0.3, 0.7, 0.25, 1)" },
+  );
+}
+let shownQueuePill = false;
+function hideQueuePill(banner, instantly) {
+  queuePillAt = null;
+  if (banner.hidden) return;
+  const done = () => {
+    if (queuePillAt) return; // shown again meanwhile
+    banner.hidden = true;
+    banner.innerHTML = "";
+    banner.dataset.html = "";
+  };
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  if (instantly || reducedMotion.matches) return done();
+  banner
+    .animate([{ opacity: 1 }, { transform: "scale(0.6)", opacity: 0 }], { duration: 180, easing: "ease-in" })
+    .finished.then(done, done);
+}
+window.addEventListener("resize", () => {
+  const banner = document.getElementById("queue-banner");
+  if (queuePillAt) placeQueuePill(banner, false);
+});
+/**
+ * A tap on a Quickplay sparkle says what it means: a little bubble beside it
+ * that fades by itself (or on a second tap).
+ */
+let queueTipTimer = 0;
+function showQueueTip(anchor) {
+  document.querySelectorAll(".queue-tip").forEach((tip) => tip.remove());
+  clearTimeout(queueTipTimer);
+  if (anchor.dataset.tipOpen) {
+    delete anchor.dataset.tipOpen;
+    return;
+  }
+  anchor.dataset.tipOpen = "1";
+  const tip = document.createElement("div");
+  tip.className = "queue-tip";
+  tip.setAttribute("role", "status");
+  tip.textContent = "You're in the Quickplay queue";
+  document.body.appendChild(tip);
+  const box = anchor.getBoundingClientRect();
+  const width = tip.offsetWidth;
+  // above the sparkle, nudged to stay on screen; the arrow still points at it
+  const centre = box.left + box.width / 2;
+  const left = Math.max(8, Math.min(innerWidth - width - 8, centre - width / 2));
+  tip.style.left = `${left + scrollX}px`;
+  tip.style.top = `${box.top + scrollY - tip.offsetHeight - 10}px`;
+  tip.style.setProperty("--tip-x", `${centre - left}px`);
+  if (box.top - tip.offsetHeight - 10 < 4) {
+    tip.style.top = `${box.bottom + scrollY + 10}px`;
+    tip.classList.add("below");
+  }
+  queueTipTimer = setTimeout(() => {
+    delete anchor.dataset.tipOpen;
+    tip.classList.add("out");
+    setTimeout(() => tip.remove(), 250);
+  }, 2600);
+}
+/** The Quickplay pill: its status (tap to see an offer) and a Leave sticker. */
+function queuePillHtml(queue) {
+  const offer = queue.status === "offer";
+  const status = offer ? (queue.accepted ? "Waiting…" : "Match found!") : "In queue";
+  return `<div class="queue-pill${offer ? " offer" : ""}"><button type="button" class="queue-info" ${offer ? "data-queue-view" : "data-queue-tip"} aria-label="Quickplay: ${status}"><span class="queue-text"><b>Quickplay</b><small>${status}</small></span></button><button type="button" class="act side-act queue-leave" data-queue-leave aria-label="Leave the Quickplay queue"><span class="act-ico">${icon("rectangle.portrait.and.arrow.right", 24, { sw: 3.4 })}</span><span class="side-label">Leave</span></button></div>`;
 }
 async function joinQueue() {
   saveName(name());
@@ -1541,23 +1753,17 @@ async function statsPage(fromUrl = false) {
   const query = statsQuery();
   document.title = "Leaderboard · Golf";
   history.replaceState({}, "", appPath("/stats") + (query.toString() ? "?" + query : ""));
-  const head = (title) => subHeader(title) + leaderboardTabs("advanced");
-  if (!same)
-    show(
-      "stats",
-      `<div class="page scroll">${head(statsSelection.player ? "Player stats" : "Leaderboard")}<div class="loading">Loading player stats…</div></div>`,
-    );
+  const draw = (title, body) => leaderShell("stats", title, "advanced", body, "Loading player stats…");
+  if (!same) draw(statsSelection.player ? "Player stats" : "Leaderboard", null);
   try {
     const result = await api("/api/stats?" + query);
     if (page !== "stats" || request !== statsRequest) return;
     statsSelection.opponent = result.comparison?.profile.id || "";
-    if (!result.players.length) {
-      show(
-        "stats",
-        `<div class="page scroll">${head("Leaderboard")}<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p></div>`,
+    if (!result.players.length)
+      return draw(
+        "Leaderboard",
+        `<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p>`,
       );
-      return;
-    }
     const filters = statsFiltersHtml(result.patches);
     const content = statsSelection.player ? playerStatsHtml(result) : leaderboardHtml(result);
     const holder = root.querySelector("[data-stats-view]");
@@ -1567,18 +1773,18 @@ async function statsPage(fromUrl = false) {
       holder.querySelector("#stats-content").innerHTML = content;
       return;
     }
-    show(
-      "stats",
-      `<div class="page scroll" data-stats-view="${e(view)}">${head(statsSelection.player ? result.player.profile.label : "Leaderboard")}
+    draw(
+      statsSelection.player ? result.player.profile.label : "Leaderboard",
+      `<div class="leader-body" data-stats-view="${e(view)}">
         <div data-stats-filters>${filters}</div>
         <div id="stats-content" class="stack wide">${content}</div>
       </div>`,
     );
   } catch (error) {
     if (page === "stats" && request === statsRequest)
-      show(
-        "stats",
-        `<div class="page scroll">${head("Leaderboard")}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button></div>`,
+      draw(
+        "Leaderboard",
+        `<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button>`,
       );
   }
 }
@@ -1702,19 +1908,53 @@ function leaderboardBody(tab, result) {
     .join("");
   return `${intro}${hero}<div class="list leader-list">${list}</div>`;
 }
-let leaderboardRequest = 0;
+/**
+ * The leaderboard views (Solo, PVP, Advanced stats) share one page: its header
+ * and tabs are drawn once and stay put, and only the part below them changes.
+ * `body` null means "still loading": the first time that shows `loading`; once
+ * the page is up, what is there stays (dimmed) until the new view arrives.
+ */
+function leaderShell(name, title, tab, body, loading = "Loading…") {
+  const shell = ["leaderboard", "stats"].includes(page) && root.querySelector("[data-leader-shell]");
+  if (!shell) {
+    show(
+      name,
+      `<div class="page scroll" data-leader-shell>${subHeader(title)}${leaderboardTabs(tab)}<div class="leader-body" data-leader-body>${body ?? `<div class="loading">${e(loading)}</div>`}</div></div>`,
+    );
+    return;
+  }
+  page = name;
+  closeSheet();
+  const heading = shell.querySelector(".page-title");
+  if (heading && heading.textContent !== title) heading.textContent = title;
+  shell.querySelectorAll("[data-leader-tab]").forEach((button) => {
+    const on = button.dataset.leaderTab === tab;
+    button.classList.toggle("c-p3", on);
+    button.classList.toggle("c-fw", !on);
+    button.setAttribute("aria-pressed", String(on));
+  });
+  const holder = shell.querySelector("[data-leader-body]");
+  holder.classList.toggle("stale", body === null);
+  if (body !== null) holder.innerHTML = body;
+}
+let leaderboardRequest = 0,
+  leaderboardCache = null;
 async function leaderboardPage(tab = "pvp") {
   const request = ++leaderboardRequest;
   document.title = "Leaderboard - Golf";
   history.replaceState({}, "", appPath("/leaderboard"));
-  const head = subHeader("Leaderboard") + leaderboardTabs(tab);
-  show("leaderboard", `<div class="page scroll">${head}<div class="loading">Loading leaderboard...</div></div>`);
+  const draw = (body) => leaderShell("leaderboard", "Leaderboard", tab, body, "Loading leaderboard…");
+  // the last board shows straight away; it is only redrawn if the fetch changed it
+  draw(leaderboardCache ? leaderboardBody(tab, leaderboardCache) : null);
   try {
     const result = await api("/api/leaderboards");
     if (page !== "leaderboard" || request !== leaderboardRequest) return;
-    show("leaderboard", `<div class="page scroll">${head}${leaderboardBody(tab, result)}</div>`);
+    const changed = JSON.stringify(result) !== JSON.stringify(leaderboardCache);
+    leaderboardCache = result;
+    if (changed) draw(leaderboardBody(tab, result));
   } catch (error) {
-    if (page === "leaderboard" && request === leaderboardRequest) show("leaderboard", `<div class="page scroll">${head}<p class="empty">${e(error.message)}</p></div>`);
+    if (page === "leaderboard" && request === leaderboardRequest && !leaderboardCache)
+      draw(`<p class="empty">${e(error.message)}</p>`);
   }
 }
 
@@ -1897,6 +2137,7 @@ document.addEventListener("click", async (event) => {
       hiddenQueueOffer = presenceState.queue.id;
       return closeSocial();
     }
+    if ("queueTip" in data) return showQueueTip(button);
     if ("queueView" in data) {
       hiddenQueueOffer = null;
       socialSignature = "";
@@ -2234,6 +2475,7 @@ function bootData() {
       fontsReady(),
     ]);
     avatars = avatarInfo.avatars;
+    if (boot.queue) presenceState.queue = boot.queue;
     try {
       session.username = localStorage.getItem("golf-name") || session.username;
       const saved = localStorage.getItem("golf-avatar");

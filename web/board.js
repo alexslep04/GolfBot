@@ -1039,7 +1039,7 @@ function renderChrome() {
     `${queue?.status}`,
     () =>
       queue && ["waiting", "offer"].includes(queue.status)
-        ? `<button type="button" class="icon-btn queue" data-queue-view aria-label="Quickplay queue">${icon("sparkles", 32)}</button>`
+        ? `<button type="button" class="icon-btn queue" ${queue.status === "offer" ? "data-queue-view" : "data-queue-tip"} aria-label="Quickplay queue">${icon("sparkles", 22)}</button>`
         : "",
   );
   const bar = board.el.querySelector("[data-actionbar]");
