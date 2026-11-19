@@ -124,24 +124,24 @@ def cancellation_pairs(layout, rules, visible_only=False):
     known = {i for i, slot in enumerate(layout) if slot.visible or not visible_only}
     pairs = [((i, i + 3), "column") for i in range(3)
              if i in known and i + 3 in known and layout[i].card.rank == layout[i + 3].card.rank]
-    cancelled = {i for pair, _ in pairs for i in pair}
+    canceled = {i for pair, _ in pairs for i in pair}
     if rules.ripped_five:
         # The 5 of diamonds rips one other 5 anywhere in the hand, whether or not
-        # it has already cancelled a 5 in its own column. The ripped 5 is the
-        # first one left to right that nothing has cancelled yet.
+        # it has already canceled a 5 in its own column. The ripped 5 is the
+        # first one left to right that nothing has canceled yet.
         diamond = next((i for i in sorted(known) if layout[i].card.rank == 5 and layout[i].card.suit == "D"), None)
         if diamond is not None:
-            other = next((i for i in sorted(known - cancelled) if i != diamond and layout[i].card.rank == 5), None)
+            other = next((i for i in sorted(known - canceled) if i != diamond and layout[i].card.rank == 5), None)
             if other is not None:
                 pairs.append(((diamond, other), "ripped"))
     return pairs
 
 
 def column_score(layout, rules, visible_only=False):
-    cancelled = {i for pair, _ in cancellation_pairs(layout, rules, visible_only) for i in pair}
+    canceled = {i for pair, _ in cancellation_pairs(layout, rules, visible_only) for i in pair}
     total = 0
     for column in range(3):
-        indexes = [i for i in (column, column + 3) if i not in cancelled and (layout[i].visible or not visible_only)]
+        indexes = [i for i in (column, column + 3) if i not in canceled and (layout[i].visible or not visible_only)]
         if len(indexes) == 2:
             first, second = (layout[i].card for i in indexes)
             if rules.king_queen and {first.rank, second.rank} == {12, 13}:

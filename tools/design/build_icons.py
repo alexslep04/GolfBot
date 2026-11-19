@@ -5,7 +5,7 @@ Usage: build_icons.py <pdf_dir> <out.js>   (needs `mutool` on PATH)
 Each symbol becomes {b: glyph bounds [x, y, w, h]} plus either d (one path) or
 l (ordered layers). SF Symbols draw inner details (the lines in a speech
 bubble, the pips on dice) as luminance masks over the artwork; each mask
-becomes a cut-out layer that the web client paints in the outline colour.
+becomes a cut-out layer that the web client paints in the outline color.
 """
 import json
 import pathlib
@@ -107,7 +107,7 @@ for pdf in sorted(pdf_dir.glob('*.pdf')):
     if not xs:
         print('skip', pdf.name)
         continue
-    # merge neighbouring layers of the same kind to keep the file small
+    # merge neighboring layers of the same kind to keep the file small
     merged = []
     for kind, data in layers:
         if merged and merged[-1][0] == kind:

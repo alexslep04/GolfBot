@@ -10,7 +10,7 @@ const SUIT_ICON = {
   C: "suit.club.fill",
 };
 const SUIT_NAME = { S: "spades", H: "hearts", D: "diamonds", C: "clubs" };
-// Colours go by seat, so every screen shows the same player in the same colour:
+// Colors go by seat, so every screen shows the same player in the same color:
 // player 1 blue, 2 red, 3 yellow, 4 purple, 5 orange, 6 dark blue, 7 lavender,
 // 8 dark green (then round again at bigger tables).
 const SEAT_COLORS = ["c-s0", "c-s1", "c-s2", "c-s3", "c-s4", "c-s5", "c-s6", "c-s7"];
@@ -41,8 +41,8 @@ const RULE_VARIANTS = {
     ["q.circle.fill", "Queen pair"],
   ],
   king_queen: [
-    ["equal.circle.fill", "Same colour: 5 pts"],
-    ["notequal.circle.fill", "Different colours: 15 pts"],
+    ["equal.circle.fill", "Same color: 5 pts"],
+    ["notequal.circle.fill", "Different colors: 15 pts"],
   ],
   holdem: [
     ["heart.circle.fill", "Flush"],
@@ -140,7 +140,7 @@ function otherPlayers() {
 }
 const canCycle = () => !!state?.game && state.names.length > 2 && !!board.el?.isConnected;
 /** The opponent one step round the table from the one showing. */
-function neighbour(direction) {
+function neighbor(direction) {
   const others = otherPlayers();
   return others[(others.indexOf(opponentSeat()) + direction + others.length) % others.length];
 }
@@ -155,7 +155,7 @@ function cycleOpponent(direction) {
   const slide = beginSlide(direction);
   if (slide) settleSlide(slide, true);
   else {
-    board.viewedOpponent = neighbour(direction);
+    board.viewedOpponent = neighbor(direction);
     renderBoard();
   }
   spinCycle(direction);
@@ -163,8 +163,8 @@ function cycleOpponent(direction) {
 /** Turn the table to one player's board: a slide when they sit next door. */
 function goToOpponent(player) {
   if (!canCycle() || player === opponentSeat()) return;
-  if (neighbour(1) === player) return cycleOpponent(1);
-  if (neighbour(-1) === player) return cycleOpponent(-1);
+  if (neighbor(1) === player) return cycleOpponent(1);
+  if (neighbor(-1) === player) return cycleOpponent(-1);
   board.viewedOpponent = player;
   renderBoard();
   spinCycle(1);
@@ -191,7 +191,7 @@ function beginSlide(direction) {
   const top = board.el.querySelector(".b-top");
   if (!top?.cloneNode) return null;
   const from = opponentSeat(),
-    to = neighbour(direction);
+    to = neighbor(direction);
   const shell = document.createElement("div");
   shell.className = "board board-ghost";
   shell.dataset.seat = board.el.dataset.seat;
@@ -214,7 +214,7 @@ function beginSlide(direction) {
   showOpponent(to);
   return slide;
 }
-/** `x` is how far the side being left has travelled: 0 is at rest, a full width is gone. */
+/** `x` is how far the side being left has traveled: 0 is at rest, a full width is gone. */
 function setSlide(slide, x) {
   const { direction, width } = slide;
   slide.x = direction > 0 ? clamp(x, -width, 0) : clamp(x, 0, width);
@@ -264,7 +264,7 @@ function endSlide(slide) {
   // a swipe that was let go early goes back to the opponent it started on
   if (!slide.commit && slide.top.isConnected && state?.game && board.viewedOpponent === slide.to)
     showOpponent(slide.from);
-  void slide.top.offsetWidth; // the tags take their colour before they may fade again
+  void slide.top.offsetWidth; // the tags take their color before they may fade again
   slide.top.classList.remove("sliding");
   for (const name of ["--slide", "--slide-opacity", "--slide-blur"]) slide.top.style.removeProperty(name);
   slide.shell.remove();
@@ -444,7 +444,7 @@ function mountBoard() {
   if (board.slide) cancelAnimationFrame(board.slide.frame);
   board.slide = null;
   board.el = root.querySelector("[data-board]");
-  // inside the table, "player 1 blue" (--p1) becomes your own seat's colour
+  // inside the table, "player 1 blue" (--p1) becomes your own seat's color
   board.el.dataset.seat = String(me % SEAT_COLORS.length);
   board.signatures = {};
   board.view = null;
@@ -1044,7 +1044,7 @@ function renderTags() {
       `${state.names[player]}: ${after ? `new score ${total} points. ` : ""}${count} modifiers in play, ${signed(delta)} points against the cards' face value. Open details.`,
     );
   }
-  // the cycle button wears the colour of the opponent it turns to
+  // the cycle button wears the color of the opponent it turns to
   const cycle = board.el.querySelector("[data-cycle-next]");
   const others = otherPlayers();
   cycle.hidden = others.length < 2;
@@ -1135,10 +1135,10 @@ function placeCallout() {
     // so it lands where things rest while the opponent's side is sliding in.
     const slot = board.el.querySelector("[data-turn-slot]");
     const width = callout.offsetWidth,
-      centre = slot.offsetLeft + slot.offsetWidth / 2;
-    const x = clamp(centre, width / 2 + 6, box.width - width / 2 - 6);
+      center = slot.offsetLeft + slot.offsetWidth / 2;
+    const x = clamp(center, width / 2 + 6, box.width - width / 2 - 6);
     callout.style.setProperty("--callout-x", `${x}px`);
-    callout.style.setProperty("--tip-x", `${clamp(centre - x + width / 2, 20, width - 20)}px`);
+    callout.style.setProperty("--tip-x", `${clamp(center - x + width / 2, 20, width - 20)}px`);
     callout.style.top = `${slot.offsetTop + slot.offsetHeight / 2}px`;
     return;
   }
@@ -1310,7 +1310,7 @@ function playerEmote(player, onTile = false) {
   const image = emoteArt(item, player);
   if (onTile)
     return `<div class="player-emote tile" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms">${image}</div>`;
-  // a white tooltip with the player's avatar and name in their own colour, pointing back at the cycle button
+  // a white tooltip with the player's avatar and name in their own color, pointing back at the cycle button
   if (where === "other")
     return `<div class="player-emote other ${colorFor(player)}" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms"><span class="emote-who">${icon(avatarIcon(state.avatars?.[player]), 26, { idle: false })}<b>${e(state.names[player])}</b></span>${image}</div>`;
   return `<div class="player-emote ${where}" data-emote-player="${player}" role="status" style="animation-delay:-${age}ms">${image}</div>`;
@@ -1318,7 +1318,7 @@ function playerEmote(player, onTile = false) {
 
 /**
  * The post-game graph: every player's showing score after each turn, ending
- * on the final reveal. Lines wear the seat colours (outlined in the seat's
+ * on the final reveal. Lines wear the seat colors (outlined in the seat's
  * dark tone so the yellow still reads) and are named at their right-hand end.
  */
 const CHART = { w: 300, h: 160, left: 24, right: 84, top: 12, bottom: 22 };
@@ -1337,7 +1337,7 @@ function evalScale() {
     y: (v) => top + (1 - (v - lo) / (hi - lo)) * (h - top - bottom),
   };
 }
-/** Which lines get colour and a name: everyone at a small table, else you and the winner. */
+/** Which lines get color and a name: everyone at a small table, else you and the winner. */
 function evalFeatured() {
   const count = state.names.length;
   if (count <= 4) return state.names.map((_, p) => p);
@@ -1364,7 +1364,7 @@ function evalChart() {
     )
     .join("");
   const path = (p) => points.map((point, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(point.scores[p]).toFixed(1)}`).join("");
-  // muted lines first, then the coloured ones, with your own drawn last (on top)
+  // muted lines first, then the colored ones, with your own drawn last (on top)
   const order = state.names
     .map((_, p) => p)
     .sort((a, b) => featured.includes(a) - featured.includes(b) || (a === state.viewer) - (b === state.viewer));
@@ -1388,7 +1388,7 @@ function evalChart() {
   for (let i = labels.length - 2; i >= 0; i--) labels[i].at = Math.min(labels[i].at, labels[i + 1].at - gap);
   const endX = x(points.length - 1);
   // the arrow is drawn in the graph; the tag itself is plain HTML laid over it,
-  // so its text centres the same in every browser (Safari places SVG text its own way)
+  // so its text centers the same in every browser (Safari places SVG text its own way)
   const arrows = labels
     .map(({ p, at }) => {
       const point = y(points.at(-1).scores[p]);
@@ -1973,7 +1973,7 @@ function carryBy(dx, dy) {
       if (spot.away < spot.pull && spot.away < nearest) [hot, nearest] = [item, spot.away];
     }
     if (hot) {
-      // the free position jumps to the centre too, so leaving takes real travel
+      // the free position jumps to the center too, so leaving takes real travel
       const spot = well(hot);
       carry.x = spot.x - carry.home.x;
       carry.y = spot.y - carry.home.y;
@@ -2125,7 +2125,7 @@ function beginDrag(drag) {
   haptic("grab");
 }
 function hotTarget(drag) {
-  const centre = poseOf(drag.slot);
+  const center = poseOf(drag.slot);
   let best = null,
     bestDistance = Infinity;
   for (const item of drag.moves) {
@@ -2136,7 +2136,7 @@ function hotTarget(drag) {
       cy = rect.top + rect.height / 2;
     const inside =
       drag.x >= rect.left && drag.x <= rect.right && drag.y >= rect.top && drag.y <= rect.bottom;
-    const distance = Math.hypot(centre.x - cx, centre.y - cy);
+    const distance = Math.hypot(center.x - cx, center.y - cy);
     const reach = Math.max(rect.width, rect.height) * 0.62;
     if ((inside || distance < reach) && distance < bestDistance) {
       best = item;
@@ -2235,14 +2235,14 @@ async function onBoardPointerUp(event) {
   };
   if (!drag.active) return tapped();
   clearTargets();
-  const travelled = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
+  const traveled = Math.hypot(drag.x - drag.startX, drag.y - drag.startY);
   const drawing =
-    drag.ref[0] === "draw" && state.game.legal.draw && travelled > 44;
+    drag.ref[0] === "draw" && state.game.legal.draw && traveled > 44;
   if (!lifted || busy || (!drag.hot && !drawing)) {
     releaseDrag(drag.slot);
     paintSelection();
     // a quick tap that slid a little under the finger is still a tap
-    if (lifted && !drag.hot && !drawing && travelled < TAP_SLOP && performance.now() - drag.began < TAP_SLOP_MS)
+    if (lifted && !drag.hot && !drawing && traveled < TAP_SLOP && performance.now() - drag.began < TAP_SLOP_MS)
       tapped();
     else board.lastTap = null;
     return;
@@ -2380,7 +2380,7 @@ document.addEventListener("pointermove", (event) => {
   } else if (board.slide !== swipe.slide) return void (tableSwipe = null); // something else moved the table on
   const direction = dx < 0 ? 1 : -1;
   if (!swipe.slide || (swipe.slide.direction !== direction && Math.abs(dx) > DRAG_START)) {
-    // starting out, or pulled back past where it began: the other neighbour comes in
+    // starting out, or pulled back past where it began: the other neighbor comes in
     if (swipe.slide) endSlide(swipe.slide);
     swipe.slide = beginSlide(direction);
     if (!swipe.slide) return void (swipe.plain = true);

@@ -172,7 +172,7 @@ function motionFor(slot) {
   return motion;
 }
 
-/** Where a card currently is on screen: centre, rotation and scale. */
+/** Where a card currently is on screen: center, rotation and scale. */
 function poseOf(slot) {
   const card = slot.querySelector(".card");
   const rect = card.getBoundingClientRect();

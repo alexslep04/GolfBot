@@ -199,7 +199,7 @@ test('the turn tooltip points up at the opponent on show when the turn is theirs
   assert.equal(goto(),null);
 });
 
-test('a reaction from a player who is off screen is a tooltip by the cycle button with their avatar and name in their colour',()=>{
+test('a reaction from a player who is off screen is a tooltip by the cycle button with their avatar and name in their color',()=>{
   const h=harness();
   h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob","Cy <b>"],avatars:["dog","dog","dog"],game:{}};
     opponentEmotesMuted=false;activeEmotes={1:{id:"shocked",sequence:1,ends:Date.now()+4000},2:{id:"laughing",sequence:1,ends:Date.now()+4000}};renderEmotes();`);
