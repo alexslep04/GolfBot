@@ -19,7 +19,7 @@ PATCH_NOTES = [{
     },
     "changes": [
         "New themes! Original is still the goat tho 🙂‍↕️",
-        "Auto Quickplay! You're now automatically placed into the quick queue when opening Golf. This can be turned off in settings.",
+        "Auto Ranked! You're now automatically placed into the Ranked queue when opening Golf. This can be turned off in settings.",
         "Records! A new records tab has dropped in the leaderboard page.",
         "Score Previews! Preview your score before you confirm the move. This feature can be disabled for all players by the host of a PvP game.",
         "Players 5-8 now have their own colors! Orange, dark blue, dark green, and light purple.",
@@ -30,6 +30,7 @@ PATCH_NOTES = [{
         "Notifications! Get alerted when it's your turn.",
         "High contrast cards! Turn them on in settings for orange diamonds and blue clubs.",
         "Practice is now Play solo: one tap starts a House rules game against Golfbot, or picks up the one you left.",
+        "Quickplay is now Ranked.",
         "Spectate! Watch any game in play, solo games included, and cheer with emotes as a Spectator. You'll follow the players to their next game.",
     ],
 }, {

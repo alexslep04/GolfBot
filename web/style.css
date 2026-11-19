@@ -893,16 +893,6 @@ p {
 :root.pad-on .split .btn.tile {
   font-size: 1.85rem;
 }
-/* three across (Spectate, Leaderboard, Rules): smaller still, and tighter */
-.split.three {
-  gap: 0.8rem;
-}
-.split.three .btn.tile,
-:root.pad-on .split.three .btn.tile {
-  min-width: 0;
-  padding-inline: 0.4rem;
-  font-size: 1.6rem;
-}
 .btn.round {
   width: 7.2rem;
   height: 7.2rem;
@@ -4416,6 +4406,10 @@ button:disabled > .haptic-switch {
   color: var(--flame);
   -webkit-text-stroke: 0.4rem var(--flame-edge);
   paint-order: stroke fill;
+}
+/* the leader's card sits as far above the rows as the rows sit apart */
+.leader-hero + .leader-list {
+  margin-top: 1rem;
 }
 .leader-list .board-row {
   animation: row-in 0.45s var(--spring) both;

@@ -358,7 +358,7 @@ function topbar() {
   return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}${padTag("start", "under")}</button><div class="queue-slot"></div>${logoHtml()}</header>`;
 }
 function subHeader(title, back = session?.room_id ? "resume" : "home") {
-  return `<header class="topbar"><button type="button" class="btn round c-fw nav-float" style="width:5.2rem;height:5.2rem" data-nav="${back}" aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button><h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1><div class="queue-slot end"></div></header>`;
+  return `<header class="topbar">${backSticker(`data-nav="${back}"`)}<h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1><div class="queue-slot end"></div></header>`;
 }
 function field(label, body, iconName, extra = "") {
   return `<label class="field ${extra}"><span class="label">${e(label)}</span>${iconName ? tilted(iconName, 24) : ""}${body}</label>`;
@@ -373,8 +373,12 @@ function selectField(label, attrs, options, iconName, extra = "") {
     extra,
   );
 }
+/** Back: the stacked sticker (icon over its label), like Close, Quit and Refresh. */
+function backSticker(attrs) {
+  return `<button type="button" class="close-btn c-fw back-btn" ${attrs} aria-label="Back">${icon("arrowshape.backward.fill", 40)}<span>${padTag("b")}Back</span></button>`;
+}
 function backButton(target = "home") {
-  return `<button type="button" class="btn round c-fw nav-float" data-nav="${target}" aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>`;
+  return backSticker(`data-nav="${target}"`);
 }
 
 /* ---------- presence, invitations, quickplay queue ---------- */
@@ -693,7 +697,7 @@ window.addEventListener("resize", () => {
  */
 function queuePillHtml(queue, compact = false) {
   const offer = queue.status === "offer";
-  const leave = `<button type="button" class="act side-act queue-leave" data-queue-leave aria-label="Leave the Quickplay queue"><span class="act-ico">${icon("rectangle.portrait.and.arrow.right", 24, { sw: 3.4 })}</span><span class="side-label">Leave</span></button>`;
+  const leave = `<button type="button" class="act side-act queue-leave" data-queue-leave aria-label="Leave the Ranked queue"><span class="act-ico">${icon("rectangle.portrait.and.arrow.right", 24, { sw: 3.4 })}</span><span class="side-label">Leave</span></button>`;
   if (offer && !compact) {
     const style = `${e(matchLength(queue.lobby || { best_of: 5, series_mode: "points" }))}${queue.lobby?.house_rules ? " · House rules" : ""}`;
     // Decline takes Leave's place (and keeps you in the queue); Accept hangs below the pill
@@ -706,7 +710,7 @@ function queuePillHtml(queue, compact = false) {
     return `<div class="queue-pill offer open" role="dialog" aria-label="Classic match found"><div class="queue-offer-row"><span class="queue-text"><b>Match found!</b><small>vs ${e(queue.opponent)}<br>${style}</small></span>${decline}</div>${accept}</div>`;
   }
   const status = offer ? "Match found!" : "In queue";
-  return `<div class="queue-pill${offer ? " offer" : ""}"><span class="queue-info" role="status" aria-label="Quickplay: ${status}"><span class="queue-text"><b>Quickplay</b><small>${status}</small></span></span>${leave}</div>`;
+  return `<div class="queue-pill${offer ? " offer" : ""}"><span class="queue-info" role="status" aria-label="Ranked: ${status}"><span class="queue-text"><b>Ranked</b><small>${status}</small></span></span>${leave}</div>`;
 }
 async function joinQueue() {
   saveName(name());
@@ -719,7 +723,7 @@ async function joinQueue() {
   renderSocial();
 }
 /**
- * With "Join Quickplay on open" on, opening the site's home page puts the
+ * With "Join Ranked on open" on, opening the site's home page puts the
  * player straight in the queue — unless they already are in it, or have a
  * table of their own to get back to.
  */
@@ -897,11 +901,11 @@ function home() {
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} <span>${padTag("select")}Resume your table</span></button>` : ""}
     ${patchChip()}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
-    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
+    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Ranked<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
     <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play solo</span>${practice[1]}</button>
-    <div class="row split three">
-      <button type="button" class="btn tile c-p1 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span></button>
-      <button type="button" class="btn tile c-p4 grow" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span></button>
+    <button type="button" class="btn c-p4" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span>${tilted("medal", 33, { mirror: true })}</button>
+    <div class="row split">
+      <button type="button" class="btn tile c-s4 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span></button>
       <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
     ${document.documentElement.dataset?.debug !== undefined ? `<button type="button" class="btn c-p2" data-debug-bots>${tilted("figure.2", 33)}<span>Debug: 8-bot table</span></button><button type="button" class="btn c-p4" data-nav="cards">${tilted("rectangle.stack.fill", 33)}<span>Debug: card gallery</span></button>` : ""}
@@ -920,7 +924,7 @@ function prefsHtml() {
   const rows = [
     row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
     row("contrastCards", "suit.diamond.fill", "High contrast cards", onOff(prefs.contrastCards), !!prefs.contrastCards),
-    row("autoQueue", "sparkles", "Join Quickplay on open", onOff(prefs.autoQueue), prefs.autoQueue),
+    row("autoQueue", "sparkles", "Join Ranked on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
     row("turnAlerts", "bell.fill", "Turn notifications", onOff(prefs.turnAlerts), prefs.turnAlerts),
     // stored as hideTips (so existing choices carry over), shown the positive way round
@@ -1206,7 +1210,7 @@ function setupPage() {
     );
     return;
   }
-  const back = `<button type="button" class="btn round c-fw nav-float" data-setup-back aria-label="Back">${glyph("chevron.left", 20)}${padTag("b", "under")}</button>`;
+  const back = backSticker("data-setup-back");
   const rules = `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
   const go = `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
   show(
@@ -1486,13 +1490,13 @@ async function spectatePage() {
     .map((game) => {
       const players = game.names.map((name, p) => `${e(name)} <b>${game.scores[p]}</b>`).join(" · ");
       const watchers = game.watchers ? ` · ${glyph("eye.fill", 12)} ${game.watchers}` : "";
-      return `<button type="button" class="list-item c-p1" data-watch="${e(game.id)}">${avatarBadge(game.avatars?.[0], "c-p1")}<div class="grow"><strong>${players}</strong><small>${kind(game)} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${glyph("chevron.right", 20)}</button>`;
+      return `<button type="button" class="list-item c-s4" data-watch="${e(game.id)}">${avatarBadge(game.avatars?.[0], "c-s4")}<div class="grow"><strong>${players}</strong><small>${kind(game)} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${glyph("chevron.right", 20)}</button>`;
     })
     .join("");
   show(
     "spectate",
     `<div class="page scroll">${subHeader("Spectate", "home")}<div class="stack wide">
-    <div class="row" style="align-items:center"><p class="hint dark grow">Games in play right now, solo games included. Tap one to watch.</p><button type="button" class="btn small c-fw" data-nav="spectate">${glyph("arrow.clockwise", 18)} ${padTag("x")}Refresh</button></div>
+    <div class="row" style="align-items:center"><p class="hint dark grow">Games in play right now, solo games included. Tap one to watch.</p><button type="button" class="close-btn c-fw" data-nav="spectate" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button></div>
     <div class="list">${list || `<p class="hint dark">Nobody is playing right now. Check back soon!</p>`}</div></div></div>`,
   );
 }
@@ -1664,7 +1668,7 @@ async function friendsPage() {
   show(
     "friends",
     `<div class="page">${topbar()}<div class="stack wide"><div class="stack">
-    <div class="row" style="align-items:center"><h1 class="page-title">Open tables</h1><button type="button" class="btn small c-fw" data-nav="friends">${glyph("arrow.clockwise", 18)} ${padTag("x")}Refresh</button></div>
+    <div class="row" style="align-items:center"><h1 class="page-title">Open tables</h1><button type="button" class="close-btn c-fw" data-nav="friends" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button></div>
     <div class="list">${
       lobbies
         .map((lobby) => {

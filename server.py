@@ -725,7 +725,7 @@ def apply_move(room, token, move):
     if room.void_offer:
         raise HTTPException(409, "Respond to the pending offer before continuing play.")
     if room.rated and move.action == "rematch":
-        raise HTTPException(409, "Join Quickplay again to start another rated series.")
+        raise HTTPException(409, "Join Ranked again to start another rated series.")
     if move.version != room.version:
         raise HTTPException(409, "The table changed. Please try your action again.")
     if token not in room.seats:
@@ -2167,7 +2167,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             seat = room.seats.index(session.token)
             room.expire_offer()
             if not room.rated or room.status != 'playing' or room.round_recorded or room.void_offer or room.void_offered[seat]:
-                raise HTTPException(409, 'You may offer once during each Quickplay game.')
+                raise HTTPException(409, 'You may offer once during each Ranked game.')
             room.void_offered[seat] = True
             room.void_offer = {'by': seat, 'expires_at': time.time() + 30}
             room.version += 1
@@ -2270,7 +2270,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             # trips before anything can be drawn (a blank screen on a refresh).
             data = {"session": open_session(request, cookies), "rules": rules_data(),
                     "matchOptions": match_options_data(), "avatars": avatars_data()}
-            # the Quickplay pill is drawn with the first page instead of popping
+            # the Ranked pill is drawn with the first page instead of popping
             # in once the first presence poll answers
             data["queue"] = boot_queue(request.state.golf_session)
             script = '<script id="boot-data" type="application/json">' + json.dumps(data).replace("</", "<\\/") + "</script>"
