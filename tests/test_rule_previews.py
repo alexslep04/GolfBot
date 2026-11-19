@@ -38,7 +38,11 @@ class RulePreviewTests(unittest.TestCase):
     def test_ripped_uses_actual_uncancelled_pair(self):
         game = self.game([5, 3, 8, 4, 5, 9], Rules(ripped_five=True), 'DSHCHS')
         self.assertEqual(self.preview(game)[0], {'ripped_five': {'indices': [0, 4]}})
+        # in a column pair now, the 5 of diamonds still rips the other 5
         game.players[0][3] = Slot(Card(5, 'C'), True)
+        self.assertEqual(self.preview(game)[0], {'ripped_five': {'indices': [0, 4]}})
+        # with no uncancelled 5 left to rip, nothing shows
+        game.players[0][4] = Slot(Card(4, 'H'), True)
         self.assertEqual(self.preview(game)[0], {})
 
     def test_holdem_selects_qualifying_five_not_first_five(self):

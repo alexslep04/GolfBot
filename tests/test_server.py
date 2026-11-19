@@ -237,7 +237,7 @@ class WebTests(unittest.TestCase):
         response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': 'laughing'})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['solo'])
-        for text in ('thanks', 'oops'):
+        for text in ('thanks', 'oops', 'wow', 'save'):
             response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': text})
             self.assertEqual(response.status_code, 200, text)
             self.assertEqual([emote['id'] for emote in response.json()['emotes']], [text])

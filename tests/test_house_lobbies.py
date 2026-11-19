@@ -42,6 +42,14 @@ class LobbyFeatureTests(unittest.TestCase):
         with patch.object(self.room.game, 'score', side_effect=lambda player: scores[player]):
             self.room.record_result()
 
+    def test_host_can_turn_off_score_previews(self):
+        self.assertTrue(self.guest.post('/Golfgame/api/lobbies', json={'username': 'Guest'}).json()['score_preview'])
+        state = self.create(score_preview=False)
+        self.assertFalse(state['score_preview'])
+        response = self.host.post(self.path + '/preview', json={'action': 'discard', 'version': state['version']})
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('score previews', response.json()['detail'])
+
     def test_house_preset_overrides_tampered_settings_and_locks_solo_rules(self):
         with patch('server.secrets.randbelow', return_value=1):
             response = self.host.post('/Golfgame/api/solo', json={

@@ -11,8 +11,9 @@ const SUIT_ICON = {
 };
 const SUIT_NAME = { S: "spades", H: "hearts", D: "diamonds", C: "clubs" };
 // Colours go by seat, so every screen shows the same player in the same colour:
-// player 1 blue, 2 red, 3 yellow, 4 purple (then round again at bigger tables).
-const SEAT_COLORS = ["c-s0", "c-s1", "c-s2", "c-s3"];
+// player 1 blue, 2 red, 3 yellow, 4 purple, 5 orange, 6 dark blue, 7 lavender,
+// 8 dark green (then round again at bigger tables).
+const SEAT_COLORS = ["c-s0", "c-s1", "c-s2", "c-s3", "c-s4", "c-s5", "c-s6", "c-s7"];
 const OPPONENT_COLORS = ["c-p1", ...SEAT_COLORS]; // every class a tag may be wearing
 const RULE_ICON = {
   royal_pairs: "crown.fill",
@@ -28,7 +29,7 @@ const RULE_ICON = {
   beggars: "questionmark.circle.fill",
   four_kind: "square.grid.2x2.fill",
   poisoned_card: "flag.pattern.checkered",
-  suited_rows: "rectangle.split.3x1.fill",
+  suited_rows: "rectangle.split.1x2.fill",
   all_in_color: "circle.lefthalf.filled",
 };
 // Rules with more than one way to trigger get a sticker per variant, drawn from
@@ -157,6 +158,15 @@ function cycleOpponent(direction) {
   }
   spinCycle(direction);
 }
+/** Turn the table to one player's board: a slide when they sit next door. */
+function goToOpponent(player) {
+  if (!canCycle() || player === opponentSeat()) return;
+  if (neighbour(1) === player) return cycleOpponent(1);
+  if (neighbour(-1) === player) return cycleOpponent(-1);
+  board.viewedOpponent = player;
+  renderBoard();
+  spinCycle(1);
+}
 /** The cycle arrows turn once round, the way the table went. */
 function spinCycle(direction) {
   const arrows = board.el.querySelector("[data-cycle-next] .cycle-ico");
@@ -261,6 +271,75 @@ function colorFor(player) {
   return SEAT_COLORS[player % SEAT_COLORS.length];
 }
 
+/* ---------- the cycle button's name ---------- */
+// radii of the two arcs the name is set on under the arrows (the second, outer
+// one only when the name is too long for the first)
+const CYCLE_ARCS = [40, 54];
+const CYCLE_SWEEP = (135 / 180) * Math.PI; // the most of the circle a line may take
+/**
+ * Set a name round the bottom of the cycle button: on one arc if it fits in
+ * 135° of it, otherwise broken onto a second arc further out (at a space if
+ * one fits, else mid-word with a dash); whatever still does not fit ends in "…".
+ */
+function layoutCycleName(holder, name) {
+  const [first, second] = holder.querySelectorAll("textPath");
+  if (!first) return;
+  const fits = (path, text, radius) => {
+    path.textContent = text;
+    const measure = path.parentNode.getComputedTextLength?.();
+    return measure === undefined || measure <= radius * CYCLE_SWEEP;
+  };
+  const chars = [...name];
+  if (fits(first, name, CYCLE_ARCS[0])) return void (second.textContent = "");
+  // the longest start that fits: at a space, or with a dash
+  let cut = chars.length - 1;
+  while (cut > 1 && !fits(first, chars.slice(0, cut).join("") + "-", CYCLE_ARCS[0])) cut--;
+  const space = chars.slice(0, cut + 1).lastIndexOf(" ");
+  if (space > 0 && fits(first, chars.slice(0, space).join(""), CYCLE_ARCS[0])) {
+    first.textContent = chars.slice(0, space).join("");
+    cut = space + 1;
+  } else first.textContent = chars.slice(0, cut).join("") + "-";
+  let rest = chars.slice(cut);
+  if (!fits(second, rest.join(""), CYCLE_ARCS[1])) {
+    while (rest.length > 1 && !fits(second, rest.join("").trimEnd() + "…", CYCLE_ARCS[1])) rest = rest.slice(0, -1);
+    second.textContent = rest.join("").trimEnd() + "…";
+  }
+}
+/**
+ * Each letter as its own sticker, the leftmost on top: SVG paints later
+ * letters over earlier ones, so they are laid out where the whole line put
+ * them and then drawn right to left.
+ */
+function stackCycleName(holder) {
+  holder.querySelectorAll("text.glyph").forEach((glyph) => glyph.remove());
+  holder.querySelectorAll("textPath").forEach((path, line) => {
+    const text = path.parentNode,
+      chars = [...path.textContent];
+    if (!chars.length || !text.getSubStringLength || !text.getComputedTextLength) return;
+    const arc = holder.querySelector(`#cycle-arc-${line}`);
+    const start = arc.getTotalLength() / 2 - text.getComputedTextLength() / 2;
+    let offset = start,
+      index = 0;
+    const placed = chars.map((char) => {
+      const at = offset;
+      offset += text.getSubStringLength(index, char.length);
+      index += char.length;
+      return [char, at];
+    });
+    text.style.visibility = "hidden";
+    for (const [char, at] of placed.reverse()) {
+      const glyph = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      glyph.setAttribute("class", "glyph");
+      const on = document.createElementNS("http://www.w3.org/2000/svg", "textPath");
+      on.setAttribute("href", `#cycle-arc-${line}`);
+      on.setAttribute("startOffset", at.toFixed(2));
+      on.textContent = char;
+      glyph.appendChild(on);
+      text.parentNode.appendChild(glyph);
+    }
+  });
+}
+
 /* ---------- card markup ---------- */
 function faceHtml(card) {
   if (!card)
@@ -310,7 +389,7 @@ function mountBoard() {
         <span class="tag-avatar" data-avatar-for="opp" aria-hidden="true"></span>
         <div class="turn-slot" data-turn-slot></div>
         <div class="streak" data-streak data-practice-streak role="img" hidden></div>
-        <div class="cycle-wrap"><button type="button" class="cycle" data-cycle-next hidden><span class="cycle-ico"></span></button><div class="cycle-emotes" data-emote-others></div></div>
+        <div class="cycle-wrap"><button type="button" class="cycle" data-cycle-next hidden><span class="cycle-ico"></span><span class="cycle-name"></span></button><div class="cycle-emotes" data-emote-others></div></div>
       </div>
     </section>
     <section class="b-mid">
@@ -635,6 +714,62 @@ function dealIn(view) {
   hapticFlurry(keys.length, 45, 380);
 }
 
+/**
+ * A score that changes rolls like an odometer: each place whose digit changed
+ * scrolls its new digit in (from below when the score rises, from above when
+ * it falls) while the old one scrolls out the other way, both blurring and
+ * fading as they move. The ones turn first and each place after a beat later.
+ */
+function rollScore(score, oldDigits, oldBox) {
+  const digits = score?.querySelector(".digits");
+  if (!digits?.animate || !oldDigits || !oldBox?.width || reducedMotion.matches) return;
+  const before = oldDigits.textContent,
+    after = digits.textContent;
+  const up = (parseInt(after, 10) || 0) > (parseInt(before, 10) || 0) ? 1 : -1;
+  // the old number, laid exactly where it stood, shows only the digits leaving
+  const ghost = oldDigits.cloneNode(true);
+  const at = score.getBoundingClientRect();
+  ghost.classList.add("roll-out");
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.style.cssText = `left:${oldBox.left - at.left}px;top:${oldBox.top - at.top}px;width:${oldBox.width}px`;
+  score.appendChild(ghost);
+  const olds = [...ghost.children],
+    news = [...digits.children];
+  // the new digit pushes the old one out of the way: both travel together, a
+  // whole digit's height, on the same curve
+  const timing = (place) => ({ duration: 380, delay: place * 60, easing: "cubic-bezier(0.3, 0.75, 0.3, 1.08)", fill: "both" });
+  const places = Math.max(olds.length, news.length);
+  let last = null;
+  for (let place = 0; place < places; place++) {
+    const gone = olds[olds.length - 1 - place],
+      come = news[news.length - 1 - place];
+    if (gone && come && gone.textContent === come.textContent) {
+      gone.style.visibility = "hidden";
+      continue;
+    }
+    if (come)
+      come.animate(
+        [
+          { translate: `0 ${up * 0.9}em`, filter: "blur(0.3rem)", opacity: 0 },
+          { translate: `0 ${up * 0.3}em`, filter: "blur(0.1rem)", opacity: 1, offset: 0.45 },
+          { translate: "0 0", filter: "blur(0)", opacity: 1 },
+        ],
+        timing(place),
+      );
+    if (gone)
+      last = gone.animate(
+        [
+          { translate: "0 0", filter: "blur(0)", opacity: 1 },
+          { translate: `0 ${-up * 0.6}em`, filter: "blur(0.2rem)", opacity: 0.6, offset: 0.45 },
+          { translate: `0 ${-up * 0.9}em`, filter: "blur(0.3rem)", opacity: 0 },
+        ],
+        timing(place),
+      );
+  }
+  if (last) last.finished.then(() => ghost.remove(), () => ghost.remove());
+  else ghost.remove();
+}
+
 function scoreDigits(value, side) {
   const text = String(value);
   return `<span class="digits${text.length > 2 ? " long" : ""}">${stickerText(text, { split: true, key: `score:${side}` })}</span>${stickerText("pts", { cls: "pts", key: `pts:${side}` })}`;
@@ -834,34 +969,43 @@ function renderTags() {
       icon(avatarIcon(avatarId), 54, { key: `avatar:${side}` }),
     );
     const score = g.phase === "over" ? g.scores[player] : g.effect_totals[player];
+    // While a move waits for Confirm, the tag already shows the score it would leave.
+    const preview = board.staged?.preview;
+    const shown = preview && g.phase !== "over" ? preview.effect_totals[player] : score;
     const offline = !state.connected[player] && !state.solo;
     scoreTag.classList.toggle("offline", offline);
+    const oldDigits = scoreTag.querySelector(".score .digits");
+    const oldBox = oldDigits?.getBoundingClientRect?.();
     const changed = patch(
       `score-${side}`,
       scoreTag.firstElementChild,
-      `${player}|${label}|${score}`,
+      `${player}|${label}|${shown}`,
       () =>
-        `<span class="who">${e(label)}</span><span class="score">${scoreDigits(score, side)}</span>`,
+        `<span class="who">${e(label)}</span><span class="score">${scoreDigits(shown, side)}</span>`,
     );
-    if (changed && board.signatures[`seen-${side}`] === player) {
-      const element = scoreTag.querySelector(".score");
-      element.classList.add("bump");
-    }
+    if (changed && board.signatures[`seen-${side}`] === player)
+      rollScore(scoreTag.querySelector(".score"), oldDigits, oldBox);
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${score} points${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
+      `${state.names[player]}: ${shown} points${shown !== score ? " once this move is confirmed" : ""}${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
     );
     // The bar under the score: how many modifiers this hand has in play, and
     // what they (and its matched columns) add to or take off the face value of
     // its cards. While a move waits for Confirm, it reads as it would once the
     // move is played, new score first.
-    const preview = board.staged?.preview;
     const after = !!preview && (side === "me" || preview.effect_totals[player] !== score);
     const total = after ? preview.effect_totals[player] : score;
     const count = after ? preview.modifier_counts[player] : enabled;
     const delta = total - (after ? preview.face_values[player] : faceValue(player));
-    const stickers = ruleStickers(player, after ? preview.effects[player] : undefined);
+    // previewing, what the move newly sets off (going out and taking the
+    // Poisoned Card, say) comes first, so it is never one of those cut off
+    let stickers = ruleStickers(player, after ? preview.effects[player] : undefined);
+    if (after) {
+      const now = new Set(ruleStickers(player).map((sticker) => sticker.rule));
+      const rank = (sticker) => (now.has(sticker.rule) ? 2 : sticker.rule === "poisoned_card" ? 0 : 1);
+      stickers = stickers.map((sticker, i) => [rank(sticker), i, sticker]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , sticker]) => sticker);
+    }
     const modifiers = `${count} Modifier${count === 1 ? "" : "s"}`;
     rulesTag.classList.toggle("previewing", after);
     patch(
@@ -899,6 +1043,15 @@ function renderTags() {
     patch("cycle", cycle.querySelector(".cycle-ico"), "static", () =>
       icon("arrow.trianglehead.2.clockwise.rotate.90", 44),
     );
+    // the name of the player it turns to, curving round under the arrows
+    const nameHolder = cycle.querySelector(".cycle-name");
+    if (patch("cycle-name", nameHolder, state.names[next], () =>
+      `<svg viewBox="0 0 120 120" aria-hidden="true">${CYCLE_ARCS.map((r, i) => `<path id="cycle-arc-${i}" d="M${60 - r} 60A${r} ${r} 0 0 0 ${60 + r} 60" fill="none"/>`).join("")}<text><textPath href="#cycle-arc-0" startOffset="50%" text-anchor="middle"></textPath></text><text><textPath href="#cycle-arc-1" startOffset="50%" text-anchor="middle"></textPath></text></svg>`,
+    ))
+    {
+      layoutCycleName(nameHolder, state.names[next]);
+      stackCycleName(nameHolder);
+    }
     cycle.setAttribute(
       "aria-label",
       `Show ${state.names[next]}'s cards. Swipe to browse opponents.`,
@@ -1022,6 +1175,10 @@ function renderChrome() {
           : "";
     const arrow = side === "me" || (anchor === "turn" && player !== board.view.opp) ? "down" : "up";
     callout.className = `callout ${color} ${arrow}`;
+    // "Bob's turn" pointing down at the cycle button can be tapped to go to Bob
+    const away = side === "opp" && theirTurn(player) && player !== state.viewer && player !== board.view.opp && canCycle();
+    if (away) callout.dataset.goto = String(player);
+    else delete callout.dataset.goto;
     callout.dataset.side = side;
     callout.dataset.anchor = anchor;
     if (board.signatures.callout !== text + side) {
@@ -1114,6 +1271,16 @@ function emoteButtons() {
   ).join("");
   return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div><div class="emote-words">${words}</div>`;
 }
+// the text emotes' fade at the edge goes once they are scrolled to the end
+document.addEventListener?.(
+  "scroll",
+  (event) => {
+    const row = event.target;
+    if (row.classList?.contains("emote-words"))
+      row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
+  },
+  true,
+);
 /** A face emote is its sticker; a text emote is a speech bubble saying it. */
 function emoteArt(item, player) {
   if (TEXT_EMOTES.includes(item.id))
@@ -1191,7 +1358,7 @@ function evalChart() {
   const lines = order
     .map((p) => {
       if (!featured.includes(p)) return `<path class="line muted" d="${path(p)}"/>`;
-      const seat = p % 4;
+      const seat = p % 8;
       const end = points.at(-1).scores[p];
       return `<g class="series" style="--line:var(--s${seat});--case:var(--s${seat}t)"><path class="case" d="${path(p)}"/><path class="line" d="${path(p)}"/><circle class="end" cx="${x(points.length - 1)}" cy="${y(end)}" r="4"/></g>`;
     })
@@ -1213,13 +1380,13 @@ function evalChart() {
     .map(({ p, at }) => {
       const point = y(points.at(-1).scores[p]);
       const mid = Math.min(Math.max(point, at - 4), at + 4);
-      return `<polygon class="tag-arrow" style="--tip:var(--s${p % 4})" points="${(endX + 4.5).toFixed(1)},${point.toFixed(1)} ${(endX + 11).toFixed(1)},${(mid - 4).toFixed(1)} ${(endX + 11).toFixed(1)},${(mid + 4).toFixed(1)}"/>`;
+      return `<polygon class="tag-arrow" style="--tip:var(--s${p % 8})" points="${(endX + 4.5).toFixed(1)},${point.toFixed(1)} ${(endX + 11).toFixed(1)},${(mid - 4).toFixed(1)} ${(endX + 11).toFixed(1)},${(mid + 4).toFixed(1)}"/>`;
     })
     .join("");
   const tags = labels
     .map(
       ({ p, at }) =>
-        `<span class="end-tag" style="--tip:var(--s${p % 4});--on:var(--s${p % 4}on);left:${(((endX + 10) / w) * 100).toFixed(2)}%;top:${((at / h) * 100).toFixed(2)}%">${e(short(p))} <b>${points.at(-1).scores[p]}</b></span>`,
+        `<span class="end-tag" style="--tip:var(--s${p % 8});--on:var(--s${p % 8}on);left:${(((endX + 10) / w) * 100).toFixed(2)}%;top:${((at / h) * 100).toFixed(2)}%">${e(short(p))} <b>${points.at(-1).scores[p]}</b></span>`,
     )
     .join("");
   const turns = points.filter((point) => !point.final).at(-1).turn;
@@ -1229,6 +1396,7 @@ function evalChart() {
     .join("; ");
   return `<figure class="eval-chart" data-eval-chart><figcaption>Points through the game <small>lower is better</small></figcaption><div class="eval-plot"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Score after each turn. ${e(summary)}">${grid}${axis}${lines}<line class="cross" x1="0" x2="0" y1="${top}" y2="${h - bottom}"/>${arrows}<rect class="hit" x="${left}" y="${top}" width="${w - left - right}" height="${h - top - bottom}"/></svg>${tags}<div class="eval-tip" hidden></div></div></figure>`;
 }
+const RESULTS_DELAY = 2000; // ms between a game's last move and its results
 /** The big result word: sticker letters that celebrate, or droop. */
 function resultTitle(mood, sentence, sub) {
   const word = { win: "You Win!", lose: "You Lose", draw: "Draw" }[mood];
@@ -1273,7 +1441,7 @@ function evalHover(event) {
   const rows = evalFeatured()
     .map((p) => ({ p, v: points[i].scores[p] }))
     .sort((a, b) => a.v - b.v)
-    .map(({ p, v }) => `<div><i style="background:var(--s${p % 4})"></i><span>${p === state.viewer ? "You" : e(state.names[p])}</span><b>${v}</b></div>`)
+    .map(({ p, v }) => `<div><i style="background:var(--s${p % 8})"></i><span>${p === state.viewer ? "You" : e(state.names[p])}</span><b>${v}</b></div>`)
     .join("");
   tip.innerHTML = `<strong>${label}</strong>${rows}`;
   tip.hidden = false;
@@ -1301,7 +1469,23 @@ function renderSummary() {
   const over = ["round_over", "finished", "closed"].includes(state.status);
   if (!over) {
     board.summaryHidden = false;
+    board.summaryEmotes = false; // the next results open with the emotes tucked away
+    board.sawPlay = state.status === "playing";
     patch("summary", holder, "", "");
+    return;
+  }
+  // A game that ends while you watch leaves its last move on the table for two
+  // seconds before the results come up (arriving at a finished game, they show at once).
+  const holdKey = `${state.id}|${state.history.length}`;
+  if (board.summaryHold?.key !== holdKey)
+    board.summaryHold = { key: holdKey, until: board.sawPlay && state.status !== "closed" ? performance.now() + RESULTS_DELAY : 0 };
+  const wait = board.summaryHold.until - performance.now();
+  if (wait > 0) {
+    patch("summary", holder, "", "");
+    clearTimeout(board.summaryTimer);
+    board.summaryTimer = setTimeout(() => {
+      if (board.el?.isConnected && board.summaryHold?.key === holdKey) renderSummary();
+    }, wait + 10);
     return;
   }
   settleLifted();
@@ -1327,6 +1511,7 @@ function renderSummary() {
     state.round,
     state.ready.join(),
     board.summaryHidden,
+    board.summaryEmotes,
     state.history.length,
     (state.timeline || []).length,
     opponentEmotesMuted,
@@ -1353,18 +1538,36 @@ function renderSummary() {
         return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
       })
       .join("");
-    // Quit is a plain sticker icon with its label underneath, left of the main button
-    const quit = `<button type="button" class="close-btn c-fw" data-leave>${icon("rectangle.portrait.and.arrow.right", 30)}<span>Quit</span></button>`;
-    const action = between
-      ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="next_round" ${state.ready[viewer] ? "disabled" : ""}>${tilted("checkmark.circle.fill", 26)} <span>${padTag("y")}${state.ready[viewer] ? "Waiting…" : "Ready"}</span></button></div>`
+    // Quit, the main move and View board: three sticker icons, each with its
+    // label underneath, spread across the panel
+    const sticker = (attrs, color, symbol, label, extra = "", size = 30) =>
+      `<button type="button" class="close-btn ${color}" ${attrs}>${icon(symbol, size)}<span>${extra}${label}</span></button>`;
+    const quit = sticker("data-leave", "c-fw", "rectangle.portrait.and.arrow.right", "Quit");
+    const look = sticker('data-summary-toggle aria-label="View the board"', "c-fw", "eye.fill", "View");
+    const main = between
+      ? state.ready[viewer]
+        ? sticker("disabled", "c-p1", "hourglass", "Waiting…")
+        : sticker('data-action="next_round"', "c-p1 main", "checkmark.circle.fill", "Ready", padTag("y"), 46)
       : viewer === 0
-        ? `<div class="row">${quit}<button type="button" class="btn c-p1 grow" data-action="rematch">${tilted("arrow.clockwise", 26)} <span>${padTag("y")}Play again</span></button></div>`
-        : `<div class="row">${quit}<p class="btn c-p1 grow btn-note">The host can start a rematch.</p></div>`;
+        ? sticker('data-action="rematch"', "c-p1 main", "arrow.clockwise", "Play again", padTag("y"), 46)
+        : sticker('disabled title="The host can start a rematch."', "c-p1", "hourglass", "Host's call");
+    const action = `<div class="summary-actions">${quit}${main}${look}</div>`;
     const heading = resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     // the verdict and the graph float over the table; the green panel holds the rest
-    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div><div class="emote-pop summary-emotes" role="group" aria-label="Quick emotes">${emoteButtons()}</div></section>`;
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div>${summaryEmotesHtml()}</section>`;
   });
+}
+
+/**
+ * The quick emotes under the results: a little green tab peeking out from the
+ * bottom of the ready-up card, which drops the emotes down when tapped.
+ */
+function summaryEmotesHtml() {
+  const open = !!board.summaryEmotes;
+  // the tab never changes size, only its chevron turns; the emotes drop down
+  // below it, on their own, into room kept for them so nothing else moves
+  return `<div class="summary-emote-anchor"><div class="summary-emote-drawer c-fw"><button type="button" class="emote-tab" data-summary-emotes aria-expanded="${open}" aria-label="${open ? "Hide" : "Show"} quick emotes">${icon("text.bubble.fill", 22, { idle: false })}${glyph(open ? "chevron.up" : "chevron.down", 14)}</button></div><div class="emote-pop summary-emotes${open ? "" : " tucked"}" role="group" aria-label="Quick emotes" ${open ? "" : "inert"}>${emoteButtons()}</div></div>`;
 }
 
 function renderModal() {
@@ -1613,7 +1816,7 @@ function previewPlan(item) {
 }
 /** Ask what the score tags would read once a staged swap or discard is played. */
 async function previewScore(item) {
-  if (!["swap", "discard"].includes(item.action)) return;
+  if (!["swap", "discard"].includes(item.action) || state.score_preview === false) return;
   try {
     const result = await api(`/api/lobbies/${state.id}/preview`, "POST", {
       action: item.action,
@@ -2210,6 +2413,10 @@ document.addEventListener(
       event.stopPropagation();
       event.preventDefault();
     } else if (event.target.closest?.("[data-cycle-next]")) cycleOpponent(1);
+    else {
+      const tip = event.target.closest?.(".callout[data-goto]");
+      if (tip) goToOpponent(Number(tip.dataset.goto));
+    }
   },
   true,
 );
@@ -2293,7 +2500,7 @@ function rulesSheet(player) {
     Number(active.includes(b.key)) - Number(active.includes(a.key)) ||
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
-  return `<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
+  return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
     <div class="sheet-head"><h2>${player === state.viewer ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>

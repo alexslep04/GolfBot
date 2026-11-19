@@ -189,16 +189,22 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(score_adjustments(hand, Rules(tricky_straights=True), True)[0], 0)
         self.assertEqual(score_adjustments([Slot(c, True) for c in cards([4, 3, 2, 10, 11, 12])], Rules(tricky_straights=True))[0], 2)
 
-    def test_ripped_five_opposite_row_and_no_double_cancellation(self):
+    def test_ripped_five_cancels_one_other_five_anywhere(self):
         rules = Rules(ripped_five=True)
         opposite = [Slot(c, True) for c in cards([5, 1, 3, 13, 5, 8], "DSHCHS")]
         self.assertEqual(column_score(opposite, rules), 12)
         self.assertIn("Ripped 5: 0 (-10)", active_rule_effects(opposite, rules))
+        # the same row counts now too
         same_row = [Slot(c, True) for c in cards([5, 5, 3, 13, 1, 8], "DHSCHS")]
-        self.assertEqual(column_score(same_row, rules), 22)
-        paired_column = [Slot(c, True) for c in cards([5, 1, 3, 5, 13, 8], "DSHHCS")]
-        self.assertEqual(column_score(paired_column, rules), 12)
-        self.assertFalse(any("Ripped" in effect for effect in active_rule_effects(paired_column, rules)))
+        self.assertEqual(column_score(same_row, rules), 12)
+        # already cancelled in its column, the 5 of diamonds still rips one more 5,
+        # and only that 5's points come off on the ripped line
+        paired_column = [Slot(c, True) for c in cards([5, 1, 5, 5, 13, 8], "DSCHCS")]
+        self.assertEqual(column_score(paired_column, rules), 9)
+        effects = active_rule_effects(paired_column, rules)
+        self.assertIn("Column 1 pair: 0 (-10)", effects)
+        self.assertIn("Ripped 5: 0 (-5)", effects)
+        # only one other 5 is ripped; a third stays
         multiple = [Slot(c, True) for c in cards([5, 1, 3, 8, 5, 5], "DHCSSH")]
         self.assertEqual(column_score(multiple, rules), 17)
 

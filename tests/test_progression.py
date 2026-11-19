@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from accounts import Accounts
 from match_history import MatchHistory
-from progression import Progression
+from progression import PATCH, Progression
 
 
 A = {'id': 'account:one', 'kind': 'account', 'unique_name': 'one', 'display_name': 'One'}
@@ -73,7 +73,7 @@ class ProgressionTests(unittest.TestCase):
             'id': A['id'], 'label': 'one', 'elo': 1000, 'wins': 0, 'draws': 0,
             'losses': 0, 'current_streak': 0, 'best_streak': 0,
             'draws_in_row': 0, 'best_at': None})
-        self.assertNotIn('private-', json.dumps(self.service.leaderboard('1.2.0')))
+        self.assertNotIn('private-', json.dumps(self.service.leaderboard(PATCH)))
 
     def test_ratings_wdl_expected_score_and_idempotency(self):
         first = self.service.rate_game('g1', [A, B], 0)
@@ -82,7 +82,7 @@ class ProgressionTests(unittest.TestCase):
         self.assertEqual(self.service.rate_game('g1', [A, B], 0), first)
         profile = self.service.profile(A)
         self.assertEqual((profile['elo'], profile['wins'], profile['draws'], profile['losses']), (1015, 1, 1, 0))
-        row = self.service.leaderboard('1.2.0')['pvp'][0]
+        row = self.service.leaderboard(PATCH)['pvp'][0]
         self.assertEqual(row['win_rate'], .5)
         self.assertEqual(set(row), {'id', 'label', 'elo', 'wins', 'draws', 'losses', 'win_rate'})
         self.assertEqual(self.service.profile(B)['losses'], 1)
@@ -95,27 +95,27 @@ class ProgressionTests(unittest.TestCase):
         self.assertEqual(self.service.profile(A)['wins'], 1)
 
     def test_streak_draws_losses_reset_and_event_replay(self):
-        self.assertEqual(self.service.practice_result('w1', B, 0, '1.2.0'), {'current': 1, 'best': 1, 'draws': 0})
-        self.assertEqual(self.service.practice_result('d1', B, None, '1.2.0'), {'current': 1, 'best': 1, 'draws': 1})
-        self.assertEqual(self.service.practice_result('d2', B, None, '1.2.0'), {'current': 0, 'best': 1, 'draws': 2})
-        self.service.practice_result('w2', B, 0, '1.2.0')
-        self.service.practice_result('w3', B, 0, '1.2.0')
-        self.assertEqual(self.service.practice_result('loss', B, 1, '1.2.0'), {'current': 0, 'best': 2, 'draws': 0})
-        self.assertEqual(self.service.practice_result('w1', B, 0, '1.2.0'), {'current': 1, 'best': 1, 'draws': 0})
+        self.assertEqual(self.service.practice_result('w1', B, 0, PATCH), {'current': 1, 'best': 1, 'draws': 0})
+        self.assertEqual(self.service.practice_result('d1', B, None, PATCH), {'current': 1, 'best': 1, 'draws': 1})
+        self.assertEqual(self.service.practice_result('d2', B, None, PATCH), {'current': 0, 'best': 1, 'draws': 2})
+        self.service.practice_result('w2', B, 0, PATCH)
+        self.service.practice_result('w3', B, 0, PATCH)
+        self.assertEqual(self.service.practice_result('loss', B, 1, PATCH), {'current': 0, 'best': 2, 'draws': 0})
+        self.assertEqual(self.service.practice_result('w1', B, 0, PATCH), {'current': 1, 'best': 1, 'draws': 0})
         self.assertEqual(self.service.profile(B)['current_streak'], 0)
-        self.service.practice_result('w4', B, 0, '1.2.0')
-        self.service.reset_streak(B, '1.2.0')
+        self.service.practice_result('w4', B, 0, PATCH)
+        self.service.reset_streak(B, PATCH)
         self.assertEqual(self.service.profile(B)['current_streak'], 0)
         self.assertEqual(self.service.profile(B)['best_streak'], 2)
 
     def test_patch_scoping_and_earliest_best_tie(self):
         with patch('progression.time.time', return_value=20):
-            self.service.practice_result('a', A, 0, '1.2.0')
+            self.service.practice_result('a', A, 0, PATCH)
         with patch('progression.time.time', return_value=10):
-            self.service.practice_result('b', B, 0, '1.2.0')
-        self.assertEqual([r['id'] for r in self.service.leaderboard('1.2.0')['solo']], [B['id'], A['id']])
+            self.service.practice_result('b', B, 0, PATCH)
+        self.assertEqual([r['id'] for r in self.service.leaderboard(PATCH)['solo']], [B['id'], A['id']])
         self.service.rate_game('same', [A, B], 0, 'old')
-        self.service.rate_game('same', [A, B], 1, '1.2.0')
+        self.service.rate_game('same', [A, B], 1, PATCH)
         self.service.practice_result('a', A, 0, 'old')
         self.assertEqual(self.service.profile(A)['elo'], 984)
         self.assertEqual(self.service.leaderboard('old')['pvp'][0]['elo'], 1016)

@@ -7,8 +7,7 @@ winner 0 means the human won; 1 means the bot won; None means a draw.
 import json
 import time
 
-
-PATCH = '1.2.0'
+from patches import PATCH_VERSION as PATCH  # one release label for the whole server
 
 
 class Progression:

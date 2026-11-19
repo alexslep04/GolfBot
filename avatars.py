@@ -13,6 +13,8 @@ class Avatar:
     name: str
     icon: str  # SF Symbol name; the web client draws it as a sticker.
     selectable: bool = True
+    # Most avatars belong to one player per table; a shared one anyone may wear.
+    shared: bool = False
     # Reserved for upcoming gameplay. Keep these empty until the engine reads them.
     rules: tuple = ()      # rule keys this avatar forces on for its player
     bonuses: tuple = ()    # scoring adjustments, e.g. {"kind": "flat", "points": -1}
@@ -25,6 +27,8 @@ AVATARS = (
     Avatar("dog", "Dog", "dog.fill"),
     Avatar("cup", "Cup", "cup.and.heat.waves.fill"),
     Avatar("fork", "Fork", "fork.knife"),
+    # the shared one, in the middle of the picker and everyone's starting choice
+    Avatar("club", "Golfer", "figure.golf", shared=True),
     Avatar("cat", "Cat", "cat.fill"),
     Avatar("fish", "Fish", "fish.fill"),
     Avatar("hare", "Hare", "hare.fill"),
@@ -33,13 +37,27 @@ AVATARS = (
     Avatar("golfbot", "Golfbot", "gamecontroller.fill", selectable=False),
 )
 BY_ID = {avatar.id: avatar for avatar in AVATARS}
-DEFAULT_AVATAR = "dog"
+DEFAULT_AVATAR = "club"
 BOT_AVATAR = "golfbot"
 
 
 def catalog():
     """Public avatar list, including the reserved (currently empty) perk fields."""
     return [asdict(avatar) for avatar in AVATARS]
+
+
+SHARED_AVATAR = "club"
+
+
+def unique_avatars(avatars):
+    """Seat-ordered avatars with any repeat (after the first wearer) swapped for the shared one."""
+    seen, result = set(), []
+    for avatar in avatars:
+        if avatar in seen and not (BY_ID.get(avatar) and BY_ID[avatar].shared):
+            avatar = SHARED_AVATAR
+        seen.add(avatar)
+        result.append(avatar)
+    return result
 
 
 def clean_avatar(value):

@@ -68,7 +68,7 @@ test('Practice opens on the avatar and rules step, then starts without abandonin
   assert.equal(body.practice,true);assert.equal(body.house_rules,true);assert.equal(body.first,'random');assert.equal(body.best_of,null);
   assert.equal(body.avatar,'frog');
   h.run('applyPreset("vanilla"); draft.first="guest"');
-  assert.match(h.run('rulesPicker()'),/Only House rules games count toward your Practice streak/);
+  assert.doesNotMatch(h.run('rulesPicker()'),/Only House rules games count/); // any rules count toward the streak
   await h.run('submitSetup()');
   const custom=JSON.parse(h.requests[2].options.body);
   assert.equal(custom.house_rules,false);assert.equal(custom.first,'guest');
@@ -108,7 +108,8 @@ test('guest exit offers sign-in, and No leaves through the API',async()=>{
   h.run('session.account=null;session.room_id="room";state={id:"room",practice:true,game:{phase:"choose"}}');
   const leaving=h.run('abandonExisting()');
   assert.match(h.nodes.get('leave-dialog').innerHTML,/Sign in to keep your streak/);
-  assert.match(h.nodes.get('leave-dialog').innerHTML,/No, leave/);
+  assert.match(h.nodes.get('leave-dialog').innerHTML,/Save your streak by signing in, otherwise it will be lost\./);
+  assert.match(h.nodes.get('leave-dialog').innerHTML,/data-leave-choice="leave">[^]*Leave<\/span>[^]*data-leave-choice="signin"/);
   assert.equal(h.requests.length,0);
   h.run('resolveLeavePrompt("leave")');
   assert.equal(await leaving,true);
@@ -184,10 +185,17 @@ test('the turn tooltip points up at the opponent on show when the turn is theirs
     renderSummary=()=>{};renderModal=()=>{};renderEmotes=()=>{};placeCallout=()=>{};renderChrome();`);
   const callout=()=>h.run(`JSON.stringify([board.el.querySelector(".callout").textContent,board.el.querySelector(".callout").className,board.el.querySelector(".callout").dataset.anchor])`);
   assert.equal(callout(),JSON.stringify(["Bob's turn","callout c-s1 up","turn"]));
+  const goto=()=>h.run('board.el.querySelector(".callout").dataset.goto ?? null');
+  // pointing up at Bob, who is showing, there is nowhere to go
+  h.run('board.el.isConnected=true;renderChrome()');assert.equal(goto(),null);
   h.run('board.view={opp:2};renderChrome()');assert.equal(callout(),JSON.stringify(["Bob's turn","callout c-s1 down","turn"]));
+  // pointing down at the cycle button, a tap turns the table to Bob
+  assert.equal(goto(),"1");
+  assert.equal(h.run(`globalThis.went=[];cycleOpponent=(d)=>went.push(d);board.viewedOpponent=2;board.viewedTurn=state.id+":"+state.round+":"+state.game.turns+":"+state.game.current;goToOpponent(1);JSON.stringify(went)`),JSON.stringify([1]));
   h.run('state.game.final_turn=true;renderChrome()');assert.match(callout(),/Final turn · Bob's turn/);
   // your own turn is still announced beside your hand
   h.run('state.game.final_turn=false;state.game.current=state.game.decision_player=0;renderChrome()');assert.equal(callout(),JSON.stringify(["Your turn","callout c-p1 down",""]));
+  assert.equal(goto(),null);
 });
 
 test('a reaction from a player who is off screen is a tooltip by the cycle button with their avatar and name in their colour',()=>{
@@ -251,10 +259,13 @@ test('the player popup lists that player\'s points for each finished game of a s
   h.run('state={best_of:5,names:["Alice","Bob"],history:[{round:1,scores:[4,12],winner:0},{round:2,scores:[9,-3],winner:1}]}');
   const bob=h.run('seriesTally(1)');
   assert.match(bob,/Game 1<\/span><b>12 pts/);assert.match(bob,/Game 2<\/span><b>-3 pts/);
-  assert.match(bob,/Total<\/span><b>9 pts/);
-  assert.match(h.run('seriesTally(0)'),/Total<\/span><b>13 pts/);
+  // a best-of series counts wins; only a total-points series adds the points up
+  assert.match(bob,/Wins<\/span><b>1 win</);assert.doesNotMatch(bob,/Total/);
+  h.run('state.series_mode="points"');
+  assert.match(h.run('seriesTally(1)'),/Total<\/span><b>9 pts/);
+  assert.match(h.run('seriesTally(0)'),/Wins<\/span><b>1 win</);assert.match(h.run('seriesTally(0)'),/Total<\/span><b>13 pts/);
   h.run('state.history=[]');
-  assert.match(h.run('seriesTally(1)'),/No games finished yet/);assert.match(h.run('seriesTally(1)'),/Total<\/span><b>0 pts/);
+  assert.match(h.run('seriesTally(1)'),/No games finished yet/);assert.match(h.run('seriesTally(1)'),/Wins<\/span><b>0 wins/);assert.match(h.run('seriesTally(1)'),/Total<\/span><b>0 pts/);
   h.run('state.best_of=1');assert.equal(h.run('seriesTally(1)'),'');
 });
 
@@ -400,6 +411,8 @@ test('Solo shows best streak with W-D-L and win rate instead of current streak',
   assert.match(html,/W–D–L/);assert.match(html,/win rate/);
   assert.match(html,/6–2–2/);assert.match(html,/60%/);
   assert.doesNotMatch(html,/Current streak|Best reached/);
+  // each row's current streak sits beside its best, small
+  assert.match(html,/class="streak-now">3 currently</);
 });
 
 test('the modifiers bar counts points against the face value of the cards, and previews a staged move',()=>{
@@ -415,8 +428,14 @@ test('the modifiers bar counts points against the face value of the cards, and p
   assert.equal(bar('me'),'<b class="new-score">New score: 9pts</b><br>2 Modifiers (-5pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
   h.run(`board.staged.preview.effect_totals=[9,15];board.staged.preview.face_values=[14,12];renderTags();`);
   assert.equal(bar('opp'),'<b class="new-score">New score: 15pts</b><br>1 Modifier (+3pts)');
+  // the score tags themselves already show the new scores
+  const tag=side=>h.run(`board.el.querySelector("[data-score-for='${side}']").attributes["aria-label"]`);
+  assert.match(tag('me'),/^Alice: 9 points once this move is confirmed/);assert.match(tag('opp'),/^Bot: 15 points once/);
+  // going out on the staged move: the Poisoned Card it would bring leads the stickers
+  h.run(`state.rules={poisoned_card:true};board.staged.preview.effects=[["Column 1 pair: 0 (-16)","Suited row 1: -3","Straight row 2: -4","Poisoned Card: +2"],[]];renderTags();`);
+  assert.match(h.run(`board.signatures["rules-ico-me"]`),/^[^|]+\|flag\.pattern\.checkered:/);
   // called off: back to the table as it is
-  h.run(`paintSelection=()=>{};cancelStaged();`);assert.equal(bar('me'),'0 Modifiers in<br>play (-16pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
+  h.run(`paintSelection=()=>{};cancelStaged();`);assert.match(tag('me'),/^Alice: 3 points,/);assert.equal(bar('me'),'0 Modifiers in<br>play (-16pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
 });
 
 test('a staged move can be confirmed at once, and asks the server what the score would be',async()=>{

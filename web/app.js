@@ -66,9 +66,11 @@ const emoteNames = {
   nervous: "Nervous",
   thanks: "Thanks!",
   oops: "Oops!",
+  wow: "Wow!",
+  save: "What a save!",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["thanks", "oops"];
+const TEXT_EMOTES = ["thanks", "oops", "wow", "save"];
 let activeEmotes = {},
   emoteSeen = {},
   emoteTimers = {},
@@ -269,10 +271,46 @@ if (document.documentElement.dataset?.debug !== undefined) {
   });
 }
 let shownFirstPage = false;
+/**
+ * Bring `from` in line with `to` while keeping every node that already matches,
+ * so what has not changed is never redrawn: its animations, focus, scroll and
+ * any text being typed stay as they are.
+ */
+function morph(from, to) {
+  if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) return from.replaceWith(to);
+  if (from.nodeType !== 1) {
+    if (from.nodeValue !== to.nodeValue) from.nodeValue = to.nodeValue;
+    return;
+  }
+  if (from.isEqualNode(to)) return;
+  for (const { name } of [...from.attributes]) if (!to.hasAttribute(name)) from.removeAttribute(name);
+  for (const { name, value } of [...to.attributes]) if (from.getAttribute(name) !== value) from.setAttribute(name, value);
+  morphChildren(from, to);
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(from.tagName) && document.activeElement !== from && from.value !== to.value)
+    from.value = to.value;
+}
+function morphChildren(from, to) {
+  const before = [...from.childNodes],
+    after = [...to.childNodes];
+  after.forEach((node, i) => (i < before.length ? morph(before[i], node) : from.appendChild(node)));
+  before.slice(after.length).forEach((node) => node.remove());
+}
 function show(name, html) {
+  // the same screen drawn again (a setting changed, a table update) is
+  // patched in place; a new screen replaces the page and slides in
+  const same = page === name && shownFirstPage && root.firstElementChild && !root.querySelector("[data-board]");
+  const template = same && document.createElement("template");
   page = name;
   document.documentElement.classList.remove("in-game");
   closeSheet();
+  if (template?.content) {
+    template.innerHTML = html;
+    // a page that arrived without its slide-in keeps it off
+    if (root.firstElementChild.classList.contains("instant")) template.content.firstElementChild?.classList.add("instant");
+    morphChildren(root, template.content);
+    renderQueueBanner();
+    return;
+  }
   root.innerHTML = html;
   // a load or refresh lands on its page without the slide-in (it read as a flicker)
   const first = !shownFirstPage;
@@ -285,14 +323,26 @@ function show(name, html) {
   if (first) booted();
 }
 function openSheet(html, player = "") {
+  rememberRulesScroll();
   // `player` marks a rules sheet, which is kept in step with the table
   sheetRoot.dataset.player = String(player);
   sheetRoot.innerHTML = html;
   sheetRoot.hidden = false;
 }
 function closeSheet() {
+  rememberRulesScroll();
   sheetRoot.hidden = true;
   sheetRoot.innerHTML = "";
+  sheetRoot.dataset.player = "";
+}
+// A rules sheet opens again where it was left, for each player at this table.
+const rulesScroll = new Map();
+const rulesScrollKey = (player) => `${state?.id}|${player}`;
+function rememberRulesScroll() {
+  const player = sheetRoot.dataset.player;
+  if (sheetRoot.hidden || player === undefined || player === "") return;
+  const sheet = sheetRoot.querySelector?.(".rules-sheet");
+  if (sheet) rulesScroll.set(rulesScrollKey(player), sheet.scrollTop);
 }
 function topbar() {
   return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}${padTag("start", "under")}</button><div class="queue-slot"></div>${logoHtml()}</header>`;
@@ -592,6 +642,9 @@ async function pollPresence() {
       username: name(),
       avatar: session.avatar,
     });
+    // a display name changed on another device follows you here
+    if (session.account && presenceState.username && presenceState.username !== session.username)
+      saveName(presenceState.username);
     renderQueueBanner();
     if (presenceState.queue?.notice) toast(presenceState.queue.notice);
     if (
@@ -627,6 +680,35 @@ document.getElementById("social-dialog").addEventListener("cancel", (event) => {
 });
 
 /* ---------- home ---------- */
+/* ---------- "what's new" ----------
+   The patch this device last played on is remembered; when the game has been
+   updated since, a small chip above Play with Friends points to the notes. */
+function seenPatch() {
+  try {
+    const seen = localStorage.getItem("golf-played-patch");
+    if (seen) return seen;
+    // a device that played before this chip existed: its last patch was an older one
+    const returning = ["golf-name", "golf-avatar", "golf-prefs"].some((key) => localStorage.getItem(key));
+    return returning ? "earlier" : null;
+  } catch {
+    return null;
+  }
+}
+function markPatchSeen() {
+  try {
+    if (session?.patch) localStorage.setItem("golf-played-patch", session.patch);
+  } catch {}
+}
+function patchChip() {
+  const seen = seenPatch();
+  // a first visit has nothing to compare with: it starts from this patch
+  if (!seen) {
+    markPatchSeen();
+    return "";
+  }
+  if (!session?.patch || seen === session.patch) return "";
+  return `<button type="button" class="chip patch-chip c-p4" data-nav="patches">${icon("sparkles", 20, { idle: false })}<span>Updated to ${e(session.patch.replace(/\.0$/, ""))}: see what's new</span>${glyph("chevron.right", 12)}</button>`;
+}
 function home() {
   leaveAfterSignIn = null;
   clearEmotes();
@@ -644,6 +726,7 @@ function home() {
     "home",
     `<div class="page home">${topbar()}<div class="stack">
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} <span>${padTag("select")}Resume your table</span></button>` : ""}
+    ${patchChip()}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Quickplay<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
     <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Practice</span>${practice[1]}</button>
@@ -651,6 +734,7 @@ function home() {
       <button type="button" class="btn tile c-p4 grow" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span></button>
       <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
+    ${document.documentElement.dataset?.debug !== undefined ? `<button type="button" class="btn c-p2" data-debug-bots>${tilted("figure.2", 33)}<span>Debug: 8-bot table</span></button>` : ""}
   </div><p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p></div>`,
   );
   renderQueueBanner();
@@ -666,7 +750,8 @@ function prefsHtml() {
     row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
     row("autoQueue", "sparkles", "Join Quickplay on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
-    row("hideTips", "text.bubble.fill", "Hide tooltips", onOff(prefs.hideTips), prefs.hideTips),
+    // stored as hideTips (so existing choices carry over), shown the positive way round
+    row("hideTips", "text.bubble.fill", "Show tooltips", onOff(!prefs.hideTips), !prefs.hideTips),
   ];
   if (hapticsAvailable)
     rows.push(row("haptics", "hand.tap.fill", "Haptics", onOff(prefs.haptics), prefs.haptics));
@@ -739,6 +824,7 @@ const draft = {
   length: 3,
   lobbyName: "Friendly Golf",
   gameType: "1v1",
+  scorePreview: "on",
   preset: "house",
   rules: {},
   first: "random",
@@ -794,6 +880,11 @@ function setupPage() {
         ${selectField("Match Style", `data-draft="style" aria-label="Match style"`, [["single", "Single game", draft.style === "single"], ["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"], ["continuous", "Play until you leave", draft.style === "continuous"]], "pointer.arrow.rays", fixed ? "hug" : "")}
         ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), null, "grow") : ""}
       </div><p class="hint">${e(styleHint())}</p></div>
+      ${
+        draft.mode === "host"
+          ? `<div class="stack">${selectField("Score Preview", `data-draft="scorePreview" aria-label="Score preview"`, [["on", "Before Confirm", draft.scorePreview === "on"], ["off", "None", draft.scorePreview === "off"]], "eye.fill")}<p class="hint">${draft.scorePreview === "on" ? "Players see the score a swap or discard would leave them with before they confirm it." : "Scores change only once a move is confirmed."}</p></div>`
+          : ""
+      }
     </div><div class="row">${backButton("friends")}${entryButton("data-setup-next", "Continue")}</div></div>`,
     );
     return;
@@ -813,15 +904,17 @@ function setupPage() {
   centerAvatar(false);
 }
 /** `seat` is where you will sit (0 = player 1): the chosen avatar wears that player's colour. */
-function avatarPicker(seat = 0) {
-  const options = avatars.filter((avatar) => avatar.selectable);
+/** `taken`: avatars already worn at the table you are joining (only shared ones may repeat). */
+function avatarPicker(seat = 0, taken = []) {
+  const options = avatars.filter((avatar) => avatar.selectable && (avatar.shared || !taken.includes(avatar.id)));
+  if (options.length && !options.some((avatar) => avatar.id === session.avatar)) saveAvatar(options[0].id);
   // Each sticker's shadow is its own flat copy, so turning the wheel only ever
   // moves layers around and never has to redraw a textured sticker.
   const sticker = (avatar) => {
     const art = icon(avatar.icon, 44);
     return `<span class="avatar-shade">${art.replace('class="ico', 'class="ico flat')}</span>${art}`;
   };
-  return `<div class="avatar-pick ${["c-p1", "c-p2", "c-p3", "c-p4"][seat % 4]}"><span class="pointer">${icon("chevron.down", 30, { idle: false, style: "--fill:var(--fw3);--stroke:var(--fw)", sw: 4 })}</span><div class="avatar-strip" role="radiogroup" aria-label="Avatar"><div class="avatar-track" role="presentation" style="--stops:${options.length - 1}"><div class="avatar-stage" role="presentation">${options.map((avatar) => `<button type="button" class="avatar" role="radio" aria-checked="${avatar.id === session.avatar}" aria-label="${e(avatar.name)}" data-avatar="${e(avatar.id)}">${sticker(avatar)}</button>`).join("")}</div><div class="avatar-stops" aria-hidden="true">${options.map(() => "<i></i>").join("")}</div></div></div><p class="avatar-name">Select Your Avatar</p></div>`;
+  return `<div class="avatar-pick ${`c-s${seat % 8}`}"><span class="pointer">${icon("chevron.down", 30, { idle: false, style: "--fill:var(--fw3);--stroke:var(--fw)", sw: 4 })}</span><div class="avatar-strip" role="radiogroup" aria-label="Avatar"><div class="avatar-track" role="presentation" style="--stops:${options.length - 1}"><div class="avatar-stage" role="presentation">${options.map((avatar) => `<button type="button" class="avatar" role="radio" aria-checked="${avatar.id === session.avatar}" aria-label="${e(avatar.name)}" data-avatar="${e(avatar.id)}">${sticker(avatar)}</button>`).join("")}</div><div class="avatar-stops" aria-hidden="true">${options.map(() => "<i></i>").join("")}</div></div></div><p class="avatar-name">Select Your Avatar</p></div>`;
 }
 /**
  * The avatar wheel. The strip is a plain horizontal scroller (so touch, wheel
@@ -893,6 +986,9 @@ function layoutWheel(strip = root.querySelector(".avatar-strip"), instant = fals
     wheel.notch = undefined;
     instant = true;
   }
+  if (instant)
+    // the page may have been patched under the wheel, so nothing it set is assumed
+    strip.querySelectorAll(".avatar").forEach((item) => (item.wheelNear = item.wheelSoft = item.wheelLayer = undefined));
   if (instant || reducedMotion.matches) {
     wheel.shown = strip.scrollLeft;
     paintWheel(strip, wheel.shown);
@@ -940,6 +1036,30 @@ root.addEventListener(
   },
   true,
 );
+// A vertical scroll over the wheel turns it, one avatar a step: up goes left,
+// down goes right (a sideways scroll already moves it natively).
+let wheelSpin = 0,
+  wheelSpinAt = 0;
+root.addEventListener(
+  "wheel",
+  (event) => {
+    const strip = event.target.closest?.(".avatar-strip");
+    if (!strip || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.preventDefault();
+    const now = performance.now();
+    if (now - wheelSpinAt > 250) wheelSpin = 0; // a new gesture starts fresh
+    wheelSpinAt = now;
+    wheelSpin += event.deltaMode === 1 ? event.deltaY * 40 : event.deltaY;
+    if (Math.abs(wheelSpin) < 40) return;
+    const step = Math.sign(wheelSpin);
+    wheelSpin = 0;
+    const items = strip.querySelectorAll(".avatar");
+    const pitch = wheelPitch(strip);
+    const at = clamp(Math.round(strip.scrollLeft / pitch) + step, 0, items.length - 1);
+    strip.scrollTo({ left: at * pitch, behavior: reducedMotion.matches ? "instant" : "smooth" });
+  },
+  { passive: false },
+);
 // The stage never scrolls, so tabbing to an avatar has to turn the wheel to it.
 root.addEventListener("focusin", (event) => {
   const button = event.target;
@@ -974,7 +1094,7 @@ function rulesPicker() {
       ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(starter).map(([key, label]) => [key, (draft.mode === "solo" && { host: "You first", guest: "Golfbot first" }[key]) || label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
       ${locked ? `<p class="hint dark">${draft.gameType === "many" ? "Turn order is shuffled each game at big tables." : "House rules always pick a random first player."}</p>` : ""}
     </div></div></div></div>
-    <div class="collapse ${closed ? "open" : ""}" data-rules-closed><div ${closed ? "" : "inert"}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(rulesSummary(draft.rules))}</p></div></div></div>${draft.mode === "solo" && draft.preset !== "house" ? `<p class="hint dark">Only House rules games count toward your Practice streak.</p>` : ""}`;
+    <div class="collapse ${closed ? "open" : ""}" data-rules-closed><div ${closed ? "" : "inert"}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(rulesSummary(draft.rules))}</p></div></div></div>`;
 }
 /** Open or close the dropdown in place so the height change can animate. */
 function toggleRulesPicker() {
@@ -1047,6 +1167,7 @@ async function submitSetup() {
           : draft.length,
     series_mode: draft.style === "points" ? "points" : "wins",
     game_type: draft.gameType,
+    score_preview: draft.scorePreview !== "off",
     house_rules: house,
     first: house ? "random" : draft.first,
     rules: Object.fromEntries(
@@ -1081,18 +1202,28 @@ function leavePrompt(leaving) {
       event.preventDefault();
       resolveLeavePrompt("stay");
     });
+    // a tap outside the card keeps playing too (the sign-in version has no Keep playing button)
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) resolveLeavePrompt("stay");
+    });
     document.body.append(dialog);
   }
   const guestPractice = leaving.practice && !session.account;
   const title = guestPractice ? "Sign in to keep your streak" : "Leave table?";
   const description = guestPractice
-    ? "Sign in before leaving to save your practice game and streak. If you leave without signing in, an unfinished game's current streak will reset."
+    ? "Save your streak by signing in, otherwise it will be lost."
     : leaving.rated && leaving.status === "playing"
       ? `Leaving counts as a loss and costs you ${leaving.forfeit_elo_loss} Elo.`
       : leaving.rated
         ? "This ends the series early. Completed games and their Elo changes are kept."
         : "Your game and streak will be saved to your account so you can resume later.";
-  dialog.innerHTML = `<h2 id="leave-title">${title}</h2><p id="leave-description">${description}</p><div class="dialog-actions">${guestPractice ? `<button type="button" class="btn c-p3" data-leave-choice="signin">${padTag("y")}Sign in</button>` : ""}<button type="button" class="btn ${guestPractice ? "c-p2" : "c-p3"}" data-leave-choice="leave">${padTag("x")}${guestPractice ? "No, leave" : "Leave table"}</button><button type="button" class="btn c-fw" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
+  // a guest leaving Practice: Leave as a small sticker on the left, Sign in as the big button
+  const actions = guestPractice
+    ? `<div class="dialog-actions signin-actions"><button type="button" class="close-btn c-p2" data-leave-choice="leave">${icon("rectangle.portrait.and.arrow.right", 30)}<span>${padTag("x")}Leave</span></button><button type="button" class="btn c-p3 grow" data-leave-choice="signin">${padTag("y")}Sign in</button></div>`
+    : `<div class="dialog-actions"><button type="button" class="btn c-p3" data-leave-choice="leave">${padTag("x")}Leave table</button><button type="button" class="btn c-fw" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
+  // the sign-in version is dismissed (to keep playing) by an x in its top right corner
+  const dismiss = guestPractice ? `<button type="button" class="dialog-x" data-leave-choice="stay" aria-label="Keep playing">${icon("xmark.circle.fill", 26)}</button>` : "";
+  dialog.innerHTML = `${dismiss}<h2 id="leave-title">${title}</h2><p id="leave-description">${description}</p>${actions}`;
   closeSheet();
   const response = new Promise(resolve => { pendingLeaveResolve = resolve; });
   dialog.showModal();
@@ -1168,7 +1299,7 @@ async function publicLobby(id) {
     "public",
     `<div class="page">${topbar()}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${houseBadge(info)}</div><p class="hint">${e(rulesSummary(info.rules))}</p></div>
-    ${avatarPicker(info.players)}
+    ${avatarPicker(info.players, (info.avatars || []).slice(0, info.players))}
     ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
     </div><div class="row">${backButton("friends")}<button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>${padTag("y")}Join Table</span>${twin[1]}</button></div></div>`,
@@ -1178,7 +1309,7 @@ async function publicLobby(id) {
 function waitingRoom() {
   const many = state.game_type === "many";
   const url = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
-  const seatColor = (seat) => ["c-p1", "c-p2", "c-p3", "c-p4"][seat % 4];
+  const seatColor = (seat) => `c-s${seat % 8}`;
   show(
     "room",
     `<div class="page">${topbar()}<div class="stack wide">
@@ -1241,6 +1372,7 @@ function accept(next) {
 }
 function enterRoom(next) {
   page = "room";
+  markPatchSeen(); // playing on this patch: its notes are no longer news
   history.pushState({}, "", appPath(`/lobby/${next.id}`));
   board.selected = [];
   accept(next);
@@ -1275,16 +1407,24 @@ function closeSheetIfStale() {
 }
 function openRulesSheet(player) {
   openSheet(rulesSheet(player), player);
+  const sheet = sheetRoot.querySelector?.(".rules-sheet");
+  const at = rulesScroll.get(rulesScrollKey(player));
+  if (sheet && at) sheet.scrollTop = at;
 }
 /** One player's points in each finished game of the series, and their sum. */
 function seriesTally(player) {
   if (state.best_of === 1) return "";
   const games = state.history || [];
   const total = games.reduce((sum, game) => sum + game.scores[player], 0);
+  // the series so far: wins always, and the points total when that decides it
+  const wins = games.filter((game) => game.winner === player).length;
+  const points = state.series_mode === "points";
   return `<h3>This series</h3><div class="tally plain" data-series-tally>${
     games.map((game) => `<div><span>Game ${game.round}</span><b>${game.scores[player]} pts</b></div>`).join("") ||
     "<div><span>No games finished yet</span></div>"
-  }<div class="total"><span>Total</span><b>${total} pts</b></div></div>`;
+  }<div class="total"><span>Wins</span><b>${wins} ${wins === 1 ? "win" : "wins"}</b></div>${
+    points ? `<div class="total more"><span>Total</span><b>${total} pts</b></div>` : ""
+  }</div>`;
 }
 /** A player's record, shown over the table (tap a name tag, theirs or yours). */
 async function playerStatsSheet(player) {
@@ -1406,6 +1546,7 @@ async function renderGoogleSignIn() {
             });
             const currentRoom = session.room_id;
             session = {...next, ...keep};
+            if (next.account?.display_name) saveName(next.account.display_name);
             if (epoch !== tableEpoch || currentRoom !== roomId || page !== "account") {
               session.room_id = currentRoom;
               return;
@@ -1799,7 +1940,10 @@ const RULE_EXAMPLES = {
   holdem: [["Five-card flush: -5 points", ["AH","3H","6H","8H","JH",null]], ["Five-card straight: -5 points", ["3H","4S","5D","6C","7H",null]], ["Full house: -5 points", ["3H","3S","3D","8C","8H",null]], ["Four of a kind: -5 points", ["4H","4S","4D","4C","AH",null]]],
   v10: [["10, J, Q in a V: final score divided by 5", ["10H",null,"JS",null,"QD",null]], ["Inverted V also counts", [null,"10H",null,"JS",null,"QD"]]],
   tricky_straights: [["Ascending 3-4-5: +5 to opponent", ["3H","4S","5D",null,null,null]], ["Descending 5-4-3: -3 from your score", ["5H","4S","3D",null,null,null]]],
-  ripped_five: [["Diamond 5 and opposite-row 5 cancel; no column pair required", ["5D",null,null,null,"5S",null]]],
+  ripped_five: [
+    ["The 5 of diamonds and another 5 anywhere in the hand cancel", ["5D",null,"5S",null,null,null]],
+    ["Already in a column pair, the 5 of diamonds still rips one more 5", ["5D",null,"5S","5H",null,null]],
+  ],
   roman_fives: [["8 + 4 + (-2) = 10 base points: final score divided by 2", ["8H",null,"2S",null,"4D",null]], ["Inverted V: 5 + 4 + A = 10", [null,"4S",null,"5D",null,"AH"]]],
   beggars: [["Your 10 is the unique highest visible value. Guess the chosen hidden card's rank before it flips", ["10H",null,null,null,null,null], ["3H",null,null,null,null,null], "Opponent: a correct guess trades your 10 for their lowest visible card after the reveal"]],
   four_kind: [["Four visible 4s may be arranged into two columns", ["4H","4S",null,"4D","4C",null]]],
@@ -1869,7 +2013,7 @@ function renderVoidOffer() {
 }
 
 function leaderboardTabs(selected) {
-  return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
+  return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["records","Records"],["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
 }
 /**
  * Solo (Practice streaks) and PVP (Elo): the leader's card up top, then every
@@ -1902,14 +2046,38 @@ function leaderboardBody(tab, result) {
       return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} Elo`}, ${record(row)}, ${rate(row)} win rate">
         <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "lb-first" }) : stickerText(String(i + 1), { key: `lb-rank:${i}` })}</span>
         <div class="grow"><strong>${who(row)}</strong><small>${record(row)} · ${rate(row)} win rate</small></div>
-        <b class="rate">${solo ? `${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}<small>Elo</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
+        <b class="rate">${solo ? `<small class="streak-now">${statNumber(row.current_streak ?? 0)} currently</small>${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}<small>Elo</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
       </${tag}>`;
     })
     .join("");
   return `${intro}${hero}<div class="list leader-list">${list}</div>`;
 }
+/** Records: the all-time bests, one card each. */
+function recordsBody(records = {}) {
+  const mine = session.account ? "account:" + session.account.id : null;
+  const who = (record) => `${record.id && record.id === mine ? youStar() : ""}${e(record.label)}`;
+  const when = (at) => (at ? new Date(at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
+  const games = (n) => `${statNumber(n)} game${n === 1 ? "" : "s"}`;
+  const card = (key, color, symbol, title, record, value, unit, detail, empty, note = "") =>
+    `<section class="panel ${color} record-card" style="--i:${key}"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${
+      record
+        ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
+        : `<p class="hint dark">${empty}</p>`
+    }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
+  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked } = records;
+  return `<p class="hint dark">All-time bests from every saved game.</p><div class="records">${[
+    card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
+    card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet."),
+    card(2, "c-p2", "arrow.up.right", "Biggest comeback", comeback, comeback?.points, "pts", comeback && `<strong>${who(comeback)}</strong> was ${comeback.points} pts behind${comeback.opponents?.length ? ` ${e(comeback.opponents.length === 1 ? comeback.opponents[0] : `${comeback.opponents.length} players`)}` : ""} and won${comeback.scores ? ` ${e(comeback.scores.join("–"))}` : ""}${comeback.at ? ` · ${when(comeback.at)}` : ""}`, "No comebacks yet. The winner has to have been behind at some point."),
+    card(3, "c-s7", "clock.arrow.circlepath", "Most games today", today, today?.games, today?.games === 1 ? "game" : "games", today && `<strong>${who(today)}</strong> has finished the most games since midnight`, "No games finished today yet."),
+    card(4, "c-p1", "star.fill", "Most common modifier", most, most && statPercent(most.rate), "", most && `<strong>${e(most.name)}</strong> came into play in ${statNumber(most.active)} of ${games(most.games)} it was on`, "No games with modifiers yet.", records.always_in_play?.length ? `Leaves out ${e(records.always_in_play.join(", "))}, which is in play every game it's on.` : ""),
+    card(5, "c-p4", "wand.and.stars", "Least common modifier", least, least && statPercent(least.rate), "", least && `<strong>${e(least.name)}</strong> came into play in ${statNumber(least.active)} of ${games(least.games)} it was on`, "Not enough games with modifiers yet."),
+    card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet."),
+    card(7, "c-s6", "sparkles", "Most modifiers in a game", stacked, stacked?.count, "", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with modifiers yet."),
+  ].join("")}</div>`;
+}
 /**
- * The leaderboard views (Solo, PVP, Advanced stats) share one page: its header
+ * The leaderboard views (Solo, PVP, Records, Advanced stats) share one page: its header
  * and tabs are drawn once and stay put, and only the part below them changes.
  * `body` null means "still loading": the first time that shows `loading`; once
  * the page is up, what is there stays (dimmed) until the new view arrives.
@@ -1935,7 +2103,13 @@ function leaderShell(name, title, tab, body, loading = "Loading…") {
   });
   const holder = shell.querySelector("[data-leader-body]");
   holder.classList.toggle("stale", body === null);
-  if (body !== null) holder.innerHTML = body;
+  if (body !== null) {
+    // only the rows that changed are redrawn
+    const template = document.createElement("template");
+    if (!template.content) return void (holder.innerHTML = body);
+    template.innerHTML = body;
+    morphChildren(holder, template.content);
+  }
 }
 let leaderboardRequest = 0,
   leaderboardCache = null;
@@ -1945,13 +2119,14 @@ async function leaderboardPage(tab = "pvp") {
   history.replaceState({}, "", appPath("/leaderboard"));
   const draw = (body) => leaderShell("leaderboard", "Leaderboard", tab, body, "Loading leaderboard…");
   // the last board shows straight away; it is only redrawn if the fetch changed it
-  draw(leaderboardCache ? leaderboardBody(tab, leaderboardCache) : null);
+  const body = (result) => (tab === "records" ? recordsBody(result.records) : leaderboardBody(tab, result));
+  draw(leaderboardCache ? body(leaderboardCache) : null);
   try {
     const result = await api("/api/leaderboards");
     if (page !== "leaderboard" || request !== leaderboardRequest) return;
     const changed = JSON.stringify(result) !== JSON.stringify(leaderboardCache);
     leaderboardCache = result;
-    if (changed) draw(leaderboardBody(tab, result));
+    if (changed) draw(body(result));
   } catch (error) {
     if (page === "leaderboard" && request === leaderboardRequest && !leaderboardCache)
       draw(`<p class="empty">${e(error.message)}</p>`);
@@ -1960,6 +2135,7 @@ async function leaderboardPage(tab = "pvp") {
 
 /* ---------- patch notes & rules ---------- */
 async function patchesPage() {
+  markPatchSeen();
   document.title = "Patch notes · Golf";
   history.replaceState({}, "", appPath("/patch-notes"));
   show(
@@ -1977,7 +2153,7 @@ async function patchesPage() {
             items.length
               ? `<h3 style="margin-top:1.2rem">${title}</h3>${items.map((note) => `<p>• ${e(note)}</p>`).join("")}`
               : "";
-          return `<article class="panel ${patch.version === notes.current ? "c-p4" : "c-fw"}"><span class="pill">${patch.version === notes.current ? "Latest update" : "Previous update"}</span><h2 style="margin-top:.8rem">Patch ${e(patch.version)}</h2>${list("Rule revisions", patch.rules.revisions)}${list("Rule additions", patch.rules.additions)}${list("Play and interface", patch.changes)}</article>`;
+          return `<article class="panel ${patch.version === notes.current ? "c-p4" : "c-fw"}"><span class="pill">${patch.version === notes.current ? "Latest update" : "Previous update"}</span><h2 style="margin-top:.8rem">Patch ${e(patch.version)}</h2>${list(patch.labels?.revisions || "Rule revisions", patch.rules.revisions)}${list(patch.labels?.additions || "Rule additions", patch.rules.additions)}${list(patch.labels?.changes || "Play and interface", patch.changes)}</article>`;
         })
         .join("")}</div></div>`,
     );
@@ -2094,6 +2270,10 @@ document.addEventListener("click", async (event) => {
         enabled: data.enable === "true",
       });
       return;
+    }
+    if ("summaryEmotes" in data) {
+      board.summaryEmotes = !board.summaryEmotes;
+      return renderSummary();
     }
     if ("summaryToggle" in data) {
       board.summaryHidden = !board.summaryHidden;
@@ -2214,6 +2394,11 @@ document.addEventListener("click", async (event) => {
       });
       Object.assign(session, keep);
       return home();
+    }
+    if ("debugBots" in data) {
+      if (!(await abandonExisting())) return;
+      saveName(name());
+      return enterRoom(await api("/api/debug/bot-table", "POST", {}));
     }
     if (data.avatar) return pickAvatar(data.avatar);
     if (data.preset) return applyPreset(data.preset);
@@ -2337,8 +2522,16 @@ root.addEventListener("submit", async (event) => {
     if (value === session.username) return toast("That's already your display name.");
     saveName(value);
     input.value = value;
-    pollPresence(); // the server learns the new name with the next presence update
-    return toast(`You'll show as ${value}.`);
+    if (session.account) {
+      // saved to the account, so every device you sign in on uses it
+      try {
+        const next = await api("/api/name", "POST", { username: value, avatar: session.avatar });
+        saveName(next.username);
+      } catch (error) {
+        return toast(error.message);
+      }
+    } else pollPresence(); // the server learns the new name with the next presence update
+    return toast(`You'll show as ${session.username}.`);
   }
   if (event.target.id === "account-name-form") {
     try {
@@ -2369,7 +2562,7 @@ root.addEventListener("change", async (event) => {
   if (target.dataset.draft) {
     const key = target.dataset.draft;
     draft[key] = key === "length" ? Number(target.value) : target.value;
-    if (key === "style" || key === "length") {
+    if (key === "style" || key === "length" || key === "scorePreview") {
       saveName(name());
       setupPage();
     }
@@ -2414,13 +2607,18 @@ document.addEventListener("keydown", (event) => {
       return confirmStaged();
     }
   }
+  // Enter ends the turn once it can end (after flipping a card, say), even with
+  // focus still on the card just tapped; other buttons keep Enter for themselves
   if (
     event.key === "Enter" &&
+    !event.repeat &&
     page === "room" &&
-    !["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(event.target.tagName) &&
+    sheetRoot.hidden &&
+    (!["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(event.target.tagName) || event.target.matches?.(".slot")) &&
     state?.game?.legal.end_turn
   ) {
     event.preventDefault();
+    document.activeElement?.blur?.();
     move("end_turn");
   }
 });
@@ -2477,7 +2675,9 @@ function bootData() {
     avatars = avatarInfo.avatars;
     if (boot.queue) presenceState.queue = boot.queue;
     try {
-      session.username = localStorage.getItem("golf-name") || session.username;
+      // signed in, the account's saved display name wins; otherwise this device's
+      if (session.account?.display_name) saveName(session.account.display_name);
+      else session.username = localStorage.getItem("golf-name") || session.username;
       const saved = localStorage.getItem("golf-avatar");
       if (avatars.some((avatar) => avatar.id === saved && avatar.selectable))
         session.avatar = saved;

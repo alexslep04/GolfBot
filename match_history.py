@@ -43,7 +43,7 @@ class MatchHistory:
                     self.connection.execute("UPDATE matches SET payload=? WHERE id=?", (json.dumps(match), match_id))
 
     def save(self, room, abandoned=False):
-        if not room.history:
+        if not room.history or getattr(room, "bot_seats", None):  # debug bot tables are never saved
             return
         payload = {
             "id": room.match_id, "lobby_name": room.name, "names": list(room.names),

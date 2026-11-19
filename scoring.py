@@ -116,9 +116,12 @@ def cancellation_pairs(layout, rules, visible_only=False):
              if i in known and i + 3 in known and layout[i].card.rank == layout[i + 3].card.rank]
     cancelled = {i for pair, _ in pairs for i in pair}
     if rules.ripped_five:
-        diamond = next((i for i in sorted(known - cancelled) if layout[i].card.rank == 5 and layout[i].card.suit == "D"), None)
+        # The 5 of diamonds rips one other 5 anywhere in the hand, whether or not
+        # it has already cancelled a 5 in its own column. The ripped 5 is the
+        # first one left to right that nothing has cancelled yet.
+        diamond = next((i for i in sorted(known) if layout[i].card.rank == 5 and layout[i].card.suit == "D"), None)
         if diamond is not None:
-            other = next((i for i in sorted(known - cancelled) if i // 3 != diamond // 3 and layout[i].card.rank == 5), None)
+            other = next((i for i in sorted(known - cancelled) if i != diamond and layout[i].card.rank == 5), None)
             if other is not None:
                 pairs.append(((diamond, other), "ripped"))
     return pairs
@@ -298,8 +301,12 @@ def active_rule_effects(layout, rules, gambler_earned=False, locked_cards=(), op
     """Report effects proven by visible cards, without exposing hidden cards."""
     effects = []
     cards = [slot.card for slot in layout if slot.visible]
+    counted = set()
     for pair, source in cancellation_pairs(layout, rules, True):
-        reduction = -sum(layout[i].card.base_points for i in pair)
+        # a card already zeroed by an earlier pair (a 5 of diamonds in a column
+        # pair, then ripping another 5) is not taken off twice
+        reduction = -sum(layout[i].card.base_points for i in pair if i not in counted)
+        counted.update(pair)
         label = "Ripped 5" if source == "ripped" else f"Column {pair[0] + 1} pair"
         effects.append(f"{label}: 0 ({reduction:+d})")
     effects.extend(f"{name} /{divisor}" for name, divisor in v_pattern_effects(layout, rules, True))

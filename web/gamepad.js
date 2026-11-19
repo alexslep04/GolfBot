@@ -699,7 +699,30 @@ function padConnected(on) {
   PAD.connected = on;
   document.documentElement.classList.toggle("pad-on", on);
   if (on) padLabelKeys();
+  padWakeLock();
 }
+/**
+ * While a controller is connected, keep the screen on (where the browser
+ * allows it): a player on a couch may not touch the screen for a long time.
+ * The browser drops the lock whenever the page is hidden, so it is taken
+ * again each time the page comes back.
+ */
+async function padWakeLock() {
+  const want = PAD.connected && document.visibilityState === "visible";
+  if (!want) {
+    const lock = PAD.wakeLock;
+    PAD.wakeLock = null;
+    lock?.release().catch(() => {});
+    return;
+  }
+  if (PAD.wakeLock || !navigator.wakeLock?.request) return;
+  try {
+    PAD.wakeLock = await navigator.wakeLock.request("screen");
+    PAD.wakeLock.addEventListener("release", () => (PAD.wakeLock = null));
+    if (!PAD.connected) padWakeLock(); // unplugged while the request was pending
+  } catch {} // refused (low battery, no permission): the screen sleeps as usual
+}
+document.addEventListener("visibilitychange", padWakeLock);
 function padStart() {
   padConnected(true);
   if (!PAD.frame) PAD.frame = requestAnimationFrame(padPoll);

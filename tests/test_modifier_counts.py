@@ -28,10 +28,13 @@ class ModifierCountTests(unittest.TestCase):
         hand = layout([10, 11, 12, 10, 11, 12])
         self.assertEqual(modifier_instance_counts(hand, Rules(v10=True)), {"v10": 1})
 
-    def test_ripped_five_requires_uncancelled_cards(self):
+    def test_ripped_five_needs_another_uncancelled_five(self):
         rules = Rules(ripped_five=True)
         self.assertEqual(modifier_instance_counts(layout([5, 3, 8, 4, 5, 9], "DSHCHS"), rules), {"ripped_five": 1})
+        # its only partner already cancelled with it in the column: nothing left to rip
         self.assertEqual(modifier_instance_counts(layout([5, 3, 8, 5, 4, 9], "DSHCHS"), rules), {})
+        # a column pair, plus another 5 elsewhere: that one is ripped
+        self.assertEqual(modifier_instance_counts(layout([5, 5, 8, 5, 4, 9], "DSHCHS"), rules), {"ripped_five": 1})
 
     def test_earned_effects_and_locks_count_once_and_respect_enabled_rules(self):
         hand = layout([6, 6, 6, 6, 6, 6])

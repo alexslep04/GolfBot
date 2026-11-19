@@ -73,6 +73,19 @@
   --p4: #c945f1;
   --p4b: #eac5f6;
   --p4t: #3b1547;
+  /* players 5–8: orange, dark blue, lavender, dark green */
+  --p5: #ff8a2b;
+  --p5b: #f9dcc4;
+  --p5t: #5e2d0c;
+  --p6: #2f55c2;
+  --p6b: #c9d3f3;
+  --p6t: #121f4a;
+  --p7: #a99af0;
+  --p7b: #e6e1fb;
+  --p7t: #2e2654;
+  --p8: #2e8a4a;
+  --p8b: #c6ebd1;
+  --p8t: #0f3a1d;
   --shadow: rgb(0 0 0 / 0.25);
   --text: "FOT-Seurat Pro", "Hiragino Maru Gothic ProN", "Arial Rounded MT Bold",
     system-ui, sans-serif;
@@ -110,11 +123,27 @@
   --s3: var(--p4);
   --s3b: var(--p4b);
   --s3t: var(--p4t);
+  --s4: var(--p5);
+  --s4b: var(--p5b);
+  --s4t: var(--p5t);
+  --s5: var(--p6);
+  --s5b: var(--p6b);
+  --s5t: var(--p6t);
+  --s6: var(--p7);
+  --s6b: var(--p7b);
+  --s6t: var(--p7t);
+  --s7: var(--p8);
+  --s7b: var(--p8b);
+  --s7t: var(--p8t);
   /* text on a solid seat colour (the graph's tags): white, but dark on yellow */
   --s0on: #fff;
   --s1on: #fff;
   --s2on: var(--p3t);
   --s3on: #fff;
+  --s4on: #fff;
+  --s5on: #fff;
+  --s6on: var(--p7t);
+  --s7on: #fff;
   /* losing: a soft, sad purple */
   --sad: #8b80c4;
 }
@@ -153,7 +182,20 @@
   --p4: #8a63a3;
   --p4b: #2d2238;
   --p4t: #e6d5f0;
+  --p5: #c27236;
+  --p5b: #3a2416;
+  --p5t: #f5dcc6;
+  --p6: #3d5a9e;
+  --p6b: #1a2238;
+  --p6t: #d3dcf3;
+  --p7: #8f86c2;
+  --p7b: #26233a;
+  --p7t: #e2ddf5;
+  --p8: #4f9a62;
+  --p8b: #16301e;
+  --p8t: #d4ecd9;
   --s2on: #fff;
+  --s6on: #fff;
   --on-bg: #efe7cf;
   --on-bg2: var(--gold);
   --sad: #7d78a8;
@@ -186,7 +228,20 @@
   --p4: #b65ad8;
   --p4b: #2c1938;
   --p4t: #f0d6fb;
+  --p5: #f08a3c;
+  --p5b: #3a2312;
+  --p5t: #ffe0c7;
+  --p6: #4a6fd6;
+  --p6b: #151f3d;
+  --p6t: #d6e0ff;
+  --p7: #a99af0;
+  --p7b: #25203f;
+  --p7t: #e9e4ff;
+  --p8: #3fae62;
+  --p8b: #12301c;
+  --p8t: #d2f3dc;
   --s2on: var(--p3b);
+  --s6on: var(--p7b);
   --flame: #ffa152; /* a touch brighter against the night */
   --on-bg: #dcefd2;
   --on-bg2: #7fd18f;
@@ -226,6 +281,26 @@
   --c2: var(--s3b);
   --ct: var(--s3t);
 }
+.c-s4 {
+  --c: var(--s4);
+  --c2: var(--s4b);
+  --ct: var(--s4t);
+}
+.c-s5 {
+  --c: var(--s5);
+  --c2: var(--s5b);
+  --ct: var(--s5t);
+}
+.c-s6 {
+  --c: var(--s6);
+  --c2: var(--s6b);
+  --ct: var(--s6t);
+}
+.c-s7 {
+  --c: var(--s7);
+  --c2: var(--s7b);
+  --ct: var(--s7t);
+}
 .board[data-seat="1"] {
   --p1: var(--s1);
   --p1b: var(--s1b);
@@ -240,6 +315,26 @@
   --p1: var(--s3);
   --p1b: var(--s3b);
   --p1t: var(--s3t);
+}
+.board[data-seat="4"] {
+  --p1: var(--s4);
+  --p1b: var(--s4b);
+  --p1t: var(--s4t);
+}
+.board[data-seat="5"] {
+  --p1: var(--s5);
+  --p1b: var(--s5b);
+  --p1t: var(--s5t);
+}
+.board[data-seat="6"] {
+  --p1: var(--s6);
+  --p1b: var(--s6b);
+  --p1t: var(--s6t);
+}
+.board[data-seat="7"] {
+  --p1: var(--s7);
+  --p1b: var(--s7b);
+  --p1t: var(--s7t);
 }
 .c-p1 {
   --c: var(--p1);
@@ -1589,6 +1684,14 @@ button.tag-rules:active > .tag-in {
   display: flex;
   align-items: center;
 }
+/* the old score, scrolling out over the new one (see rollScore) */
+.score:has(> .roll-out) {
+  position: relative;
+}
+.score .digits.roll-out {
+  position: absolute;
+  pointer-events: none;
+}
 .score.bump .digits {
   animation: bump 0.5s var(--spring);
 }
@@ -1709,6 +1812,39 @@ button.tag-rules:active > .tag-in {
   display: grid;
   justify-items: center;
   max-width: 100%;
+}
+/* the next player's name, set on an arc that hugs the bottom of the arrows */
+.cycle-name {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12rem;
+  height: 12rem;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.cycle-name svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+/* lettered like the arrows above: their pale fill inside their colour, with
+   the same drop shadow (in every theme) */
+.cycle-name svg {
+  filter: drop-shadow(0.15rem 0.15rem 0 var(--shadow));
+}
+.cycle-name text {
+  font: 800 12px var(--text);
+  letter-spacing: 0.16em;
+  fill: var(--c2);
+  stroke: var(--c);
+  stroke-width: 3.2px;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+  transition:
+    fill 0.4s,
+    stroke 0.4s;
 }
 /* the arrows turn once round each time the table moves on (board.js) */
 .cycle-ico {
@@ -1891,6 +2027,13 @@ button.tag-rules:active > .tag-in {
   background-image: url(assets/card-face-red-dark.png);
   color: #f08a86;
   --fill: #f08a86;
+}
+/* Night Golf's borders are brighter, to stand out on its darker table */
+:root[data-theme="night"] .face.front {
+  background-image: url(assets/card-face-black-night.png);
+}
+:root[data-theme="night"] .face.front.red {
+  background-image: url(assets/card-face-red-night.png);
 }
 .corner {
   display: flex;
@@ -2123,6 +2266,14 @@ button.tag-rules:active > .tag-in {
   border-bottom-color: var(--c);
   border-top: 0;
 }
+/* "Their turn" can be tapped to go to their board */
+.callout[data-goto] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.callout[data-goto]:active {
+  scale: 0.94;
+}
 .callout.pop {
   animation: pop 0.4s var(--spring);
 }
@@ -2344,22 +2495,24 @@ button.tag-rules:active > .tag-in {
 /* Sheets keep just their Close button in reach while they scroll; the title
    scrolls away with everything else. The head steps aside (display: contents)
    so the button can stick against the whole sheet, not only the head. */
-:root.pad-on .sheet-head {
+/* On every sheet, Close floats at the top right and stays there as the sheet
+   scrolls under it. */
+.sheet .sheet-head {
   display: contents;
 }
-:root.pad-on .sheet-head > h2 {
+.sheet .sheet-head > h2 {
   float: left;
   max-width: calc(100% - 9rem);
   margin-bottom: 1.4rem;
 }
-:root.pad-on .sheet-head > .close-btn {
+.sheet .sheet-head > .close-btn {
   float: right;
   position: sticky;
   top: 0; /* measured inside the sheet's padding: it stays where it already sits */
   z-index: 5;
   margin: 0 0 1.4rem 1rem;
 }
-:root.pad-on .sheet-head + * {
+.sheet .sheet-head + * {
   clear: both;
 }
 .pad-help {
@@ -2415,11 +2568,32 @@ button.tag-rules:active > .tag-in {
   display: flex;
   gap: 0.6rem;
 }
-/* the text emotes: a row of short sayings under the faces */
+/* the text emotes: a row of short sayings under the faces, scrolling sideways
+   (it takes the faces' width and never widens the pop-up itself) */
 .emote-words {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 0.6rem;
+  width: 0;
+  min-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  padding: 0.3rem 0.4rem 0.6rem 0.2rem;
+  margin: -0.3rem -0.4rem -0.6rem -0.2rem;
+  /* the last saying fades at the edge, so it reads as more to scroll to */
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.4rem), transparent);
+}
+.emote-words.at-end {
+  mask-image: none;
+}
+.emote-words::-webkit-scrollbar {
+  display: none;
+}
+.emote-words > .emote-word {
+  flex: none;
+  scroll-snap-align: start;
 }
 .emote-pop button.emote-word {
   width: auto;
@@ -2572,8 +2746,69 @@ button.tag-rules:active > .tag-in {
 .summary .row {
   align-items: center;
 }
+/* "Updated to 1.3": a small chip above the main buttons, leading to the notes */
+.chip.patch-chip {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  gap: 0.6rem;
+  min-height: 0;
+  padding: 0.5rem 1.2rem;
+  border-width: 0.3rem;
+  border-radius: 2rem;
+  font-size: 1.4rem;
+  animation: pop 0.45s var(--spring) both;
+}
+/* leaving Practice as a guest: the Leave sticker, then a wide Sign in */
+.leave-dialog .dialog-actions.signin-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 1.6rem;
+}
+.dialog-actions.signin-actions .btn {
+  flex: 1 1 auto;
+}
+/* a dialog's dismiss x: a sticker sitting right on its top right corner, like
+   the toast's (a size up), in the dialog's colours */
+.leave-dialog {
+  position: relative;
+  overflow: visible;
+}
+.dialog-x {
+  position: absolute;
+  top: -1.5rem;
+  right: -1.5rem;
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  cursor: pointer;
+  /* the dialog's own colours: its fill inside its border colour */
+  --fill: var(--c2);
+  --stroke: var(--c);
+  transition: transform 0.28s var(--spring);
+}
+.dialog-x:active {
+  transform: scale(0.85);
+  transition-duration: 0.08s;
+}
 .summary .close-btn {
   padding: 0 0.6rem;
+}
+/* the results panel's three stickers, spread edge to edge */
+.summary-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.8rem 0;
+}
+/* the move that starts the next game: the biggest of the three */
+.summary-actions .close-btn.main {
+  font-size: 2rem;
+}
+.summary-actions .close-btn:disabled {
+  opacity: 0.6;
+  transform: none;
 }
 @keyframes summary-in {
   from {
@@ -2749,15 +2984,60 @@ button.tag-rules:active > .tag-in {
 .summary-panel {
   box-shadow: 0.4rem 0.4rem 0 var(--shadow);
 }
-/* the quick emotes, always out under the results */
+/* the quick emotes under the results: a green tab tucked under the bottom of
+   the ready-up card, in the card's own colours, that drops them down */
+/* holds the tab, and the emotes below it; it only lays them out, so taps go
+   through it to the tab tucked behind (and to the emotes) */
+.summary-emote-anchor {
+  pointer-events: none;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.summary-emote-drawer {
+  position: relative;
+  z-index: -1; /* behind the card it peeks out from */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -2rem;
+  padding: 2rem 1.2rem 0.4rem;
+  border: 0.4rem solid var(--c);
+  border-top: none;
+  border-radius: 0 0 1.8rem 1.8rem;
+  background: var(--c2);
+  color: var(--ct);
+  box-shadow: 0.4rem 0.4rem 0 var(--shadow);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+/* tucked away, the emotes still keep their room */
+.emote-pop.summary-emotes.tucked {
+  visibility: hidden;
+  animation: none;
+}
+.emote-tab,
+.summary-emote-anchor .emote-pop:not(.tucked) {
+  pointer-events: auto;
+}
+.emote-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.8rem;
+  color: var(--ct);
+  transition: transform 0.25s var(--spring);
+}
+.emote-tab:active {
+  transform: scale(0.9);
+}
 .emote-pop.summary-emotes {
   position: static;
-  align-self: center;
+  margin-top: 0.6rem;
   justify-content: center;
   transform-origin: 50% 0;
-  /* --t keeps it from popping in again when the results redraw */
-  animation: pop 0.4s var(--spring) both;
-  animation-delay: calc(var(--t, 0s) + 0.3s);
+  animation: pop 0.35s var(--spring) both;
 }
 .summary-panel .ready-tiles {
   margin-top: 0;
@@ -3135,6 +3415,16 @@ button.tag-rules:active > .tag-in {
   background: rgb(255 255 255 / 0.55);
   font-size: 1.6rem;
 }
+/* dark themes: a well a shade darker than the sheet, tinted with its colour,
+   rather than a pale wash that turns grey on the dark sheets (the stat tiles too) */
+:root:is([data-theme="poker"], [data-theme="night"]) :is(.tally, .stat-tiles > div) {
+  background: color-mix(in srgb, var(--c2) 55%, #000);
+}
+/* the series tally, plain on light sheets, becomes the same rounded well */
+:root:is([data-theme="poker"], [data-theme="night"]) .tally.plain {
+  padding: 1.2rem 1.4rem;
+  border-radius: 1.8rem;
+}
 /* a tally that sits straight on its sheet, with no panel of its own */
 .tally.plain {
   padding: 0;
@@ -3189,6 +3479,12 @@ button.tag-rules:active > .tag-in {
   padding-top: 0.6rem;
   margin-top: 0.3rem;
   font-size: 2rem;
+}
+/* a second total line (wins, then points) shares the first one's rule */
+.tally .total.more {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
 }
 .rule-card {
   display: flex;
@@ -3253,7 +3549,7 @@ button.tag-rules:active > .tag-in {
 .pref-value.on {
   opacity: 1;
 }
-/* "Hide tooltips": the labels that name a move go; highlights stay */
+/* "Show tooltips" off: the labels that name a move go; highlights stay */
 .no-tips .move-label,
 .no-tips .drag-note {
   display: none;
@@ -3807,6 +4103,63 @@ button:disabled > .haptic-switch {
   font-size: 1.3rem;
   opacity: 0.7;
 }
+/* Solo: the current streak, small and quiet, sitting on the bottom line to the
+   left of the best */
+.board-row .rate .streak-now {
+  align-self: flex-end;
+  margin-right: 0.4rem;
+  font: 700 1.2rem/1.2 var(--text);
+  white-space: nowrap;
+}
+/* Records: one card per all-time best, two to a row where there is room */
+.records {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 2.2rem 1.6rem;
+  margin-top: 2.4rem;
+}
+.record-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 2.2rem 1.4rem 1.6rem;
+  text-align: center;
+  animation: pop 0.45s var(--spring) both;
+  animation-delay: calc(var(--i) * 70ms);
+}
+.record-card h3 {
+  margin: 0;
+  font: 700 1.5rem/1.2 var(--text);
+  opacity: 0.8;
+}
+.record-ico {
+  position: absolute;
+  top: -1.6rem;
+  left: -0.8rem;
+  rotate: -10deg;
+}
+.record-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font: 700 4.4rem/1 var(--round);
+  --sw: 0.7rem;
+}
+.record-value .pts {
+  font-size: 1.8rem;
+  --sw: 0.5rem;
+}
+.record-card p {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.35;
+}
+.record-card .record-note {
+  font-size: 1.15rem;
+  opacity: 0.7;
+}
 .leader-empty {
   display: flex;
   flex-direction: column;
@@ -3820,6 +4173,7 @@ button:disabled > .haptic-switch {
 }
 @media (prefers-reduced-motion: reduce) {
   .leader-hero,
+  .record-card,
   .leader-list .board-row {
     animation: none;
   }

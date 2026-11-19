@@ -1,8 +1,27 @@
 """Release labels stored with results; older unlabelled games stay unlabelled."""
-PATCH_VERSION = "1.2.0"
+PATCH_VERSION = "1.3.0"
 
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
+    # this patch names its sections itself; older ones use the default headings
+    "labels": {"revisions": "Reworked rules", "changes": "Gameplay"},
+    "rules": {
+        "revisions": [
+            "The Ripped 5: the 5 of diamonds now cancels out any other 5 on the board, regardless of whether or not it is in an already canceled-out row.",
+        ],
+        "additions": [],
+    },
+    "changes": [
+        "New themes! Original is still the goat tho 🙂‍↕️",
+        "Auto Quickplay! You're now automatically placed into the quick queue when opening Golf. This can be turned off in settings.",
+        "Records! A new records tab has dropped in the leaderboard page.",
+        "Score Previews! Preview your score before you confirm the move. This feature can be disabled for all players by the host of a PvP game.",
+        "Players 5-8 now have their own colors! Orange, dark blue, dark green, and light purple.",
+        "Avatars are now unique to each player, except for the golfer because we're all golfers 💯.",
+        "New text emotes! \"Wow!\" and \"What a save!\"",
+    ],
+}, {
+    "version": "1.2.0",
     "rules": {"revisions": [], "additions": []},
     "changes": [
         "Elo updates after each completed Quickplay game.",

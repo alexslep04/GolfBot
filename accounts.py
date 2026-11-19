@@ -30,15 +30,18 @@ class Accounts:
         with self.lock, self.db:
             self.db.execute('CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, google_sub TEXT UNIQUE NOT NULL, unique_name TEXT COLLATE NOCASE UNIQUE)')
             self.db.execute('CREATE TABLE IF NOT EXISTS account_sessions (token_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires REAL NOT NULL)')
+            # the display name the player last chose, shared by every device they sign in on
+            if 'display_name' not in {row[1] for row in self.db.execute('PRAGMA table_info(accounts)')}:
+                self.db.execute('ALTER TABLE accounts ADD COLUMN display_name TEXT')
 
     @staticmethod
     def public(row):
-        return {'id': row[0], 'unique_name': row[1]} if row else None
+        return {'id': row[0], 'unique_name': row[1], 'display_name': row[2]} if row else None
 
     def login(self, google_sub):
         with self.lock, self.db:
-            self.db.execute('INSERT OR IGNORE INTO accounts VALUES (?, ?, NULL)', (secrets.token_hex(16), google_sub))
-            row = self.db.execute('SELECT id, unique_name FROM accounts WHERE google_sub=?', (google_sub,)).fetchone()
+            self.db.execute('INSERT OR IGNORE INTO accounts (id, google_sub, unique_name) VALUES (?, ?, NULL)', (secrets.token_hex(16), google_sub))
+            row = self.db.execute('SELECT id, unique_name, display_name FROM accounts WHERE google_sub=?', (google_sub,)).fetchone()
             token = secrets.token_urlsafe(32)
             self.db.execute('DELETE FROM account_sessions WHERE expires <= ?', (time.time(),))
             self.db.execute('INSERT INTO account_sessions VALUES (?, ?, ?)',
@@ -49,7 +52,7 @@ class Accounts:
         if not token or not re.fullmatch(r'[A-Za-z0-9_-]{43}', token):
             return None
         with self.lock:
-            row = self.db.execute('SELECT a.id, a.unique_name FROM accounts a JOIN account_sessions s ON a.id=s.account_id WHERE s.token_hash=? AND s.expires > ?',
+            row = self.db.execute('SELECT a.id, a.unique_name, a.display_name FROM accounts a JOIN account_sessions s ON a.id=s.account_id WHERE s.token_hash=? AND s.expires > ?',
                                   (hashlib.sha256(token.encode()).hexdigest(), time.time())).fetchone()
         return self.public(row)
 
@@ -63,7 +66,7 @@ class Accounts:
         if not UNIQUE_NAME.fullmatch(name):
             raise ValueError('Use 3–24 letters, numbers or underscores for your unique name.')
         with self.lock, self.db:
-            row = self.db.execute('SELECT id, unique_name FROM accounts WHERE id=?', (account_id,)).fetchone()
+            row = self.db.execute('SELECT id, unique_name, display_name FROM accounts WHERE id=?', (account_id,)).fetchone()
             if row is None:
                 raise ValueError('Please sign in again.')
             if row[1] and row[1] != name:
@@ -72,7 +75,11 @@ class Accounts:
                 self.db.execute('UPDATE accounts SET unique_name=? WHERE id=?', (name, account_id))
             except sqlite3.IntegrityError as error:
                 raise ValueError('That unique name is already taken.') from error
-        return {'id': account_id, 'unique_name': name}
+        return {'id': account_id, 'unique_name': name, 'display_name': row[2]}
+
+    def save_display_name(self, account_id, name):
+        with self.lock, self.db:
+            self.db.execute('UPDATE accounts SET display_name=? WHERE id=?', (name, account_id))
 
 
 def participant(account, display_name):

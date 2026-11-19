@@ -54,7 +54,7 @@ class AccountTests(unittest.TestCase):
             with TestClient(create_app(restored, 'test.apps.googleusercontent.com'), base_url='https://sleptsov.dev') as client:
                 client.cookies.update(session_cookie)
                 session = client.get('/golf/api/session').json()
-                self.assertEqual(session['account'], {'id': account_id, 'unique_name': 'my_name'})
+                self.assertEqual(session['account'], {'id': account_id, 'unique_name': 'my_name', 'display_name': 'Player'})
                 row = restored.history.connection.execute('SELECT token_hash FROM account_sessions').fetchone()
                 self.assertNotEqual(row[0], login_cookie)
                 self.assertNotIn('google-private-sub', json.dumps(session))
@@ -93,6 +93,27 @@ class AccountTests(unittest.TestCase):
                 self.assertEqual(client.post('/api/auth/google', json=body).status_code, 200)
                 self.assertEqual(client.post('/api/auth/google', json=body).status_code, 401)
             self.assertEqual(client.post('/api/auth/logout', json={'csrf_token': session['csrf_token']}, headers={'Origin': 'https://evil.test'}).status_code, 403)
+
+    def test_display_name_follows_the_account_to_every_device(self):
+        store = Store()
+        app = create_app(store, 'test.apps.googleusercontent.com')
+        with TestClient(app, base_url='https://sleptsov.dev') as phone, TestClient(app, base_url='https://sleptsov.dev') as laptop:
+            for client in (phone, laptop):
+                client.get('/golf/api/session').raise_for_status()
+            phone.post('/golf/api/presence', json={'username': 'Pocket'}).raise_for_status()
+            self.login(phone)  # the guest name becomes the account's first saved name
+            self.name(phone, 'pocket_player').raise_for_status()
+            self.login(laptop)
+            self.assertEqual(laptop.get('/golf/api/session').json()['username'], 'Pocket')
+            phone.post('/golf/api/name', json={'username': 'Spence'}).raise_for_status()
+            # a device still sending the old name does not win it back
+            presence = laptop.post('/golf/api/presence', json={'username': 'Pocket'}).json()
+            self.assertEqual(presence['username'], 'Spence')
+            self.assertEqual(laptop.get('/golf/api/session').json()['username'], 'Spence')
+            # choosing a name to play under saves it too
+            state = laptop.post('/golf/api/solo', json={'username': 'Laptop'}).json()
+            self.assertEqual(state['names'][0], 'Laptop')
+            self.assertEqual(phone.get('/golf/api/session').json()['username'], 'Laptop')
 
     def test_two_display_names_share_account_stats_but_matching_guest_name_does_not(self):
         store = Store()

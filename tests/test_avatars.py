@@ -14,7 +14,7 @@ class AvatarCatalogTests(unittest.TestCase):
         entries = catalog()
         self.assertEqual(len({entry['id'] for entry in entries}), len(entries))
         for entry in entries:
-            self.assertEqual(set(entry), {'id', 'name', 'icon', 'selectable', 'rules', 'bonuses', 'abilities'})
+            self.assertEqual(set(entry), {'id', 'name', 'icon', 'selectable', 'shared', 'rules', 'bonuses', 'abilities'})
             # Avatars are cosmetic for now: nothing may change rules or scores yet.
             self.assertEqual((entry['rules'], entry['bonuses'], entry['abilities']), ((), (), ()))
         self.assertTrue(next(entry for entry in entries if entry['id'] == DEFAULT_AVATAR)['selectable'])
@@ -57,6 +57,20 @@ class AvatarSeatTests(unittest.TestCase):
         joined = self.guest.post(path + '/join', json={'username': 'Guest', 'avatar': 'fish'}).json()
         self.assertEqual(joined['avatars'], ['tree', 'fish'])
         self.assertEqual(self.host.get(path).json()['avatars'], ['tree', 'fish'])
+
+    def test_an_avatar_belongs_to_one_player_per_table_except_the_golf_club(self):
+        lobby = self.host.post('/Golfgame/api/lobbies', json={
+            'username': 'Host', 'avatar': 'club', 'game_type': 'many'}).json()
+        path = '/Golfgame/api/lobbies/' + lobby['id']
+        self.guest.post(path + '/join', json={'username': 'Guest', 'avatar': 'fish'}).raise_for_status()
+        self.third.post(path + '/join', json={'username': 'Third', 'avatar': 'fish'}).raise_for_status()
+        # the second Fish plays as the shared Golf Club, but keeps Fish as their choice
+        self.assertEqual(self.host.get(path).json()['avatars'], ['club', 'fish', 'club'])
+        self.assertEqual(self.third.get('/Golfgame/api/session').json()['avatar'], 'fish')
+
+    def test_quickplay_twins_get_the_golf_club(self):
+        from avatars import unique_avatars
+        self.assertEqual(unique_avatars(['dog', 'dog', 'club', 'club', 'cat']), ['dog', 'club', 'club', 'club', 'cat'])
 
     def test_waiting_guest_leaving_clears_the_seat_avatar(self):
         lobby = self.host.post('/Golfgame/api/lobbies', json={
