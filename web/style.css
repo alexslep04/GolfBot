@@ -116,6 +116,30 @@
 :root:is([data-theme="poker"], [data-theme="night"]) {
   --p3-edge: color-mix(in srgb, var(--p3) 62%, #000);
 }
+/* a rule's state in the rules panel ("active", "one move away"): the panel's
+   text colour as the fill, its accent colour as the words */
+.pill.rule-state {
+  background: var(--ct);
+  color: var(--c);
+}
+/* "active": filled with the panel's text colour, its words in the page colour
+   (white on Original, the dark page on the dark themes) */
+.pill.rule-state.active {
+  background: var(--ct);
+  color: var(--paper);
+}
+/* dark themes: "one move away" is filled with a dark shade of the accent (a step
+   up from the panel itself), its words in the panel's light text colour */
+:root:is([data-theme="poker"], [data-theme="night"]) .pill.rule-state.near {
+  background: color-mix(in srgb, var(--c) 40%, var(--c2));
+  color: var(--ct);
+}
+/* Original: "one move away" is filled with the accent, its words in the pale
+   secondary accent */
+:root:not([data-theme]) .pill.rule-state.near {
+  background: var(--c);
+  color: var(--c2);
+}
 /* Seat colours: the same for everyone at the table. Inside the table, --p1
    ("mine") is re-pointed at the viewer's own seat colour. */
 :root {
@@ -1604,10 +1628,11 @@ body > header.topbar {
   transition: background 0.3s;
 }
 /* A score tag clips only top and bottom (where the rolling digits come and go):
-   at the sides a wide number's sticker edge and shadow may reach past the panel. */
+   at the sides a wide number's sticker edge and shadow may reach past the panel.
+   (overflow: clip, unlike clip-path, leaves the stickers' texture filter alone.) */
 .tag-score > .tag-in {
-  overflow: visible;
-  clip-path: inset(0 -3rem);
+  overflow-x: visible;
+  overflow-y: clip;
 }
 /* (what a tag shows is redrawn too: the tag itself takes the pointer) */
 .tag > .tag-in > * {

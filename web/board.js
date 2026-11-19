@@ -739,7 +739,9 @@ function rollScore(score, oldDigits, oldBox) {
     news = [...digits.children];
   // the new digit pushes the old one out of the way: both travel together, a
   // whole digit's height, on the same curve
-  const timing = (place) => ({ duration: 380, delay: place * 60, easing: "cubic-bezier(0.3, 0.75, 0.3, 1.08)", fill: "both" });
+  // (held only before they start: kept after the end, the last frame's filter
+  // would replace the digit's sticker texture for good)
+  const timing = (place) => ({ duration: 380, delay: place * 60, easing: "cubic-bezier(0.3, 0.75, 0.3, 1.08)", fill: "backwards" });
   const places = Math.max(olds.length, news.length);
   let last = null;
   for (let place = 0; place < places; place++) {
@@ -765,7 +767,7 @@ function rollScore(score, oldDigits, oldBox) {
           { translate: `0 ${-up * 0.6}em`, filter: "blur(0.2rem)", opacity: 0.6, offset: 0.45 },
           { translate: `0 ${-up * 0.9}em`, filter: "blur(0.3rem)", opacity: 0 },
         ],
-        timing(place),
+        { ...timing(place), fill: "both" },
       );
   }
   if (last) last.finished.then(() => ghost.remove(), () => ghost.remove());
@@ -2507,8 +2509,11 @@ function rulesSheet(player) {
     total = g.effect_totals[player];
   const enabled = catalog.filter((rule) => state.rules[rule.key]);
   const editable = g.legal.set_rules;
+  // your rules one swap away from coming into play follow the ones in play
+  const near = player === state.viewer ? g.near_rules || [] : [];
+  const rank = (key) => (active.includes(key) ? 2 : near.includes(key) ? 1 : 0);
   const ordered = [...(editable ? catalog : enabled)].sort((a,b) =>
-    Number(active.includes(b.key)) - Number(active.includes(a.key)) ||
+    rank(b.key) - rank(a.key) ||
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">

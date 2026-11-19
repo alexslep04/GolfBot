@@ -356,8 +356,19 @@ test('match rules reuse eye controls and place source-active rules first',()=>{
   const html=h.run('rulesSheet(0)');
   assert.match(html,/data-rule-example="match-0-king_queen"/);
   assert.ok(html.indexOf('Show examples for K-Q')<html.indexOf('Show examples for Hold em'));
-  assert.match(html,/K-Q <span class="pill">active/);
+  assert.match(html,/K-Q <span class="pill rule-state active">active/);
   assert.equal(h.run('activeRules(1).length'),0);
+  // a rule one swap away shows its chip on your own sheet, after the active ones
+  h.run('state.game.near_rules=["holdem"]');
+  const near=h.run('rulesSheet(0)');
+  assert.match(near,/Hold em <span class="pill rule-state near">one move away/);
+  assert.ok(near.indexOf('Show examples for K-Q')<near.indexOf('Show examples for Hold em'));
+  assert.doesNotMatch(h.run('rulesSheet(1)'),/one move away/);
+  // one move away sorts above every other rule (House or not), just below the active ones
+  h.run('state.game.near_rules=["tricky_straights"];matchOptions.house_rules={holdem:true,king_queen:true}');
+  const order=h.run('rulesSheet(0)');
+  const at=(name)=>order.indexOf('Show examples for '+name);
+  assert.ok(at('K-Q')<at('Straights')&&at('Straights')<at('Hold em'),'active, then one move away, then the rest');
 });
 
 test('active match example uses actual contributing cards with every other slot hidden',()=>{
@@ -385,7 +396,7 @@ test('earned modifier with no remaining contributing cards stays active without 
   const html=h.run('ruleHelpCard({key:"gamblers_row",name:"777",description:"Earned"},{player:0,on:true})');
   assert.match(html,/Earned earlier/);
   assert.equal((html.match(/example-card is-face/g)||[]).length,0);
-  assert.match(html,/pill">active/);
+  assert.match(html,/pill rule-state active">active/);
 });
 
 test('match eye toggles remain open across live updates and are isolated by player',async()=>{

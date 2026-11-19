@@ -2190,6 +2190,8 @@ function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
   const inMatch = player !== null;
   const preview = inMatch ? state.game.rule_previews?.[player]?.[rule.key] : null;
   const active = inMatch && activeRules(player).includes(rule.key);
+  // (only for your own hand, and only while the host allows score previews)
+  const near = !active && inMatch && player === state.viewer && (state.game.near_rules || []).includes(rule.key);
   const token = inMatch ? `match-${player}-${rule.key}` : rule.key;
   const expanded = inMatch && matchRuleExampleOpen.has(matchExampleKey(player, rule.key));
   let examples;
@@ -2202,7 +2204,7 @@ function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
   } else {
     examples = (RULE_EXAMPLES[rule.key] || []).map(([caption,cards,other,otherCaption]) => `<p class="example-caption">${e(caption)}</p>${exampleHand(cards)}${other ? `<p class="example-caption">${e(otherCaption)}</p>${exampleHand(other)}` : ""}`).join("");
   }
-  return `<div class="rule-card${on ? "" : " off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div>`;
+  return `<div class="rule-card${on ? "" : " off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill rule-state active">active</span>` : near ? ` <span class="pill rule-state near">one move away</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div>`;
 }
 
 let voidTimer;
