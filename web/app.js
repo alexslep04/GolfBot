@@ -2177,8 +2177,8 @@ const RULE_EXAMPLES = {
   v10: [["10, J, Q in a V: final score divided by 5", ["10H",null,"JS",null,"QD",null]], ["Inverted V also counts", [null,"10H",null,"JS",null,"QD"]]],
   tricky_straights: [["Ascending 3-4-5: +5 to opponent", ["3H","4S","5D",null,null,null]], ["Descending 5-4-3: -3 from your score", ["5H","4S","3D",null,null,null]]],
   ripped_five: [
-    ["The 5 of diamonds and another 5 anywhere in the hand cancel", ["5D",null,"5S",null,null,null]],
-    ["Already in a column pair, the 5 of diamonds still rips one more 5", ["5D",null,"5S","5H",null,null]],
+    ["The 5 of diamonds and a 5 in the opposite row cancel", ["5D",null,null,null,null,"5S"]],
+    ["Already in a column pair, the 5 of diamonds still rips one more 5 in the opposite row", ["5D",null,null,"5H",null,"5S"]],
   ],
   roman_fives: [["8 + 4 + (-2) = 10 base points: final score divided by 2", ["8H",null,"2S",null,"4D",null]], ["Inverted V: 5 + 4 + A = 10", [null,"4S",null,"5D",null,"AH"]]],
   beggars: [["Your 10 is the unique highest visible value. Guess the chosen hidden card's rank before it flips", ["10H",null,null,null,null,null], ["3H",null,null,null,null,null], "Opponent: a correct guess trades your 10 for their lowest visible card after the reveal"]],

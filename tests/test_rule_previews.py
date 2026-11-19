@@ -41,7 +41,7 @@ class RulePreviewTests(unittest.TestCase):
         # in a column pair now, the 5 of diamonds still rips the other 5
         game.players[0][3] = Slot(Card(5, 'C'), True)
         self.assertEqual(self.preview(game)[0], {'ripped_five': {'indices': [0, 4]}})
-        # with no uncancelled 5 left to rip, nothing shows
+        # with no uncanceled 5 left to rip, nothing shows
         game.players[0][4] = Slot(Card(4, 'H'), True)
         self.assertEqual(self.preview(game)[0], {})
 

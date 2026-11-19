@@ -126,12 +126,12 @@ def cancellation_pairs(layout, rules, visible_only=False):
              if i in known and i + 3 in known and layout[i].card.rank == layout[i + 3].card.rank]
     canceled = {i for pair, _ in pairs for i in pair}
     if rules.ripped_five:
-        # The 5 of diamonds rips one other 5 anywhere in the hand, whether or not
+        # The 5 of diamonds rips one other 5 in the opposite row, whether or not
         # it has already canceled a 5 in its own column. The ripped 5 is the
-        # first one left to right that nothing has canceled yet.
+        # first one left to right there that nothing has canceled yet.
         diamond = next((i for i in sorted(known) if layout[i].card.rank == 5 and layout[i].card.suit == "D"), None)
         if diamond is not None:
-            other = next((i for i in sorted(known - canceled) if i != diamond and layout[i].card.rank == 5), None)
+            other = next((i for i in sorted(known - canceled) if i // 3 != diamond // 3 and layout[i].card.rank == 5), None)
             if other is not None:
                 pairs.append(((diamond, other), "ripped"))
     return pairs

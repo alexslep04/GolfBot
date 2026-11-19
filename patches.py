@@ -7,7 +7,7 @@ PATCH_NOTES = [{
     "labels": {"revisions": "Reworked rules", "additions": "New Rules", "changes": "Gameplay"},
     "rules": {
         "revisions": [
-            "The Ripped 5: the 5 of diamonds now cancels out any other 5 on the board, regardless of whether or not it is in an already canceled-out row.",
+            "The Ripped 5: the 5 of diamonds now cancels out any other 5 in the opposite row, regardless of whether or not it is in an already canceled-out column.",
             "Poisoned Card: going out first now adds 1 point instead of 2.",
         ],
         "additions": [

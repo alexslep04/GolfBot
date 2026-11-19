@@ -104,7 +104,7 @@ An ascending consecutive row adds its rightmost card's base Golf points to your 
 ### The ripped 5
 <!-- rule: ripped_five -->
 
-A 5 of diamonds cancels one other 5 anywhere in your hand to zero, along with itself. It does this even if it has already canceled a 5 in its own column. Ordinary column pairs cancel first; the ripped 5 is the first 5 left to right that is not already canceled.
+A 5 of diamonds cancels one other 5 in the opposite row to zero, along with itself, even in a different column. It does this even if it has already canceled a 5 in its own column. Ordinary column pairs cancel first; the ripped 5 is the first 5 left to right in the opposite row that is not already canceled.
 
 ### Roman 5s
 <!-- rule: roman_fives -->
@@ -143,7 +143,7 @@ Six red cards multiply every opponent's final score by 2. Six black cards divide
 - Patterns use ranks and suits even when column scoring cancels their points. Tricky straights use ranks for order and Golf points for the adjustment; Aces may be 1 or 14 for order, but still score 1.
 - Score columns first, including ripped-5 cancellation and King-Queen values. Apply all additions and subtractions, then incoming Angels 999 and All in red multiplications and own Gamblers 777, Roman 5s, V10 engine, All in black, and Crazy 8s divisions. Effects from different opponents stack. Round upward once at the end, including negative totals. Conditions always use unmodified card ranks, suits, and base points.
 - Visible totals exclude hidden cards and final divisions. The effects panel also shows a provisional total after divisions proven by visible cards; it is not an evaluation of hidden cards or win chance.
-- The ripped 5 is the first uncancelled 5 (other than the 5 of diamonds) from left to right. The 5 of diamonds rips one even when it is already in a column pair; no other card can be canceled twice.
+- The ripped 5 is the first uncanceled 5 in the opposite row from left to right. The 5 of diamonds rips one even when it is already in a column pair; no other card can be canceled twice.
 - Beggars compares Golf point values, guesses ranks only, and includes the newly revealed card when finding the lowest visible card. Misses or passes simply continue the reveal. The acting player continues their original turn after a trade.
 - Four-of-a-kind rearrangements keep the newly revealed physical card as the turn's replacement target. Initial opening flips do not activate interactive abilities. Final scoring reveals activate only unused J-J/Q-Q bonuses; they do not earn Devils 666, Gamblers 777, Angels 999, 4 of a Kind, Beggars, or Poisoned Card.
 - A bonus swap carries visibility into a hand; the go-fish pile stays face down and the discard pile face up. Unused pairs created by a bonus may earn another bonus. Empty piles have no card to select.

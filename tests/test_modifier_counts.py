@@ -33,8 +33,10 @@ class ModifierCountTests(unittest.TestCase):
         self.assertEqual(modifier_instance_counts(layout([5, 3, 8, 4, 5, 9], "DSHCHS"), rules), {"ripped_five": 1})
         # its only partner already canceled with it in the column: nothing left to rip
         self.assertEqual(modifier_instance_counts(layout([5, 3, 8, 5, 4, 9], "DSHCHS"), rules), {})
-        # a column pair, plus another 5 elsewhere: that one is ripped
-        self.assertEqual(modifier_instance_counts(layout([5, 5, 8, 5, 4, 9], "DSHCHS"), rules), {"ripped_five": 1})
+        # a column pair, plus another 5 in the opposite row: that one is ripped
+        self.assertEqual(modifier_instance_counts(layout([5, 3, 8, 5, 4, 5], "DSHCHS"), rules), {"ripped_five": 1})
+        # but not one in its own row
+        self.assertEqual(modifier_instance_counts(layout([5, 5, 8, 5, 4, 9], "DSHCHS"), rules), {})
 
     def test_earned_effects_and_locks_count_once_and_respect_enabled_rules(self):
         hand = layout([6, 6, 6, 6, 6, 6])
