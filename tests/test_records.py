@@ -14,7 +14,8 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(build_records([]), {'highest_elo': None, 'comeback': None, 'most_modifier': None,
                                              'least_modifier': None, 'comeback_modifier': None,
                                              'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None,
-                                             'always_in_play': ['Poisoned Card']})
+                                             'always_in_play': ['Poisoned Card'],
+                                             'never_most': ['Beggars Will be Choosers']})
 
     def test_highest_elo_counts_past_peaks_and_current_ratings(self):
         results = [match([{'elo': [{'id': 'a', 'label': 'Ann', 'after': 1040}, {'id': 'b', 'label': 'Bob', 'after': 960}]},
@@ -43,6 +44,16 @@ class RecordTests(unittest.TestCase):
         quiet = {'rules': {'poisoned_card': True, 'royal_pairs': True}, 'activations': [['poisoned_card'], []]}
         records = build_records([match([game, quiet])])
         self.assertEqual(records['most_modifier']['key'], 'royal_pairs')
+
+    def test_most_common_is_the_most_activated_never_beggars(self):
+        # Devil's Row is on in only one game but activated by both players twice over;
+        # Royal Pairs is on in every game but activated less often in total
+        often = {'rules': {'royal_pairs': True, 'devils_row': True, 'beggars': True},
+                 'activations': [['devils_row', 'beggars'], ['devils_row', 'beggars']]}
+        rare = {'rules': {'royal_pairs': True, 'beggars': True}, 'activations': [['royal_pairs', 'beggars'], ['beggars']]}
+        records = build_records([match([often, often, rare, rare])])
+        most = records['most_modifier']
+        self.assertEqual((most['key'], most['activations']), ('devils_row', 4))
 
     def test_pvp_streak_counts_1v1_wins_in_a_row_against_people_only(self):
         won = lambda winner, at: {'winner': winner, 'scores': [1, 2], 'ended_at': at}

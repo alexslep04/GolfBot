@@ -8,6 +8,8 @@ RULE_NAMES = dict(RULE_OPTIONS)
 # Rules that come into play in every game they are on (the Poisoned Card always
 # lands on whoever finishes), so they would always top "most common".
 ALWAYS_IN_PLAY = ('poisoned_card',)
+# Never named the most common modifier.
+NOT_MOST_COMMON = ('beggars',)
 
 
 def _rounds(results):
@@ -70,7 +72,9 @@ def comeback_modifier(results):
 
 
 def modifier_frequency(results):
-    """For each rule: in how many games it was on, and in how many it came into play for anyone."""
+    """For each rule: in how many games it was on, in how many it came into play, and how many times
+    any player brought it into play. The most common is simply the most activated (never one always
+    in play, nor Beggars, whose guess is offered rather than earned); the least is by rate."""
     counts = {}
     for _, game in _rounds(results):
         rules, activations = game.get('rules') or {}, game.get('activations')
@@ -80,14 +84,17 @@ def modifier_frequency(results):
         for key, enabled in rules.items():
             if not enabled or key not in RULE_NAMES:
                 continue
-            entry = counts.setdefault(key, {'key': key, 'name': RULE_NAMES[key], 'games': 0, 'active': 0})
+            entry = counts.setdefault(key, {'key': key, 'name': RULE_NAMES[key], 'games': 0, 'active': 0, 'activations': 0})
             entry['games'] += 1
             entry['active'] += key in active
+            entry['activations'] += sum(key in keys for keys in activations)
     ranked = sorted(counts.values(), key=lambda entry: (entry['active'] / entry['games'], entry['games']))
     for entry in ranked:
         entry['rate'] = entry['active'] / entry['games']
-    contenders = [entry for entry in ranked if entry['key'] not in ALWAYS_IN_PLAY]
-    return {'most': contenders[-1] if contenders else None, 'least': ranked[0] if len(ranked) > 1 else None}
+    contenders = [entry for entry in ranked if entry['key'] not in ALWAYS_IN_PLAY + NOT_MOST_COMMON]
+    most = max(contenders, key=lambda entry: entry['activations'], default=None)
+    return {'most': most if most and most['activations'] else None,
+            'least': ranked[0] if len(ranked) > 1 else None}
 
 
 def _played(results):
@@ -147,4 +154,5 @@ def build_records(results, ratings=()):
             'comeback_modifier': comeback_modifier(results),
             'pvp_streak': best_pvp_streak(results), 'games_today': most_games_today(results),
             'modifiers_in_game': most_modifiers_in_a_game(results),
-            'always_in_play': [RULE_NAMES[key] for key in ALWAYS_IN_PLAY]}
+            'always_in_play': [RULE_NAMES[key] for key in ALWAYS_IN_PLAY],
+            'never_most': [RULE_NAMES[key] for key in NOT_MOST_COMMON]}
