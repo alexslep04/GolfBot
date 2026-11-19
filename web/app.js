@@ -158,6 +158,18 @@ function saveName(value) {
   } catch {}
   session.username = value;
 }
+/**
+ * True once this device has a display name and an avatar of its own (set on
+ * the Profile page, or chosen before a game): pregame screens then skip
+ * asking for them again.
+ */
+function profileChosen() {
+  try {
+    return !!(localStorage.getItem("golf-name") && localStorage.getItem("golf-avatar"));
+  } catch {
+    return false;
+  }
+}
 function saveAvatar(id) {
   try {
     localStorage.setItem("golf-avatar", id);
@@ -978,12 +990,11 @@ function togglePref(key) {
   if (state?.game && page === "room") renderBoard();
 }
 function settingsSheet() {
-  const account = session.account;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Settings">
     <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="menu-list">
       ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
-      <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} ${account ? e(account.unique_name ? "@" + account.unique_name : "Choose unique name") : "Sign in with Google"}</button>
+      <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} Profile</button>
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p2" data-nav="leaderboard">${tilted("medal", 26)} Leaderboard</button>
       ${voidOfferButton()}
@@ -1072,7 +1083,7 @@ function setupPage() {
     show(
       "setup",
       `<div class="page centered">${topbar()}<div class="stack wide">
-      ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
+      ${profileChosen() ? "" : field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
       ${
         draft.mode === "host"
           ? `<div class="row">${field("Table Name", `<input data-draft="lobbyName" maxlength="48" value="${e(draft.lobbyName)}" aria-label="Table name">`, null, "grow")}${selectField("Players", `data-draft="gameType" aria-label="Game type"`, [["1v1", "1v1", draft.gameType === "1v1"], ["many", "3–30", draft.gameType === "many"]], null, "hug")}</div>`
@@ -1101,14 +1112,13 @@ function setupPage() {
   const go = draft.saved ? "Continue" : `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
   show(
     "setup",
-    `<div class="page">${topbar()}<div class="stack wide">${avatarPicker()}${rules}</div><div class="row">${back}${entryButton("data-setup-go", go)}</div></div>`,
+    `<div class="page">${topbar()}<div class="stack wide">${profileChosen() ? "" : avatarPicker()}${rules}</div><div class="row">${back}${entryButton("data-setup-go", go)}</div></div>`,
   );
   centerAvatar(false);
 }
 /** `seat` is where you will sit (0 = player 1): the chosen avatar wears that player's color. */
-/** `taken`: avatars already worn at the table you are joining (only shared ones may repeat). */
-function avatarPicker(seat = 0, taken = []) {
-  const options = avatars.filter((avatar) => avatar.selectable && (avatar.shared || !taken.includes(avatar.id)));
+function avatarPicker(seat = 0) {
+  const options = avatars.filter((avatar) => avatar.selectable);
   if (options.length && !options.some((avatar) => avatar.id === session.avatar)) saveAvatar(options[0].id);
   // Each sticker's shadow is its own flat copy, so turning the wheel only ever
   // moves layers around and never has to redraw a textured sticker.
@@ -1213,6 +1223,7 @@ function centerAvatar(smooth = true) {
 }
 function pickAvatar(id, scroll = true) {
   saveAvatar(id);
+  if (page === "account") saveProfile();
   root.querySelectorAll(".avatar").forEach((button) => {
     button.setAttribute("aria-checked", String(button.dataset.avatar === id));
   });
@@ -1504,8 +1515,8 @@ async function publicLobby(id) {
     "public",
     `<div class="page">${topbar()}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${houseBadge(info)}</div><p class="hint">${e(rulesSummary(info.rules))}</p></div>
-    ${avatarPicker(info.players, (info.avatars || []).slice(0, info.players))}
-    ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
+    ${profileChosen() ? "" : `${avatarPicker(info.players)}
+    ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}`}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
     </div><div class="row">${backButton("friends")}<button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>${padTag("y")}Join Table</span>${twin[1]}</button></div></div>`,
   );
@@ -1781,31 +1792,33 @@ async function renderGoogleSignIn() {
   }
 }
 function accountPage() {
-  document.title = "Your account · Golf";
+  document.title = "Profile · Golf";
   history.replaceState({}, "", appPath("/account"));
   const account = session.account;
+  // your look at the table first (anyone), then the account behind it
   show(
     "account",
-    `<div class="page scroll">${subHeader(account ? "Your account" : "Sign in")}<div class="panel c-p1">${
+    `<div class="page scroll">${subHeader("Profile")}${profileForm()}<div class="panel c-p1">${
       account
         ? account.unique_name
           ? `<h2>@${e(account.unique_name)}</h2><p>Your games are grouped under this unique name on the Leaderboard. Your display name at the table can change each game.</p>`
           : `<h2>Choose your unique name</h2><p>This identifies you on the Leaderboard across all your display names. Pick once; your display name can change whenever you play.</p><form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]{3,24}" autocomplete="username" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–24 letters, numbers or underscores. Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>`
-        : `<p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id && !canSignInDuringPractice() ? `<p>Leave your current table before signing in.</p>` : session.google_client_id ? `<div id="google-signin-button" aria-live="polite">Loading Google sign-in…</div>` : `<p>Google sign-in is not available on this server yet. You can keep playing as a guest.</p>`}`
-    }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div>${account ? displayNameForm() : ""}</div>`,
+        : `<h2>Sign in</h2><p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id && !canSignInDuringPractice() ? `<p>Leave your current table before signing in.</p>` : session.google_client_id ? `<div id="google-signin-button" aria-live="polite">Loading Google sign-in…</div>` : `<p>Google sign-in is not available on this server yet. You can keep playing as a guest.</p>`}`
+    }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div></div>`,
   );
+  centerAvatar(false);
   renderGoogleSignIn();
   loadPreviousNames();
 }
-/** Signed in: change the name other players see at the table. */
-function displayNameForm() {
-  const unique = session.account.unique_name;
-  return `<form id="display-name-form" class="panel c-p3 stack">
-    <h2>Display name</h2>
-    <p>The name other players see at the table. Change it whenever you like${unique ? `; your games stay under @${e(unique)}` : ""}.</p>
+/** Your avatar and the name other players see at the table, used for every game you join. */
+function profileForm() {
+  const unique = session.account?.unique_name;
+  return `<form id="display-name-form" class="stack profile-form">
+    ${avatarPicker()}
     ${field("Display Name", `<input id="account-display-name" name="display_name" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam")}
+    <p class="hint dark">Used at every table you join${unique ? `; your games stay under @${e(unique)}` : ""}. Changes save as you make them.</p>
     ${session.room_id ? `<p class="hint dark">The table you're at keeps the name you joined with; the new one shows from your next table.</p>` : ""}
-    <button type="submit" class="btn c-p3">Save display name</button>
+    <p class="hint profile-status" data-profile-status aria-live="polite"></p>
     <div data-previous-names></div>
   </form>`;
 }
@@ -2755,27 +2768,47 @@ document.addEventListener("pointerdown", (event) => {
     if (state?.game && board.el?.isConnected) renderEmotes();
   }
 });
+/**
+ * The Profile page saves itself: the avatar as the wheel settles on one, the
+ * name a moment after typing stops (and again when the field is left).
+ */
+let profileTimer = 0;
+async function saveProfile() {
+  clearTimeout(profileTimer);
+  const input = document.getElementById("account-display-name");
+  if (!input) return;
+  const value = input.value.trim();
+  if (!value) return; // an empty name is never saved; the last one stays
+  const before = { username: localStorage.getItem("golf-name"), avatar: localStorage.getItem("golf-avatar") };
+  saveName(value);
+  saveAvatar(session.avatar);
+  if (before.username === value && before.avatar === session.avatar) return;
+  if (session.account) {
+    // saved to the account, so every device you sign in on uses it
+    try {
+      const next = await api("/api/name", "POST", { username: value, avatar: session.avatar });
+      saveName(next.username);
+    } catch (error) {
+      return toast(error.message);
+    }
+  } else pollPresence(); // the server learns the new name with the next presence update
+  if (before.username !== value) loadPreviousNames(); // the name just replaced joins the list
+  const status = root.querySelector("[data-profile-status]");
+  if (status) {
+    status.textContent = "Saved";
+    status.classList.remove("show");
+    void status.offsetWidth;
+    status.classList.add("show");
+  }
+}
+root.addEventListener("input", (event) => {
+  if (event.target.id !== "account-display-name") return;
+  clearTimeout(profileTimer);
+  profileTimer = setTimeout(saveProfile, 700);
+});
 root.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (event.target.id === "display-name-form") {
-    const input = event.target.querySelector("#account-display-name");
-    const value = input.value.trim();
-    if (!value) return toast("Your display name can't be empty.");
-    if (value === session.username) return toast("That's already your display name.");
-    saveName(value);
-    input.value = value;
-    if (session.account) {
-      // saved to the account, so every device you sign in on uses it
-      try {
-        const next = await api("/api/name", "POST", { username: value, avatar: session.avatar });
-        saveName(next.username);
-      } catch (error) {
-        return toast(error.message);
-      }
-    } else pollPresence(); // the server learns the new name with the next presence update
-    loadPreviousNames(); // the name just replaced joins the list
-    return toast(`You'll show as ${session.username}.`);
-  }
+  if (event.target.id === "display-name-form") return saveProfile();
   if (event.target.id === "account-name-form") {
     try {
       const keep = { username: session.username, avatar: session.avatar };
@@ -2799,6 +2832,7 @@ root.addEventListener("submit", async (event) => {
 });
 root.addEventListener("change", async (event) => {
   const target = event.target;
+  if (target.id === "account-display-name") return saveProfile();
   if (target.matches("select.cover"))
     target.previousElementSibling.textContent =
       target.selectedOptions[0]?.textContent || "";

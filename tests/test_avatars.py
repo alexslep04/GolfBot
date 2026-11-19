@@ -58,19 +58,13 @@ class AvatarSeatTests(unittest.TestCase):
         self.assertEqual(joined['avatars'], ['tree', 'fish'])
         self.assertEqual(self.host.get(path).json()['avatars'], ['tree', 'fish'])
 
-    def test_an_avatar_belongs_to_one_player_per_table_except_the_golf_club(self):
+    def test_players_at_one_table_may_wear_the_same_avatar(self):
         lobby = self.host.post('/Golfgame/api/lobbies', json={
-            'username': 'Host', 'avatar': 'club', 'game_type': 'many'}).json()
+            'username': 'Host', 'avatar': 'fish', 'game_type': 'many'}).json()
         path = '/Golfgame/api/lobbies/' + lobby['id']
         self.guest.post(path + '/join', json={'username': 'Guest', 'avatar': 'fish'}).raise_for_status()
         self.third.post(path + '/join', json={'username': 'Third', 'avatar': 'fish'}).raise_for_status()
-        # the second Fish plays as the shared Golf Club, but keeps Fish as their choice
-        self.assertEqual(self.host.get(path).json()['avatars'], ['club', 'fish', 'club'])
-        self.assertEqual(self.third.get('/Golfgame/api/session').json()['avatar'], 'fish')
-
-    def test_quickplay_twins_get_the_golf_club(self):
-        from avatars import unique_avatars
-        self.assertEqual(unique_avatars(['dog', 'dog', 'club', 'club', 'cat']), ['dog', 'club', 'club', 'club', 'cat'])
+        self.assertEqual(self.host.get(path).json()['avatars'], ['fish', 'fish', 'fish'])
 
     def test_waiting_guest_leaving_clears_the_seat_avatar(self):
         lobby = self.host.post('/Golfgame/api/lobbies', json={

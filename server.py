@@ -34,7 +34,7 @@ from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
-from avatars import BOT_AVATAR, BY_ID as AVATARS_BY_ID, DEFAULT_AVATAR, SHARED_AVATAR, catalog as avatar_catalog, clean_avatar, unique_avatars
+from avatars import BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -1569,7 +1569,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                                 5, 'random', False, list(offer['seats']), [player.username for player in players],
                                 history_store=store.history, participants=profiles, house_rules=True,
                                 house_version=HOUSE_VERSION, series_mode='points',
-                                avatars=unique_avatars([player.avatar for player in players]), rated=True,
+                                avatars=[player.avatar for player in players], rated=True,
                                 progression=store.progression,
                                 progression_players=[progression_profile(player) for player in players])
                     store.rooms[room.id] = room
@@ -1835,10 +1835,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if room.solo or not room.has_open_seat:
                 raise HTTPException(409, "This lobby is full or already playing.")
             choose_avatar(session, avatar)
-            # each avatar is one player's at a table: a second wearer plays as
-            # the shared Golf Club here instead (their own choice is kept)
-            worn = {room.avatars[seat] for seat, token in enumerate(room.seats) if token and seat < len(room.avatars)}
-            seat_avatar = SHARED_AVATAR if session.avatar in worn and not AVATARS_BY_ID[session.avatar].shared else session.avatar
+            seat_avatar = session.avatar  # any number of players may wear the same avatar
             set_name(session, username)
             profile = profile_for(session)
             if room.game_type == 'many':

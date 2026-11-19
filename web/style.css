@@ -756,6 +756,24 @@ p {
   font-size: 1.6rem;
   line-height: 1.4;
 }
+/* the Profile page's avatar and name sit straight on the page, saving as they change */
+.profile-form {
+  margin-bottom: 2.4rem;
+}
+.profile-status {
+  min-height: 1.4em;
+  margin: -0.6rem 0 0;
+  opacity: 0;
+}
+.profile-status.show {
+  animation: profile-saved 1.8s ease-out;
+}
+@keyframes profile-saved {
+  10%,
+  70% {
+    opacity: 1;
+  }
+}
 .hint.dark {
   color: var(--on-bg2);
 }
