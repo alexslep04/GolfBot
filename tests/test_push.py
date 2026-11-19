@@ -100,3 +100,47 @@ class TurnNotificationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OneMoveRulesTests(unittest.TestCase):
+    def test_a_rule_one_swap_from_play_is_flagged(self):
+        from game import Card, GolfGame, Rules, Slot
+        from server import one_move_rules
+        game = GolfGame(rules=Rules(king_queen=True, holdem=True))
+        game.players[0] = [Slot(Card(13, 'H'), True), Slot(Card(2, 'S'), True), Slot(Card(9, 'C')),
+                           Slot(Card(4, 'D')), Slot(Card(6, 'S'), True), Slot(Card(8, 'H'))]
+        game.phase, game.current = 'choose', 0
+        game.discard_pile.append(Card(12, 'D'))  # a Queen under the King makes a King-Queen column
+        self.assertIn('king_queen', one_move_rules(game, 0))
+        # already in play: not "one move away"
+        game.players[0][3] = Slot(Card(12, 'S'), True)
+        self.assertNotIn('king_queen', one_move_rules(game, 0))
+        # nothing to tell before the opening flips are done
+        game.phase = 'setup'
+        self.assertEqual(one_move_rules(game, 0), [])
+
+    def test_any_single_card_counts_not_just_the_discard(self):
+        from game import Card, GolfGame, Rules, Slot
+        from server import one_move_rules
+        game = GolfGame(rules=Rules(roman_fives=True))
+        # 8 top-left and 4 bottom-middle: a 2 (-2 points) top-right would make a V of 10
+        game.players[0] = [Slot(Card(8, 'H'), True), Slot(Card(13, 'S'), True), Slot(Card(9, 'C')),
+                           Slot(Card(3, 'D'), True), Slot(Card(4, 'S'), True), Slot(Card(6, 'H'))]
+        game.phase, game.current = 'choose', 0
+        game.discard_pile.append(Card(13, 'D'))  # nothing useful on the discard
+        self.assertEqual(one_move_rules(game, 0), ['roman_fives'])
+
+    def test_hosts_who_turn_off_score_previews_turn_this_off_too(self):
+        store = Store()
+        app = create_app(store, google_client_id='')
+        with TestClient(app) as host, TestClient(app) as guest:
+            for client in (host, guest):
+                client.get('/api/session').raise_for_status()
+            room_id = host.post('/api/lobbies', json={'username': 'A', 'score_preview': False}).json()['id']
+            guest.post(f'/api/lobbies/{room_id}/join', json={'username': 'B'}).raise_for_status()
+            room = store.rooms[room_id]
+            room.game.phase = 'choose'
+            with patch('server.one_move_rules', return_value=['king_queen']):
+                self.assertEqual(host.get(f'/api/lobbies/{room_id}/state').json()['game']['near_rules'], [])
+                room.score_preview = True
+                self.assertEqual(host.get(f'/api/lobbies/{room_id}/state').json()['game']['near_rules'], ['king_queen'])

@@ -139,7 +139,7 @@ function padRect(el) {
   const card = el.matches(".slot") && !el.classList.contains("dragging") && el.querySelector(".card");
   return (card || padBox(el)).getBoundingClientRect();
 }
-/** Centre, size and tilt of the cursor for a control, so it hugs the real shape. */
+/** Center, size and tilt of the cursor for a control, so it hugs the real shape. */
 function padShape(el) {
   if (el.matches(".slot")) {
     const card = el.querySelector(".card");
@@ -290,8 +290,8 @@ function padNext(from, direction, list) {
     // the wheel is one stop: up and down leave it rather than hop along its arc
     if (from.matches(".avatar") && el.matches(".avatar")) continue;
     const b = padRect(el);
-    const centre = (r) => (across ? r.left + r.width / 2 : r.top + r.height / 2);
-    if ((centre(b) - centre(a)) * sign < 4) continue;
+    const center = (r) => (across ? r.left + r.width / 2 : r.top + r.height / 2);
+    if ((center(b) - center(a)) * sign < 4) continue;
     const [aNear, aFar, bNear, bFar] = across
       ? [a.left, a.right, b.left, b.right]
       : [a.top, a.bottom, b.top, b.bottom];

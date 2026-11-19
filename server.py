@@ -20,14 +20,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
-from game import GolfGame, Rules, RULE_OPTIONS
+from copy import copy
+from game import Card, GolfGame, Rules, RULE_OPTIONS, Slot
 from rule_help import load_rule_help
 from match_history import MatchHistory
 from progression import Progression
 import practice_save
 from player_stats import build_stats
 from records import build_records
-from scoring import active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data
+from scoring import active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data, scoring_rule_keys
 from bot import fallback_action, legal_actions, play_action, public_position
 from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
@@ -677,6 +678,8 @@ def snapshot(room, token):
         "base_scores": [column_score(layout, Rules(), game.phase != "over") for layout in game.players],
         **score_view(game),
         "rule_previews": rule_preview_data(game),
+        # part of the score preview, so a host who turns that off turns this off too
+        "near_rules": one_move_rules(game, viewer) if (room.score_preview or room.solo) and room.status == "playing" else [],
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
         "table_refs": game.table_refs() if legal["bonus"] else [],
@@ -781,6 +784,50 @@ def apply_move(room, token, move):
     room.version += 1
     room.touched = time.time()
     room.save_practice()
+
+
+def hand_rule_keys(layout, rules, can_go_out):
+    """Every rule the face-up cards of one hand bring into play (no other hand needed)."""
+    keys = set(scoring_rule_keys(layout, rules))
+    for row in (range(3), range(3, 6)):
+        ranks = {layout[i].card.rank for i in row if layout[i].visible}
+        if len(ranks) == 1 and all(layout[i].visible for i in row):
+            rank = ranks.pop()
+            for flag, needed in (('devils_row', 6), ('gamblers_row', 7), ('angels_row', 9)):
+                if getattr(rules, flag) and rank == needed:
+                    keys.add(flag)
+    if rules.royal_pairs and any(layout[i].visible and layout[i + 3].visible and layout[i].card.rank == layout[i + 3].card.rank
+                                 and layout[i].card.rank in (11, 12) for i in range(3)):
+        keys.add('royal_pairs')
+    if rules.poisoned_card and can_go_out and all(slot.visible for slot in layout):
+        keys.add('poisoned_card')
+    return keys
+
+
+EVERY_CARD = [Card(rank, suit) for rank in range(1, 14) for suit in "SHDC"]
+
+
+def one_move_rules(game, player):
+    """Rules not in play for this player that a single card would bring into play.
+
+    One move is one card placed in one of their spots (bar locked cards): every
+    rank and suit is tried, whatever is on the discard right now, so a V one card
+    short of Roman 5s shows. Only face-up cards count; the rest stay unknown.
+    """
+    if game.phase in ("setup", "over"):
+        return []
+    layout, rules = game.players[player], game.rules
+    can_go_out = game.finisher is None
+    now = set(rule_preview_data(game)[player]) | hand_rule_keys(layout, rules, can_go_out)
+    near = set()
+    for index, slot in enumerate(layout):
+        if slot.visible and slot.card in game.locked_cards:
+            continue
+        trial = list(layout)
+        for card in EVERY_CARD:
+            trial[index] = Slot(card, True)
+            near |= hand_rule_keys(trial, rules, can_go_out)
+    return sorted(near - now)
 
 
 def preview_move(room, token, move):

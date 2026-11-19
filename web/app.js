@@ -453,7 +453,7 @@ function renderQueueBanner() {
 /*
  * The Quickplay pill is one element for the whole site, so moving between
  * pages never redraws it: it glides from its spot in the old page's top bar to
- * the new one's (or the top centre, on a page without one).
+ * the new one's (or the top center, on a page without one).
  */
 let queuePillAt = null; // where the pill rests, in page coordinates; null while hidden
 /** An element's place in the page, as laid out (a page's slide-in transform aside). */
@@ -476,7 +476,7 @@ function placeQueuePill(banner, animate = true) {
   const open = banner.classList.contains("offering");
   if (slot && open && !(page === "room" && state?.game)) {
     // opened out with an offer, hanging from the top of its spot: a pill at the
-    // side of the screen grows out from that side, one near the middle from the centre
+    // side of the screen grows out from that side, one near the middle from the center
     const box = layoutBox(slot);
     const screen = document.documentElement.clientWidth;
     const middle = box.left + box.width / 2;
@@ -1104,7 +1104,7 @@ function setupPage() {
   );
   centerAvatar(false);
 }
-/** `seat` is where you will sit (0 = player 1): the chosen avatar wears that player's colour. */
+/** `seat` is where you will sit (0 = player 1): the chosen avatar wears that player's color. */
 /** `taken`: avatars already worn at the table you are joining (only shared ones may repeat). */
 function avatarPicker(seat = 0, taken = []) {
   const options = avatars.filter((avatar) => avatar.selectable && (avatar.shared || !taken.includes(avatar.id)));
@@ -1131,7 +1131,7 @@ function paintWheel(strip, position) {
   const items = strip.querySelectorAll(".avatar");
   const pitch = wheel.pitch || (wheel.pitch = wheelPitch(strip));
   const turn = 5.2; // wheel radius, in avatar spacings
-  // the avatar nearest the pointer takes your colour as soon as it is the
+  // the avatar nearest the pointer takes your color as soon as it is the
   // closest one, well before the wheel comes to rest on it
   const near = Math.round(position / pitch);
   for (let i = 0; i < items.length; i++) {
@@ -2205,6 +2205,8 @@ function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
   const inMatch = player !== null;
   const preview = inMatch ? state.game.rule_previews?.[player]?.[rule.key] : null;
   const active = inMatch && activeRules(player).includes(rule.key);
+  // (only for your own hand, and only while the host allows score previews)
+  const near = !active && inMatch && player === state.viewer && (state.game.near_rules || []).includes(rule.key);
   const token = inMatch ? `match-${player}-${rule.key}` : rule.key;
   const expanded = inMatch && matchRuleExampleOpen.has(matchExampleKey(player, rule.key));
   let examples;
@@ -2217,7 +2219,7 @@ function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
   } else {
     examples = (RULE_EXAMPLES[rule.key] || []).map(([caption,cards,other,otherCaption]) => `<p class="example-caption">${e(caption)}</p>${exampleHand(cards)}${other ? `<p class="example-caption">${e(otherCaption)}</p>${exampleHand(other)}` : ""}`).join("");
   }
-  return `<div class="rule-card${on ? "" : " off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill">active</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div>`;
+  return `<div class="rule-card${on ? "" : " off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill rule-state active">active</span>` : near ? ` <span class="pill rule-state near">one move away</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div>`;
 }
 
 let voidTimer;

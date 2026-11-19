@@ -197,7 +197,7 @@ class FeatureTests(unittest.TestCase):
         # the same row counts now too
         same_row = [Slot(c, True) for c in cards([5, 5, 3, 13, 1, 8], "DHSCHS")]
         self.assertEqual(column_score(same_row, rules), 12)
-        # already cancelled in its column, the 5 of diamonds still rips one more 5,
+        # already canceled in its column, the 5 of diamonds still rips one more 5,
         # and only that 5's points come off on the ripped line
         paired_column = [Slot(c, True) for c in cards([5, 1, 5, 5, 13, 8], "DSCHCS")]
         self.assertEqual(column_score(paired_column, rules), 9)

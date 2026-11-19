@@ -104,7 +104,7 @@ An ascending consecutive row adds its rightmost card's base Golf points to your 
 ### The ripped 5
 <!-- rule: ripped_five -->
 
-A 5 of diamonds cancels one other 5 anywhere in your hand to zero, along with itself. It does this even if it has already cancelled a 5 in its own column. Ordinary column pairs cancel first; the ripped 5 is the first 5 left to right that is not already cancelled.
+A 5 of diamonds cancels one other 5 anywhere in your hand to zero, along with itself. It does this even if it has already canceled a 5 in its own column. Ordinary column pairs cancel first; the ripped 5 is the first 5 left to right that is not already canceled.
 
 ### Roman 5s
 <!-- rule: roman_fives -->

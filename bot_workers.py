@@ -35,8 +35,8 @@ class BotWorkers:
             future = asyncio.get_running_loop().run_in_executor(pool, choose_action, position)
             self.pending.add(future)
             future.add_done_callback(self._finished)
-            # Keep a timed-out/cancelled search counted until the process really
-            # finishes. Cancelling the await does not stop CPU work in a child.
+            # Keep a timed-out/canceled search counted until the process really
+            # finishes. Canceling the await does not stop CPU work in a child.
             return await asyncio.wait_for(asyncio.shield(future), self.timeout)
         except BrokenProcessPool:
             log.exception("AI worker exited; using a legal fallback and replacing the pool")

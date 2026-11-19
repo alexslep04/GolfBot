@@ -55,7 +55,7 @@
   --accent: #b5e59e;
   --ink: #333;
   --black: #000; /* primary text */
-  --grey: #8e8e93; /* secondary text */
+  --gray: #8e8e93; /* secondary text */
   --flame: #ff8a3d; /* the win streak, lit */
   --flame-edge: var(--paper); /* the lit flame's outline */
   --paper: #fff;
@@ -116,8 +116,32 @@
 :root:is([data-theme="poker"], [data-theme="night"]) {
   --p3-edge: color-mix(in srgb, var(--p3) 62%, #000);
 }
-/* Seat colours: the same for everyone at the table. Inside the table, --p1
-   ("mine") is re-pointed at the viewer's own seat colour. */
+/* a rule's state in the rules panel ("active", "one move away"): the panel's
+   text color as the fill, its accent color as the words */
+.pill.rule-state {
+  background: var(--ct);
+  color: var(--c);
+}
+/* "active": filled with the panel's text color, its words in the page color
+   (white on Original, the dark page on the dark themes) */
+.pill.rule-state.active {
+  background: var(--ct);
+  color: var(--paper);
+}
+/* dark themes: "one move away" is filled with a dark shade of the accent (a step
+   up from the panel itself), its words in the panel's light text color */
+:root:is([data-theme="poker"], [data-theme="night"]) .pill.rule-state.near {
+  background: color-mix(in srgb, var(--c) 40%, var(--c2));
+  color: var(--ct);
+}
+/* Original: "one move away" is filled with the accent, its words in the pale
+   secondary accent */
+:root:not([data-theme]) .pill.rule-state.near {
+  background: var(--c);
+  color: var(--c2);
+}
+/* Seat colors: the same for everyone at the table. Inside the table, --p1
+   ("mine") is re-pointed at the viewer's own seat color. */
 :root {
   --s0: var(--p1);
   --s0b: var(--p1b);
@@ -143,7 +167,7 @@
   --s7: var(--p8);
   --s7b: var(--p8b);
   --s7t: var(--p8t);
-  /* text on a solid seat colour (the graph's tags): white, but dark on yellow */
+  /* text on a solid seat color (the graph's tags): white, but dark on yellow */
   --s0on: #fff;
   --s1on: #fff;
   --s2on: var(--p3t);
@@ -157,9 +181,9 @@
 }
 /* ---------- themes ----------
    A theme is, almost entirely, a set of these tokens: every surface, sticker
-   and line of text takes its colour from them. "Golf" is the set above.
+   and line of text takes its color from them. "Golf" is the set above.
    "Poker" is a felt table: deep greens underneath, ivory instead of white,
-   seat colours that are darker and quieter, and a little antique gold where
+   seat colors that are darker and quieter, and a little antique gold where
    Golf uses pale green. The few rules a theme needs beyond its tokens (its
    backdrop, its card back) sit beside the rule they replace, marked "Poker:". */
 :root[data-theme="poker"] {
@@ -173,7 +197,7 @@
   --accent: #b89b5e;
   --ink: #ece4cf;
   --black: #ece4cf;
-  --grey: #9a9682;
+  --gray: #9a9682;
   --flame: #d67a34;
   --paper: #18241d;
   --red: #c4544f;
@@ -210,7 +234,7 @@
   --shadow: rgb(0 0 0 / 0.45);
 }
 /* "Night Golf" is the same course after dark: the fairway in moonlit greens,
-   the seat colours kept bright enough to read but laid on deep surfaces. */
+   the seat colors kept bright enough to read but laid on deep surfaces. */
 :root[data-theme="night"] {
   --bg: #0f2018;
   --fw: #3f8f5a;
@@ -220,7 +244,7 @@
   --accent: #5b8a66;
   --ink: #e4eee0;
   --black: #e4eee0;
-  --grey: #8e9a90;
+  --gray: #8e9a90;
   --paper: #13221a;
   --red: #e06c6c;
   --red2: #3a1b1a;
@@ -264,7 +288,7 @@
 :root[data-theme="night"] {
   --flame-edge: color-mix(in srgb, var(--flame) 68%, var(--paper));
 }
-/* Both dark themes: buttons keep their colour in a quiet outline rather than
+/* Both dark themes: buttons keep their color in a quiet outline rather than
    a bold one, so the dark surfaces carry the look. */
 :root:is([data-theme="poker"], [data-theme="night"]) :is(.btn, .chip) {
   border-color: color-mix(in srgb, var(--c) 30%, var(--c2));
@@ -393,7 +417,7 @@ body {
   -webkit-user-select: none;
   user-select: none;
 }
-/* The rough is the page colour; the fairway sits centred on top of it, a
+/* The rough is the page color; the fairway sits centered on top of it, a
    quarter taller than the screen so its rounded ends run off the top and
    bottom (the fairway is 1076 of the image's 1276 units; the rest is the
    first cut around it). On narrow phones it shrinks with the width so its
@@ -569,7 +593,7 @@ p {
   }
 }
 /* Until the first page is drawn, nothing the browser counts as content is
-   painted (see booted() in ui.js); the plain page colour stays underneath. */
+   painted (see booted() in ui.js); the plain page color stays underneath. */
 :root.booting #backdrop {
   visibility: hidden;
 }
@@ -600,11 +624,11 @@ p {
 .page.home > .stack {
   margin-block: auto;
 }
-/* the credit line rests at the foot of the page, below the centred menu */
+/* the credit line rests at the foot of the page, below the centered menu */
 .page.home:not(.scroll) > .credit:last-child:not(:first-child) {
   margin-top: 0;
 }
-/* a short screen with nothing that expands (name and match type) sits centred */
+/* a short screen with nothing that expands (name and match type) sits centered */
 .page.centered {
   justify-content: space-between;
 }
@@ -733,7 +757,7 @@ p {
 .hint.dark {
   color: var(--on-bg2);
 }
-/* inside a themed surface, notes take that surface's primary colour */
+/* inside a themed surface, notes take that surface's primary color */
 .sheet .hint,
 .summary .hint,
 .modal .hint,
@@ -743,7 +767,7 @@ p {
   color: var(--c);
 }
 
-/* Scrollbars: a slim pill in the surrounding theme colour, with no track. */
+/* Scrollbars: a slim pill in the surrounding theme color, with no track. */
 ::-webkit-scrollbar {
   width: 1.2rem;
   height: 1.2rem;
@@ -775,7 +799,7 @@ p {
 }
 .credit {
   font: 700 1.6rem/1 var(--round);
-  /* the fairway's secondary text colour, as on hints and pile labels */
+  /* the fairway's secondary text color, as on hints and pile labels */
   color: var(--accent);
   text-align: center;
   padding-top: 0.6rem;
@@ -835,7 +859,7 @@ p {
   white-space: nowrap;
 }
 /* a note standing where a button would be (a guest's "Play again"): the same
-   frame, muted like a button that can't be pressed, its text centred in it */
+   frame, muted like a button that can't be pressed, its text centered in it */
 .btn.btn-note {
   font-size: 1.6rem;
   line-height: 1.3;
@@ -1145,8 +1169,8 @@ p {
   fill: #000;
   stroke: #000;
 }
-/* the avatar under the pointer wears your player colour (player 1 blue,
-   2 red, …); the colour flows from one to the next as the wheel turns */
+/* the avatar under the pointer wears your player color (player 1 blue,
+   2 red, …); the color flows from one to the next as the wheel turns */
 .avatar.near {
   --fill: var(--c2);
   --stroke: var(--c);
@@ -1219,7 +1243,7 @@ p {
   transition: transform 0.3s var(--spring);
 }
 .rules-box.open .rules-head .chev {
-  /* turned, it is wider than tall, so it steps in a touch to stay centred */
+  /* turned, it is wider than tall, so it steps in a touch to stay centered */
   transform: translateX(-0.3rem) rotate(90deg);
 }
 /* height animates by growing a grid row from 0fr to 1fr */
@@ -1464,7 +1488,7 @@ body > header.topbar .brand {
   text-decoration: none;
   color: var(--on-bg2);
 }
-/* Poker: a link on the bare table needs a light colour, not the seat's dark one */
+/* Poker: a link on the bare table needs a light color, not the seat's dark one */
 :root:is([data-theme="poker"], [data-theme="night"]) body > header.topbar a:not(.brand) {
   color: var(--on-bg);
 }
@@ -1604,10 +1628,11 @@ body > header.topbar {
   transition: background 0.3s;
 }
 /* A score tag clips only top and bottom (where the rolling digits come and go):
-   at the sides a wide number's sticker edge and shadow may reach past the panel. */
+   at the sides a wide number's sticker edge and shadow may reach past the panel.
+   (overflow: clip, unlike clip-path, leaves the stickers' texture filter alone.) */
 .tag-score > .tag-in {
-  overflow: visible;
-  clip-path: inset(0 -3rem);
+  overflow-x: visible;
+  overflow-y: clip;
 }
 /* (what a tag shows is redrawn too: the tag itself takes the pointer) */
 .tag > .tag-in > * {
@@ -1721,7 +1746,7 @@ button.tag-rules:active > .tag-in {
   }
 }
 /* Each player's avatar peeks out from behind their score tag: above yours,
-   below the opponent's. Coloured and outlined like the points numerals. */
+   below the opponent's. Colored and outlined like the points numerals. */
 .tag-avatar {
   position: relative;
   z-index: -1;
@@ -1736,7 +1761,7 @@ button.tag-rules:active > .tag-in {
   margin: 0.4rem 0 -1.6rem;
 }
 /* Dark themes: the avatar and the points numerals take the avatar picker's
-   look, a dark fill of the seat's colour inside an outline of that colour */
+   look, a dark fill of the seat's color inside an outline of that color */
 :root:is([data-theme="poker"], [data-theme="night"]) :is(.tag-avatar, .tag-score .score) {
   --fill: var(--c2);
   --stroke: var(--c);
@@ -1756,15 +1781,15 @@ button.tag-rules:active > .tag-in {
   width: 100%;
   height: 3rem;
 }
-/* Solo: your win streak against Golfbot, under its score tag. A faded grey
-   flame at zero; lit in full colour with a glow that brightens as it grows. */
+/* Solo: your win streak against Golfbot, under its score tag. A faded gray
+   flame at zero; lit in full color with a glow that brightens as it grows. */
 .streak {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
   margin-top: 0.6rem;
-  --fill: var(--grey);
+  --fill: var(--gray);
   --stroke: var(--paper);
   opacity: 0.5;
   transition: opacity 0.4s;
@@ -1849,7 +1874,7 @@ button.tag-rules:active > .tag-in {
   height: 100%;
   overflow: visible;
 }
-/* lettered like the arrows above: their pale fill inside their colour, with
+/* lettered like the arrows above: their pale fill inside their color, with
    the same drop shadow (in every theme) */
 .cycle-name svg {
   filter: drop-shadow(0.15rem 0.15rem 0 var(--shadow));
@@ -1873,7 +1898,7 @@ button.tag-rules:active > .tag-in {
 .cycle .ico {
   transition: transform 0.45s var(--spring);
 }
-/* its colour is the opponent it turns to: it fades from one to the next */
+/* its color is the opponent it turns to: it fades from one to the next */
 .cycle .ico path {
   transition:
     fill 0.4s,
@@ -1916,7 +1941,7 @@ button.tag-rules:active > .tag-in {
   justify-content: center;
   align-items: flex-start;
   gap: 1.6rem;
-  /* on phones the piles sit a little left of centre, leaving room beside the
+  /* on phones the piles sit a little left of center, leaving room beside the
      discard pile for End Turn / Confirm */
   padding: 0 2rem 0 0.8rem;
   flex: none;
@@ -2145,7 +2170,7 @@ button.tag-rules:active > .tag-in {
   border-radius: 2rem;
   border: 0.4rem dashed var(--p1);
   animation: march 1.6s ease-in-out infinite alternate;
-  /* the card's own transform, so the outline stays centred on it as it lifts */
+  /* the card's own transform, so the outline stays centered on it as it lifts */
   transform: translate(var(--dx, 0px), var(--dy, 0px))
     rotate(calc(var(--rot, 0deg) + var(--lean, 0deg))) scale(var(--scale, 1));
   pointer-events: none;
@@ -2306,7 +2331,7 @@ button.tag-rules:active > .tag-in {
 /* Beside the discard pile: Confirm (controller) and, on phones, End Turn.
    Same sticker-over-label look as the desktop action bar. */
 .pile-side {
-  /* each side is a column centred on a line the same distance from its pile,
+  /* each side is a column centered on a line the same distance from its pile,
      so every button's symbol sits equally far out whatever its label's width */
   --out: 3.2rem;
   position: absolute;
@@ -2677,7 +2702,7 @@ button.tag-rules:active > .tag-in {
 }
 /* A player whose side of the table is not showing reacts from the cycle
    button that leads to them: a white tooltip with their avatar and name in
-   their own colour, its arrow pointing back at the button. */
+   their own color, its arrow pointing back at the button. */
 .cycle-emotes {
   position: absolute;
   right: calc(100% + 1.2rem);
@@ -2789,7 +2814,7 @@ button.tag-rules:active > .tag-in {
   flex: 1 1 auto;
 }
 /* a dialog's dismiss x: a sticker sitting right on its top right corner, like
-   the toast's (a size up), in the dialog's colours */
+   the toast's (a size up), in the dialog's colors */
 .leave-dialog {
   position: relative;
   overflow: visible;
@@ -2803,7 +2828,7 @@ button.tag-rules:active > .tag-in {
   width: 3.4rem;
   height: 3.4rem;
   cursor: pointer;
-  /* the dialog's own colours: its fill inside its border colour */
+  /* the dialog's own colors: its fill inside its border color */
   --fill: var(--c2);
   --stroke: var(--c);
   transition: transform 0.28s var(--spring);
@@ -3005,7 +3030,7 @@ button.tag-rules:active > .tag-in {
   box-shadow: 0.4rem 0.4rem 0 var(--shadow);
 }
 /* the quick emotes under the results: a green tab tucked under the bottom of
-   the ready-up card, in the card's own colours, that drops them down */
+   the ready-up card, in the card's own colors, that drops them down */
 /* holds the tab, and the emotes below it; it only lays them out, so taps go
    through it to the tab tucked behind (and to the emotes) */
 .summary-emote-anchor {
@@ -3088,7 +3113,7 @@ button.tag-rules:active > .tag-in {
 }
 .eval-chart figcaption small {
   font-size: 1.1rem;
-  color: var(--grey);
+  color: var(--gray);
 }
 .eval-plot {
   position: relative;
@@ -3102,7 +3127,7 @@ button.tag-rules:active > .tag-in {
   touch-action: none;
 }
 .eval-plot .grid {
-  stroke: var(--grey);
+  stroke: var(--gray);
   stroke-width: 1;
   opacity: 0.3;
 }
@@ -3113,7 +3138,7 @@ button.tag-rules:active > .tag-in {
 .eval-plot .tick,
 .eval-plot .axis {
   font-size: 10px;
-  fill: var(--grey);
+  fill: var(--gray);
 }
 .eval-plot .tick {
   text-anchor: end;
@@ -3141,7 +3166,7 @@ button.tag-rules:active > .tag-in {
   stroke-width: 2;
 }
 .eval-plot .line.muted {
-  stroke: var(--grey);
+  stroke: var(--gray);
   stroke-width: 1.5;
   opacity: 0.35;
 }
@@ -3172,7 +3197,7 @@ button.tag-rules:active > .tag-in {
 }
 .eval-plot .cross {
   display: none;
-  stroke: var(--grey);
+  stroke: var(--gray);
   stroke-width: 1;
   stroke-dasharray: 3 3;
   opacity: 0.5;
@@ -3189,7 +3214,7 @@ button.tag-rules:active > .tag-in {
   top: 0.2rem;
   z-index: 2;
   padding: 0.6rem 0.9rem;
-  border: 0.2rem solid var(--grey);
+  border: 0.2rem solid var(--gray);
   border-radius: 1rem;
   background: var(--paper);
   box-shadow: 0.2rem 0.2rem 0 var(--shadow);
@@ -3354,7 +3379,7 @@ button.tag-rules:active > .tag-in {
   max-height: 86dvh;
   overflow: auto;
   overscroll-behavior: contain;
-  /* an equal gutter each side, so the scrollbar never pushes content off-centre */
+  /* an equal gutter each side, so the scrollbar never pushes content off-center */
   scrollbar-gutter: stable both-edges;
   padding: 2rem 1.6rem max(2rem, env(safe-area-inset-bottom));
   border: 0.4rem solid var(--c);
@@ -3435,8 +3460,8 @@ button.tag-rules:active > .tag-in {
   background: rgb(255 255 255 / 0.55);
   font-size: 1.6rem;
 }
-/* dark themes: a well a shade darker than the sheet, tinted with its colour,
-   rather than a pale wash that turns grey on the dark sheets (the stat tiles too) */
+/* dark themes: a well a shade darker than the sheet, tinted with its color,
+   rather than a pale wash that turns gray on the dark sheets (the stat tiles too) */
 :root:is([data-theme="poker"], [data-theme="night"]) :is(.tally, .stat-tiles > div) {
   background: color-mix(in srgb, var(--c2) 55%, #000);
 }
