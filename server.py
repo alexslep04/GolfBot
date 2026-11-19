@@ -1470,7 +1470,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             profiles = [viewer_profile, {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'}]
             selected = player if player is not None else viewer_profile['id']
             compared = (opponent or None) if opponent is not None else 'bot:golfbot'
-            return await asyncio.to_thread(lambda: build_stats(store.history.stats_results(), selected, compared, enabled, disabled, house_rules, patch, profiles=profiles))
+            # every guest is one "Guest" here, as on the leaderboards
+            return await asyncio.to_thread(lambda: build_stats(store.history.stats_results(), selected, compared, enabled, disabled, house_rules, patch,
+                                                               profiles=profiles, merge_guests=True))
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 

@@ -13,10 +13,30 @@ def identities(match):
             (BOT_ID if seat == 1 and match.get('solo') else 'player:' + match['names'][seat]) for seat in range(len(match['names']))]
 
 
+def merged_id(player_id):
+    """Accounts and bots keep their own ids; every guest (by browser or by name) is one Guest."""
+    if player_id is None or player_id == GUESTS_ID or player_id.startswith(('account:', 'bot:')):
+        return player_id
+    return GUESTS_ID
+
+
+def merge_guest_seats(match):
+    """A copy of a saved match with each guest seat sitting as the one shared Guest."""
+    participants = list(match.get('participants') or [None] * len(match['names']))
+    for seat, player_id in enumerate(identities(match)):
+        if merged_id(player_id) == GUESTS_ID:
+            participants[seat] = {'id': GUESTS_ID, 'kind': 'guest', 'display_name': 'Guest'}
+    return {**match, 'participants': participants}
+
+
 def player_catalog(matches, profiles=()):
     players = {}
 
     def add(player_id, profile, display_name):
+        if player_id == GUESTS_ID:
+            players[player_id] = {'id': GUESTS_ID, 'username': 'Guest', 'unique_name': None, 'is_bot': False,
+                                  'display_names': [], 'is_guest': True, 'label': 'Guest'}
+            return
         bot = player_id == BOT_ID
         unique = profile.get('unique_name')
         name = 'Golfbot' if bot else unique or display_name
@@ -97,60 +117,64 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
         seats = identities(match)
         if player_id not in seats:
             continue
-        if seats.count(player_id) != 1 or (opponent_id is not None and seats.count(opponent_id) > 1):
+        # The one shared Guest plays every guest seat at a table (as the ranking sums
+        # every guest's record); anyone else must be told apart by a single seat.
+        if (player_id != GUESTS_ID and seats.count(player_id) != 1) or (
+                opponent_id not in (None, GUESTS_ID) and seats.count(opponent_id) > 1):
             # Without accounts these two seats cannot be distinguished by name.
             ambiguous_matches += 1
             continue
-        seat = seats.index(player_id)
         if opponent_id is not None and opponent_id not in seats:
             continue
-        opponents = [seats.index(opponent_id)] if opponent_id else [p for p in range(len(seats)) if p != seat]
-        rounds = [result for result in match['rounds']
-                  if (not house_only or result.get('house_rules', False))
-                  and (not patch or result_patch(result, match) == patch)
-                  and matches_rules(result.get('rules', match['rules']), enabled, disabled)]
-        for result in rounds:
-            own = result['scores'][seat]
-            other_scores = [result['scores'][p] for p in opponents]
-            other = sum(other_scores) / len(other_scores)
-            comparison = min(other_scores)
-            wins += own < comparison
-            losses += own > comparison
-            draws += own == comparison
-            points.append(own)
-            total_points += own
-            opponent_points += other
-            if type(result.get('turns')) is int:
-                turns.append(result['turns'])
-            timed = recorded_move_time(result, seat, len(seats))
-            if timed:
-                move_seconds += timed[0]
-                move_turns += timed[1]
-            counts = recorded_modifier_counts(result, seat, len(seats))
-            if counts is not None:
-                modifier_counts.append(sum(counts.values()))
-            recorded = result.get('activations')
-            if isinstance(recorded, list) and len(recorded) == len(seats) and isinstance(recorded[seat], list):
-                known_activations += 1
-                for key in set(recorded[seat]) & {key for key, _ in RULE_OPTIONS}:
-                    activations[key] += 1
-                    activation_wins[key] += own < comparison
-        if rounds:
-            if match['status'] != 'finished':
-                unfinished_matches += 1
-            elif len(rounds) == len(match['rounds']):
-                # A mixed-rule series is only counted if every round fits.
-                completed_matches += 1
-                if opponent_id and len(seats) > 2:
-                    totals = match['points']
-                    match_wins += totals[seat] < totals[opponents[0]]
-                    match_losses += totals[seat] > totals[opponents[0]]
-                    match_draws += totals[seat] == totals[opponents[0]]
-                else:
-                    match_wins += match['winner'] == seat
-                    tied = match.get('series_leaders', list(range(len(seats))))
-                    match_losses += (match['winner'] is not None and match['winner'] != seat) or (match['winner'] is None and seat not in tied)
-                    match_draws += match['winner'] is None and seat in tied
+        for seat in [p for p, player in enumerate(seats) if player == player_id]:
+            opponents = ([p for p, player in enumerate(seats) if player == opponent_id] if opponent_id
+                         else [p for p in range(len(seats)) if p != seat])
+            rounds = [result for result in match['rounds']
+                      if (not house_only or result.get('house_rules', False))
+                      and (not patch or result_patch(result, match) == patch)
+                      and matches_rules(result.get('rules', match['rules']), enabled, disabled)]
+            for result in rounds:
+                own = result['scores'][seat]
+                other_scores = [result['scores'][p] for p in opponents]
+                other = sum(other_scores) / len(other_scores)
+                comparison = min(other_scores)
+                wins += own < comparison
+                losses += own > comparison
+                draws += own == comparison
+                points.append(own)
+                total_points += own
+                opponent_points += other
+                if type(result.get('turns')) is int:
+                    turns.append(result['turns'])
+                timed = recorded_move_time(result, seat, len(seats))
+                if timed:
+                    move_seconds += timed[0]
+                    move_turns += timed[1]
+                counts = recorded_modifier_counts(result, seat, len(seats))
+                if counts is not None:
+                    modifier_counts.append(sum(counts.values()))
+                recorded = result.get('activations')
+                if isinstance(recorded, list) and len(recorded) == len(seats) and isinstance(recorded[seat], list):
+                    known_activations += 1
+                    for key in set(recorded[seat]) & {key for key, _ in RULE_OPTIONS}:
+                        activations[key] += 1
+                        activation_wins[key] += own < comparison
+            if rounds:
+                if match['status'] != 'finished':
+                    unfinished_matches += 1
+                elif len(rounds) == len(match['rounds']):
+                    # A mixed-rule series is only counted if every round fits.
+                    completed_matches += 1
+                    if opponent_id and len(seats) > 2:
+                        totals = match['points']
+                        match_wins += totals[seat] < totals[opponents[0]]
+                        match_losses += totals[seat] > totals[opponents[0]]
+                        match_draws += totals[seat] == totals[opponents[0]]
+                    else:
+                        match_wins += match['winner'] == seat
+                        tied = match.get('series_leaders', list(range(len(seats))))
+                        match_losses += (match['winner'] is not None and match['winner'] != seat) or (match['winner'] is None and seat not in tied)
+                        match_draws += match['winner'] is None and seat in tied
     count = len(points)
     return {
         'rounds': count, 'round_wins': wins, 'round_losses': losses, 'round_draws': draws,
@@ -181,13 +205,20 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
 
 
 def build_stats(matches, player_id=None, opponent_id=None, enabled=(), disabled=(), house_only=False, patch=None,
-                profiles=()):
+                profiles=(), merge_guests=False):
     """Seed public viewer/bot identities even before their first recorded round.
 
     The first supplied profile is the default viewer; explicit selections win.
     With no seeds, historical catalog selection and empty-history behavior stay the same.
+    merge_guests: every guest is one "Guest" player (in the choices, the stats and the
+    comparison); a game between two guests then has no single Guest seat and is left out.
     """
     profiles = tuple(profiles)
+    if merge_guests:
+        matches = [merge_guest_seats(match) for match in matches]
+        profiles = tuple({'id': GUESTS_ID, 'kind': 'guest', 'display_name': 'Guest'}
+                         if merged_id(profile['id']) == GUESTS_ID else profile for profile in profiles)
+        player_id, opponent_id = merged_id(player_id), merged_id(opponent_id)
     players = player_catalog(matches, profiles)
     by_id = {player['id']: player for player in players}
     patches = sorted({result_patch(result, match) for match in matches for result in match['rounds']},

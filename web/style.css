@@ -2441,8 +2441,9 @@ button.tag-rules:active > .tag-in {
 }
 .queue-pill.signin-tip {
   position: absolute;
-  top: calc(100% + 0.4rem);
+  top: calc(100% + 1rem);
   left: 0.4rem;
+  transform-origin: 2.6rem -1rem; /* grows out of the gear it points at */
   z-index: 20;
   cursor: pointer;
   animation: pop 0.4s var(--spring);
@@ -2450,6 +2451,23 @@ button.tag-rules:active > .tag-in {
 }
 .queue-pill.signin-tip.leaving {
   opacity: 0;
+}
+/* the tooltip's arrow, up at the gear: the pill's edge color, then its fill */
+.queue-pill.signin-tip::before,
+.queue-pill.signin-tip::after {
+  content: "";
+  position: absolute;
+  left: 1.6rem;
+  border: 1rem solid transparent;
+  border-top: 0;
+}
+.queue-pill.signin-tip::before {
+  bottom: 100%;
+  border-bottom-color: var(--p3);
+}
+.queue-pill.signin-tip::after {
+  bottom: calc(100% - 0.45rem);
+  border-bottom-color: var(--p3b);
 }
 @keyframes pop {
   from {

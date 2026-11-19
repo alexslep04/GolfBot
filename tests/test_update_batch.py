@@ -151,10 +151,12 @@ class GuestProfileTests(unittest.TestCase):
         lost = build_stats(results, second['player_id'])
         self.assertEqual((won['player']['profile']['label'], won['player']['overall']['round_wins']), ('Sam (guest)', 1))
         self.assertEqual((lost['player']['overall']['rounds'], lost['player']['overall']['round_wins']), (1, 0))
-        # the page a guest opens is their own
+        # but advanced stats show every guest as one Guest, which is where a guest's page opens
         mine = self.clients[1].get('/golf/api/stats', params={'house_rules': 'false'}).json()
-        self.assertEqual(mine['player']['profile']['id'], second['player_id'])
-        self.assertEqual(mine['player']['overall']['round_losses'], 1)
+        self.assertEqual(mine['player']['profile']['id'], GUESTS_ID)
+        self.assertEqual([player['label'] for player in mine['players']].count('Guest'), 1)
+        overall = mine['player']['overall']
+        self.assertEqual((overall['rounds'], overall['round_wins'], overall['round_losses']), (2, 1, 1))
 
     def test_the_rankings_show_every_guest_as_one_guest(self):
         self.guest('Sam', 2), self.guest('Sam', 9), self.guest('Lee', 1)

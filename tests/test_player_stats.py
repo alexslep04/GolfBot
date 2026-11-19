@@ -37,6 +37,27 @@ class StatsTests(unittest.TestCase):
             match(['tester', 'GolfBot'], [result([10, 1], activations=[[], []])], status='interrupted', solo=True),
         ]
 
+    def test_advanced_stats_merge_every_guest_into_one_guest(self):
+        account = {'id': 'account:7', 'kind': 'account', 'unique_name': 'ace', 'display_name': 'Ace'}
+        browser = {'id': 'browser:abc', 'kind': 'guest', 'display_name': 'Sam'}
+        games = self.matches + [
+            {**match(['Ace', 'Sam'], [result([1, 9]), result([7, 2])], None, status='abandoned'),
+             'participants': [account, browser]},
+        ]
+        data = build_stats(games, browser['id'], 'account:7', profiles=[browser], merge_guests=True)
+        # tester, Rival and Sam are one choice; the account and Golfbot keep their own
+        self.assertEqual(sorted(player['label'] for player in data['players']), ['@ace', 'Golfbot (solo AI)', 'Guest'])
+        self.assertEqual(data['player']['profile']['id'], GUESTS_ID)
+        # tester's solo games and Sam's games against Ace count for Guest, and a guest-vs-guest
+        # game (Rival v tester) counts from both seats, as the ranking sums every guest's record
+        overall = data['player']['overall']
+        self.assertEqual((overall['rounds'], overall['round_wins'], overall['round_losses']), (4 + 2 + 2, 4, 3))
+        self.assertEqual(overall['ambiguous_matches'], 0)
+        self.assertEqual(data['player']['head_to_head']['rounds'], 2)
+        self.assertEqual(build_stats(games, 'player:Rival', BOT_ID, merge_guests=True)['player']['profile']['label'], 'Guest')
+        with self.assertRaises(ValueError):  # two guests are now the same player
+            build_stats(games, 'player:tester', 'browser:abc', merge_guests=True)
+
     def test_leaderboard_ranks_by_game_win_rate_with_unplayed_filters_last(self):
         data = build_stats(self.matches)
         board = data['leaderboard']
@@ -254,7 +275,7 @@ class StatsApiTests(unittest.TestCase):
             self.assertEqual(response.headers['cache-control'], 'no-store')
             for secret in (browser_key('private-host-token'), 'private-host-token', 'private-guest-key', 'golf_session', 'TunnelSecret'):
                 self.assertNotIn(secret, response.text)
-            for params in ({'enabled': 'fake_rule'}, {'enabled': 'v10', 'disabled': 'v10'}, {'player': 'player:missing'}):
+            for params in ({'enabled': 'fake_rule'}, {'enabled': 'v10', 'disabled': 'v10'}, {'player': 'account:missing'}):
                 self.assertEqual(client.get('/Golfgame/api/stats', params=params).status_code, 422)
             for path in ('/stats', '/Golfgame/stats'):
                 self.assertEqual(client.get(path).status_code, 200)

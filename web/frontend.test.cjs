@@ -93,6 +93,18 @@ test('rated exit uses an in-game dialog with the server Elo loss',async()=>{
   assert.equal(h.requests.length,0);
 });
 
+test('between ranked games a signed-in player leaves without a popup; a guest is still told',async()=>{
+  const h=harness();h.context.confirm=()=>{throw Error('Native popup used');};
+  h.run('session.account={id:1,unique_name:"me"};session.room_id="room";state={id:"room",rated:true,status:"round_over",game:{phase:"over"}}');
+  assert.equal(await h.run('abandonExisting()'),true);
+  assert.equal(h.nodes.get('leave-dialog')?.open,undefined);
+  assert.equal(h.requests.at(-1).url,'/golf/api/lobbies/room/leave');
+  h.run('session.account=null;session.room_id="room"');
+  const leaving=h.run('abandonExisting()');
+  assert.match(h.nodes.get('leave-dialog').innerHTML,/This ends the series early/);
+  h.run('resolveLeavePrompt("stay")');assert.equal(await leaving,false);
+});
+
 test('guest exit offers sign-in, and No leaves through the API',async()=>{
   const h=harness();h.context.confirm=()=>{throw Error('Native popup used');};
   h.run('session.account=null;session.room_id="room";state={id:"room",practice:true,game:{phase:"choose"}}');

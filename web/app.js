@@ -857,18 +857,20 @@ function patchChip() {
   if (!session?.patch || seen === session.patch) return "";
   return `<button type="button" class="chip patch-chip c-p4" data-nav="patches">${icon("newspaper.fill", 20, { idle: false })}<span>Updated to ${e(session.patch.replace(/\.0$/, ""))}: see what's new</span>${glyph("chevron.right", 12)}</button>`;
 }
-/* A guest is nudged to sign in once per visit: a tooltip under the settings
-   gear (where Profile and sign-in live) that goes away by itself after 10s. */
+/* A guest is nudged to sign in once per visit, as the site opens: a tooltip
+   pointing at the settings gear (where Profile and sign-in live) that goes
+   away by itself after 10s. It shows even where this server has no Google
+   sign-in yet; Profile then says so. */
 let signInTipShown = false;
 function signInTip() {
-  if (signInTipShown || session.account || !session.google_client_id || prefs.hideTips) return;
+  if (signInTipShown || session.account || prefs.hideTips) return;
   const bar = document.querySelector(".page.home .topbar");
   if (!bar) return;
   signInTipShown = true;
   bar.insertAdjacentHTML(
     "beforeend",
     // made like the Quickplay queue pill, with a Sign in sticker on its end
-    `<div class="queue-pill signin-tip" data-signin-tip><span class="queue-info" role="status"><span class="queue-text"><b>Not signed in</b><small>Keep your stats and streak</small></span></span><button type="button" class="act side-act queue-leave" aria-label="Sign in"><span class="act-ico">${icon("person.crop.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Sign in</span></button></div>`,
+    `<div class="queue-pill signin-tip" data-signin-tip><span class="queue-info" role="status"><span class="queue-text"><b>Sign in in Settings</b><small>Keep your stats and streak</small></span></span><button type="button" class="act side-act queue-leave" aria-label="Sign in"><span class="act-ico">${icon("person.crop.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Sign in</span></button></div>`,
   );
   const tip = bar.querySelector("[data-signin-tip]");
   tip.addEventListener("click", () => {
@@ -1645,7 +1647,10 @@ async function abandonExisting({confirmed = false} = {}) {
     // a signed-in player's Practice game is saved to their account, so it just leaves;
     // a guest is offered sign-in first, and a rated table warns about the Elo cost
     const guestPractice = leaving.practice && !session.account;
-    if (!confirmed && ((leaving.rated && ["playing", "round_over"].includes(leaving.status)) || guestPractice)) {
+    // a rated table always warns mid-game (leaving costs Elo); between games, only
+    // a guest is told the series ends early, and a signed-in player just leaves
+    const ratedWarning = leaving.rated && (leaving.status === "playing" || (leaving.status === "round_over" && !session.account));
+    if (!confirmed && (ratedWarning || guestPractice)) {
       const choice = await leavePrompt(leaving);
       if (choice === "signin") {
         leaveAfterSignIn = roomId;

@@ -219,7 +219,8 @@ class LobbyFeatureTests(unittest.TestCase):
         self.assertEqual(self.host.get('/Golfgame/api/stats?enabled=beggars').status_code, 422)
         custom = self.host.get('/Golfgame/api/stats?house_rules=false&disabled=beggars')
         self.assertEqual(custom.status_code, 200)
-        self.assertEqual(custom.json()['player']['overall']['rounds'], 1)
+        # host and guest are both guests: one Guest, who played both seats of that game
+        self.assertEqual(custom.json()['player']['overall']['rounds'], 2)
 
 
 class NewStatsTests(unittest.TestCase):
