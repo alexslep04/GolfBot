@@ -1807,7 +1807,10 @@ function displayNameForm() {
     <div data-previous-names></div>
   </form>`;
 }
-/** Under the display name: the names this account has gone by before. Tap one to use it again. */
+/** One plain line of the names used before, most recent first; nothing when there are none. */
+const previousNamesHtml = (names) =>
+  names.length ? `<p class="hint dark">Previously: ${names.map(e).join(", ")}</p>` : "";
+/** Under the display name: the names this account has gone by before. */
 async function loadPreviousNames() {
   const holder = () => root.querySelector("[data-previous-names]");
   if (!session.account || !holder()) return;
@@ -1815,9 +1818,7 @@ async function loadPreviousNames() {
     const { names } = await api("/api/account/display-names");
     const target = holder();
     if (!target) return;
-    target.innerHTML = names.length
-      ? `<h3 style="margin-top:.4rem">Previously used</h3><p class="hint dark">Most recent first. Tap a name to put it back in the box.</p><div class="chips" style="margin-top:.8rem">${names.map((name) => `<button type="button" class="chip" data-previous-name="${e(name)}">${e(name)}</button>`).join("")}</div>`
-      : `<p class="hint dark">No other display names used yet.</p>`;
+    target.innerHTML = previousNamesHtml(names);
   } catch {
     // the list is a nicety: the form works without it
   }
@@ -2661,14 +2662,6 @@ document.addEventListener("click", async (event) => {
     }
     if (data.nav) return await navigate(data.nav);
     if ("statsFiltersToggle" in data) return toggleStatsFilters();
-    if (data.previousName) {
-      const input = root.querySelector("#account-display-name");
-      if (input) {
-        input.value = data.previousName;
-        input.focus();
-      }
-      return;
-    }
     if (data.statsPlayer) {
       statsSelection.player = data.statsPlayer;
       statsSelection.opponent = "";
