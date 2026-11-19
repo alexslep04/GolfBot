@@ -1396,7 +1396,16 @@ function emoteArt(item, player) {
  * that player's color, sliding in from the left for the hand at the bottom of
  * this screen and from the right for anyone across the table.
  */
+/** Where the board's edges are on screen: wide screens set spectator bubbles beside it. */
+function measureBoardEdges() {
+  const box = board.el?.getBoundingClientRect?.();
+  if (!box) return;
+  document.documentElement.style.setProperty("--board-l", `${Math.round(box.left)}px`);
+  document.documentElement.style.setProperty("--board-r", `${Math.round(box.right)}px`);
+}
+window.addEventListener?.("resize", measureBoardEdges);
 function spectatorEmote(key) {
+  measureBoardEdges();
   const item = activeEmotes[key];
   if (!item || item.ends <= Date.now() || (opponentEmotesMuted && !state.spectator)) return "";
   const seat = Number(item.seat ?? key.split(":")[1]);

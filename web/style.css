@@ -3043,6 +3043,19 @@ button.tag-rules:active > .tag-in {
   object-fit: contain;
   filter: drop-shadow(0.15rem 0.15rem 0 var(--shadow));
 }
+/* wider screens: the bubbles sit just outside the board's own edges (measured in
+   board.js), not out at the screen's; where there's no room beside the board they
+   stay on screen */
+@media (min-width: 700px) {
+  .spectator-emote.from-left {
+    left: auto;
+    right: min(calc(100vw - var(--board-l, 0px) + 1.4rem), calc(100vw - 9rem));
+  }
+  .spectator-emote.from-right {
+    right: auto;
+    left: min(calc(var(--board-r, 100vw) + 1.4rem), calc(100vw - 9rem));
+  }
+}
 /* phones: the bubbles sit a few pixels from the screen edge, their tails tucked past it */
 @media (max-width: 699px) {
   .spectator-emote.from-left {
