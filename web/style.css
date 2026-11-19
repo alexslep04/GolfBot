@@ -2969,34 +2969,37 @@ button.tag-rules:active > .tag-in {
    the left for the hand at the bottom of the screen, the right for anyone
    across the table. It eases in, rests, then drifts back out and fades. */
 .spectator-emote {
-  position: absolute;
+  /* pinned to the screen, not the board: its edge is the screen's edge at every size */
+  position: fixed;
   z-index: 87;
   display: flex;
   align-items: center;
-  padding: 0.3rem 0.7rem;
-  /* a paper rim, like the stickers': white on Original, each theme's own paper elsewhere */
-  border: 0.3rem solid var(--paper);
-  border-radius: 1.4rem;
+  padding: 0.3rem 1.1rem;
+  /* the player's color inside a thick paper rim, like the stickers': white on
+     Original, each theme's own paper elsewhere */
+  border: 0.45rem solid var(--paper);
+  border-radius: 1.5rem;
   background: var(--c);
   color: #fff;
   white-space: nowrap;
   box-shadow: 0.25rem 0.25rem 0 var(--shadow);
   pointer-events: none;
 }
-/* right on the edge: the tail's tip just reaches it */
+/* near the edge: the tail starts inside the 0.45rem rim and reaches 1.05rem
+   out, so 0.6rem in would put its tip at the edge; a few pixels more keep it clear */
 .spectator-emote.from-left {
-  left: 1rem;
+  left: 0.9rem;
   top: 38%;
   transform-origin: 0 50%;
   animation: spectator-in-left 4s both;
 }
 .spectator-emote.from-right {
-  right: 1rem;
+  right: 0.9rem;
   top: 36%;
   transform-origin: 100% 50%;
   animation: spectator-in-right 4s both;
 }
-/* the tail: a paper triangle, with the bubble's color inside it */
+/* the tail: a paper triangle, with the player's color inside it */
 .spectator-emote::before,
 .spectator-emote::after {
   content: "";
@@ -3009,8 +3012,8 @@ button.tag-rules:active > .tag-in {
   border-width: 1rem;
 }
 .spectator-emote::after {
-  margin-top: -0.6rem;
-  border-width: 0.6rem;
+  margin-top: -0.5rem;
+  border-width: 0.5rem;
 }
 .spectator-emote.from-left::before {
   right: calc(100% + 0.05rem);
@@ -3033,9 +3036,21 @@ button.tag-rules:active > .tag-in {
   border-right: 0;
 }
 .spectator-emote img {
-  width: 3.6rem;
-  height: 3.6rem;
+  /* a size up, spilling a little past the bubble's top and bottom (with room either side) */
+  width: 4.6rem;
+  height: 4.6rem;
+  margin: -1rem 0;
   object-fit: contain;
+  filter: drop-shadow(0.15rem 0.15rem 0 var(--shadow));
+}
+/* phones: the bubbles sit a few pixels from the screen edge, their tails tucked past it */
+@media (max-width: 699px) {
+  .spectator-emote.from-left {
+    left: 0.5rem;
+  }
+  .spectator-emote.from-right {
+    right: 0.5rem;
+  }
 }
 .spectator-say {
   font: 700 1.5rem/1.1 var(--text);

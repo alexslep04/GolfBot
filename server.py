@@ -1724,6 +1724,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return {
             'available_lobbies': sum(not room.solo and room.has_open_seat
                                      and session.token not in room.seats for room in store.rooms.values()),
+            # games in play someone else is playing (the Spectate tile's count)
+            'spectatable_games': sum(watchable(room) and session.token not in room.seats
+                                     for room in store.rooms.values()),
             'players': [{'id': other.public_id, 'display_name': other.username, 'avatar': other.avatar,
                          'unique_name': (other.account or {}).get('unique_name')}
                         for other in available_players(session)],

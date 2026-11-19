@@ -532,6 +532,9 @@ class WebTests(unittest.TestCase):
         room = self.store.rooms[state['id']]
         games = self.guest.get('/api/spectate').json()
         self.assertEqual([game['id'] for game in games], [room.id])
+        # the Spectate tile's red count: someone else's game in play, never your own
+        presence = lambda client: client.post('/api/presence', json={'username': 'Sam'}).json()['spectatable_games']
+        self.assertEqual((presence(self.guest), presence(self.host)), (1, 0))
         watched = self.guest.post(f'/api/spectate/{room.id}').json()
         self.assertTrue(watched['spectator'])
         self.assertEqual(watched['viewer'], 0)

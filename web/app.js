@@ -385,6 +385,7 @@ function backButton(target = "home") {
 /* ---------- presence, invitations, quickplay queue ---------- */
 let presenceState = {
     available_lobbies: 0,
+    spectatable_games: 0,
     players: [],
     invitations: [],
     invited: [],
@@ -421,6 +422,14 @@ function renderHomeLive() {
       "aria-label",
       `${presenceState.available_lobbies} open ${presenceState.available_lobbies === 1 ? "table" : "tables"}`,
     );
+  }
+  // the same red count on Spectate: games in play you could watch
+  const watchable = presenceState.spectatable_games || 0;
+  const spectate = document.getElementById("spectate-count");
+  if (spectate) {
+    spectate.hidden = !watchable;
+    spectate.textContent = watchable;
+    spectate.setAttribute("aria-label", `${watchable} ${watchable === 1 ? "game" : "games"} to watch`);
   }
 }
 function renderQueueBanner() {
@@ -908,7 +917,7 @@ function home() {
     <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play solo</span>${practice[1]}</button>
     <button type="button" class="btn c-p4" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span>${tilted("medal", 33, { mirror: true })}</button>
     <div class="row split">
-      <button type="button" class="btn tile c-s4 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span></button>
+      <button type="button" class="btn tile c-s4 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span><span id="spectate-count" class="badge" hidden></span></button>
       <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
     </div>
     ${document.documentElement.dataset?.debug !== undefined ? `<button type="button" class="btn c-p2" data-debug-bots>${tilted("figure.2", 33)}<span>Debug: 8-bot table</span></button><button type="button" class="btn c-p4" data-nav="cards">${tilted("rectangle.stack.fill", 33)}<span>Debug: card gallery</span></button>` : ""}
