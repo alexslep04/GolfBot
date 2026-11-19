@@ -1323,8 +1323,17 @@ function renderChrome() {
 
 function renderEmotes() {
   const layer = board.el.querySelector("[data-emote-layer]");
-  // spectators cheer on behalf of the player they watch: "spectator:<seat>"
-  const spectators = Object.keys(activeEmotes).filter((key) => key.startsWith("spectator:"));
+  // spectators cheer on behalf of the player they watch, each in their own row ("spectator:<slot>");
+  // a phone has room for one bubble a side, the newest
+  let spectators = Object.keys(activeEmotes).filter((key) => key.startsWith("spectator:"));
+  if (window.matchMedia?.("(max-width: 699px)").matches) {
+    const newest = {};
+    for (const key of spectators) {
+      const side = Number(activeEmotes[key].seat) === state.viewer ? "left" : "right";
+      if (!newest[side] || activeEmotes[key].sequence > activeEmotes[newest[side]].sequence) newest[side] = key;
+    }
+    spectators = Object.values(newest);
+  }
   const signature = state.names
     .map((_, p) => activeEmotes[p]?.sequence || 0)
     .join() + `|${spectators.map((key) => `${key}=${activeEmotes[key].sequence}`).join()}`;
@@ -1408,14 +1417,17 @@ function spectatorEmote(key) {
   measureBoardEdges();
   const item = activeEmotes[key];
   if (!item || item.ends <= Date.now() || (opponentEmotesMuted && !state.spectator)) return "";
-  const seat = Number(item.seat ?? key.split(":")[1]);
+  const seat = Number(item.seat);
   if (!Number.isInteger(seat) || seat >= state.names.length) return "";
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
   const side = seat === state.viewer ? "from-left" : "from-right";
   const art = TEXT_EMOTES.includes(item.id)
     ? `<b class="spectator-say">${e(emoteNames[item.id])}</b>`
     : `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${emoteNames[item.id]} emote">`;
-  return `<div class="spectator-emote ${side} ${colorFor(seat)}" data-emote-player="${e(key)}" role="status" aria-label="A spectator of ${e(state.names[seat])}: ${e(emoteNames[item.id])}" style="animation-delay:-${age}ms">${art}</div>`;
+  // wide screens give each spectator their own row, and name them beside their emote
+  const row = (Number(item.slot) || 0) % 6;
+  const name = item.name ? `<span class="spectator-name">${e(item.name)}</span>` : "";
+  return `<div class="spectator-emote ${side} ${colorFor(seat)}" data-emote-player="${e(key)}" role="status" aria-label="${e(item.name || "A spectator")}, watching ${e(state.names[seat])}: ${e(emoteNames[item.id])}" style="animation-delay:-${age}ms;--slot:${row}">${art}${name}</div>`;
 }
 function playerEmote(player, onTile = false) {
   if (opponentEmotesMuted && player !== state.viewer) return "";
@@ -1626,10 +1638,13 @@ function evalHover(event) {
     .join("");
   tip.innerHTML = `<strong>${label}</strong>${rows}`;
   tip.hidden = false;
-  // beside the crosshair, on whichever side has room, so it never covers the title
+  // beside the crosshair, on whichever side has room, so it never covers the title,
+  // and always kept inside the graph: the results panel would clip anything past it
   const px = (x(i) / CHART.w) * box.width;
   const left = px < box.width / 2;
-  tip.style.left = `${left ? px + 8 : px - 8 - tip.offsetWidth}px`;
+  const width = tip.offsetWidth;
+  const wanted = left ? px + 8 : px - 8 - width;
+  tip.style.left = `${Math.max(0, Math.min(wanted, box.width - width))}px`;
 }
 
 /**

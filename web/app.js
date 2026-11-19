@@ -67,9 +67,10 @@ const emoteNames = {
   wow: "Wow!",
   save: "What a save!",
   ofc: "Ofc!",
+  luck: "Good luck!",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["thanks", "oops", "wow", "save", "ofc"];
+const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc"];
 let activeEmotes = {},
   emoteSeen = {},
   emoteTimers = {},

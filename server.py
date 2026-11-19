@@ -65,7 +65,7 @@ class VersionedStatic(StaticFiles):
 
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc"]
+    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc", "luck"]
 
 
 class Settings(BaseModel):
@@ -226,6 +226,8 @@ class Room:
     # spectators' sockets by session token, and the seat each is watching from
     watchers: dict = field(default_factory=dict)
     watch_seats: dict = field(default_factory=dict)
+    # each spectator's own row on wide screens, kept while they watch (lowest free first)
+    watch_slots: dict = field(default_factory=dict)
 
     practice: bool = False
     rated: bool = False
@@ -1990,14 +1992,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 raise HTTPException(403, "You do not have a seat in this lobby.")
             if room.game is None or room.status not in ("playing", "round_over", "finished"):
                 raise HTTPException(409, "Emotes are available at the game table.")
-            # a spectator cheers on behalf of the player they watch from: everyone
-            # watching that seat speaks as one "Spectator" ("spectator:<seat>")
+            # a spectator cheers on behalf of the player they watch from, under their
+            # own name and in their own row ("spectator:<slot>")
             seat = room.watch_seats.get(session.token, 0) if watching else None
-            player = f"spectator:{seat}" if watching else room.seats.index(session.token)
+            slot = room.watch_slots.get(session.token, 0) if watching else None
+            player = f"spectator:{slot}" if watching else room.seats.index(session.token)
             room.emote_sequence += 1
             room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
                                    "expires_at": time.time() + EMOTE_SECONDS,
-                                   **({"seat": seat} if watching else {})}
+                                   **({"seat": seat, "slot": slot, "name": session.username} if watching else {})}
             # Cosmetic events must not invalidate a simultaneous card action.
             await broadcast(room)
             return snapshot(room, session.token, watch=watching)
@@ -2059,6 +2062,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def watch_socket(ws, room, token):
         await ws.accept()
         room.watchers.setdefault(token, set()).add(ws)
+        if token not in room.watch_slots:
+            taken = set(room.watch_slots.values())
+            room.watch_slots[token] = next(slot for slot in range(len(taken) + 1) if slot not in taken)
         try:
             await broadcast(room)  # the players see one more watching
             while True:
@@ -2082,6 +2088,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if not room.watchers.get(token):
                 room.watchers.pop(token, None)
                 room.watch_seats.pop(token, None)
+                room.watch_slots.pop(token, None)
             await broadcast(room)
 
     @app.post("/api/lobbies/{room_id}/leave")

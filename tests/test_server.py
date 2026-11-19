@@ -194,6 +194,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.host.post(path, json={'emote': 'laughing'}).status_code, 200)
         self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(self.guest.post(path, json={'emote': 'nervous'}).status_code, 200)
+        self.assertEqual(self.guest.post(path, json={'emote': 'luck'}).status_code, 200)  # "Good luck!"
         self.assertEqual(len(self.state()['emotes']), 2)
         self.host.post(f'/api/lobbies/{self.id}/leave')
         self.assertEqual(self.guest.post(path, json={'emote': 'shocked'}).status_code, 409)
@@ -543,10 +544,18 @@ class WebTests(unittest.TestCase):
         # a spectator can't move, but can emote, as "Spectator"
         self.assertEqual(self.guest.post(f'/api/lobbies/{room.id}/action', json={'action': 'draw', 'version': room.version}).status_code, 403)
         after = self.guest.post(f'/api/lobbies/{room.id}/emote', json={'emote': 'wow'}).json()
-        self.assertEqual([(emote['player'], emote['seat']) for emote in after['emotes']], [('spectator:0', 0)])
+        self.assertEqual([(emote['player'], emote['seat'], emote['name']) for emote in after['emotes']], [('spectator:0', 0, 'Sam')])
         with self.guest.websocket_connect(f'/ws/{room.id}') as socket:
             socket.send_text('ping')
             self.assertTrue(socket.receive_json()['spectator'])
+            # a second spectator gets the next row, so both can cheer at once
+            self.outsider.post(f'/api/spectate/{room.id}')
+            with self.outsider.websocket_connect(f'/ws/{room.id}') as other:
+                other.send_text('ping')
+                other.receive_json()
+                self.assertEqual(sorted(room.watch_slots.values()), [0, 1])
+                emotes = self.outsider.post(f'/api/lobbies/{room.id}/emote', json={'emote': 'luck'}).json()['emotes']
+                self.assertEqual(sorted(emote['player'] for emote in emotes), ['spectator:0', 'spectator:1'])
         # the player leaves and starts again: the spectator follows them to the new table
         self.host.post(f'/api/lobbies/{room.id}/leave')
         new = self.host.post('/api/solo', json={'practice': True}).json()

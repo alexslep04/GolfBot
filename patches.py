@@ -24,7 +24,7 @@ PATCH_NOTES = [{
         "Score Previews! Preview your score before you confirm the move. This feature can be disabled for all players by the host of a PvP game.",
         "Players 5-8 now have their own colors! Orange, dark blue, dark green, and light purple.",
         "Profiles! Pick your avatar and display name once in Settings, and skip choosing them before every game.",
-        "New text emotes! \"Wow!\", \"What a save!\" and \"Ofc!\"",
+        "New text emotes! \"Good luck!\", \"Wow!\", \"What a save!\" and \"Ofc!\"",
         "New emote! Cackling.",
         "Every guest now has their own stats profile. The leaderboards show all guests together as one Guest.",
         "New stat: average time spent on move.",

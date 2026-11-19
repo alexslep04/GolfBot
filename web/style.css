@@ -3046,7 +3046,26 @@ button.tag-rules:active > .tag-in {
 /* wider screens: the bubbles sit just outside the board's own edges (measured in
    board.js), not out at the screen's; where there's no room beside the board they
    stay on screen */
+/* the spectator's name only shows on wide screens, lettered in the player's paler color */
+.spectator-name {
+  display: none;
+}
 @media (min-width: 700px) {
+  .spectator-name {
+    display: block;
+    max-width: 14rem;
+    margin-left: 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--c2);
+    font: 700 1.4rem/1.1 var(--text);
+  }
+  /* each spectator has their own row, so several can cheer at once */
+  .spectator-emote.from-left,
+  .spectator-emote.from-right {
+    top: calc(18% + var(--slot, 0) * 7.4rem);
+  }
   .spectator-emote.from-left {
     left: auto;
     right: min(calc(100vw - var(--board-l, 0px) + 1.4rem), calc(100vw - 9rem));
