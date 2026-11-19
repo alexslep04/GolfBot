@@ -936,7 +936,11 @@ function renderTags() {
   // a buzz (and a controller rumble) once for each turn that comes to you,
   // including the first one of a game or the one waiting when the table opens
   const turnKey = turn ? `${state.id}|${state.round}|${g.turns}|${g.phase === "setup"}` : "";
-  if (turn && turnKey !== lastTurnBuzz) haptic("turn");
+  if (turn && turnKey !== lastTurnBuzz) {
+    haptic("turn");
+    // with turn notifications on, a phone also gets a short notification, which buzzes
+    if (typeof buzzTurnNotification === "function" && document.visibilityState === "visible") buzzTurnNotification();
+  }
   lastTurnBuzz = turnKey;
   board.signatures.turn = turn;
   const upNext = nextUp();

@@ -22,6 +22,7 @@ PATCH_NOTES = [{
         "Players 5-8 now have their own colors! Orange, dark blue, dark green, and light purple.",
         "Avatars are now unique to each player, except for the golfer because we're all golfers 💯.",
         "New text emotes! \"Wow!\" and \"What a save!\"",
+        "Notifications! Get alerted when it's your turn.",
     ],
 }, {
     "version": "1.2.0",

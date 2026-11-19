@@ -919,6 +919,30 @@ async function subscribeTurnAlerts(ask) {
     (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(key) }));
   await api("/api/push/subscribe", "POST", { subscription: subscription.toJSON() });
 }
+/**
+ * On a phone, your turn also shows a short notification while Golf is open, so
+ * the phone buzzes with its own alert (the only buzz some phones allow a web
+ * page). Away from Golf, the server's push does the same.
+ */
+async function buzzTurnNotification() {
+  if (!prefs.turnAlerts || !touchDevice || !pushSupported() || Notification.permission !== "granted") return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration(appPath("/sw.js"));
+    if (!registration) return;
+    await registration.showNotification("Your turn in Golf", {
+      body: state?.name ? `${state.name}: it's your move.` : "It's your move.",
+      tag: "golf-turn",
+      renotify: true,
+      vibrate: [90, 70, 90],
+      icon: appPath("/static/assets/icon.png"),
+      data: { url: location.href },
+    });
+    // it has done its job once it buzzed: don't leave it lying in the tray
+    setTimeout(async () => {
+      for (const note of await registration.getNotifications({ tag: "golf-turn" })) note.close();
+    }, 4000);
+  } catch {}
+}
 async function toggleTurnAlerts() {
   const on = !prefs.turnAlerts;
   try {
@@ -1519,7 +1543,7 @@ function connectRoom(id) {
     if (socket !== ws) return;
     opened = true;
     // the server only sends a turn notification when no page of yours is in front
-    ws.send(document.visibilityState === "hidden" ? "hidden" : "visible");
+    ws.send(pageAway() ? "hidden" : "visible");
     heartbeat = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 20000);
@@ -1539,14 +1563,18 @@ function connectRoom(id) {
 }
 // Leaving the site and coming back: say so to the server, and if the connection
 // was dropped meanwhile (phones close it in the background), reconnect at once.
-document.addEventListener("visibilitychange", () => {
-  const visible = document.visibilityState === "visible";
-  if (socket?.readyState === WebSocket.OPEN) socket.send(visible ? "visible" : "hidden");
-  if (visible && session?.room_id && page === "room" && socket?.readyState !== WebSocket.OPEN && socket?.readyState !== WebSocket.CONNECTING) {
+// "Away" is a hidden tab or, on a desktop, a window behind another app.
+const pageAway = () => document.visibilityState === "hidden" || !document.hasFocus();
+function reportPresenceToTable() {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(pageAway() ? "hidden" : "visible");
+  if (!pageAway() && session?.room_id && page === "room" && socket?.readyState !== WebSocket.OPEN && socket?.readyState !== WebSocket.CONNECTING) {
     clearTimeout(retry);
     connectRoom(session.room_id);
   }
-});
+}
+document.addEventListener("visibilitychange", reportPresenceToTable);
+window.addEventListener("focus", reportPresenceToTable);
+window.addEventListener("blur", reportPresenceToTable);
 function accept(next) {
   if (state && state.id === next.id && next.version < state.version) return;
   syncEmotes(next);

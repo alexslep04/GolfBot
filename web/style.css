@@ -1603,6 +1603,12 @@ body > header.topbar {
   overflow: hidden;
   transition: background 0.3s;
 }
+/* A score tag clips only top and bottom (where the rolling digits come and go):
+   at the sides a wide number's sticker edge and shadow may reach past the panel. */
+.tag-score > .tag-in {
+  overflow: visible;
+  clip-path: inset(0 -3rem);
+}
 /* (what a tag shows is redrawn too: the tag itself takes the pointer) */
 .tag > .tag-in > * {
   pointer-events: none;

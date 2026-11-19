@@ -392,8 +392,15 @@ class Store:
         # a declined pair: frozenset of two tokens -> (cooldown end, each one's queue join time then)
         self.queue_declined = {}
         self.queue_lock = asyncio.Lock()
-        # turn notifications: each browser's push subscription, and the last turn it was told about
+        # turn notifications: each browser's push subscription (kept beside the match
+        # history so a restart does not forget them), and the last turn it was told about
+        self.push_file = None if str(history_path) == ":memory:" else Path(history_path).with_name("push-subscriptions.json")
         self.push_subscriptions = {}
+        if self.push_file and self.push_file.exists():
+            try:
+                self.push_subscriptions = json.loads(self.push_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                self.push_subscriptions = {}
         self.push_told = {}
         self.push_keys = None  # loaded or made on first use; False when pywebpush is missing
         self.push_contact = None
@@ -887,6 +894,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             path.write_text(json.dumps(store.push_keys), encoding='utf-8')
         return store.push_keys
 
+    def save_push_subscriptions():
+        if store.push_file:
+            try:
+                store.push_file.write_text(json.dumps(store.push_subscriptions), encoding='utf-8')
+            except OSError:
+                log.warning('Could not save turn notification subscriptions')
+
     def send_push(token, subscription, payload):
         keys = push_keys()
         if not keys:
@@ -901,6 +915,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             # a subscription the browser has dropped is forgotten
             if error.response is not None and error.response.status_code in (404, 410):
                 store.push_subscriptions.pop(token, None)
+                save_push_subscriptions()
             else:
                 log.warning('Turn notification failed: %s', error)
         except Exception:
@@ -1078,14 +1093,18 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if not isinstance(endpoint, str) or not endpoint.startswith('https://') or not isinstance(subscription.get('keys'), dict):
             raise HTTPException(422, 'That is not a push subscription.')
         store.push_subscriptions[session.token] = {'endpoint': endpoint, 'keys': subscription['keys']}
-        # push services ask who is sending: the address this game is served from
-        store.push_contact = store.push_contact or str(request.base_url)
+        save_push_subscriptions()
+        # push services ask who is sending: the site this game is served from, as
+        # a bare https://host (the signing library refuses a path or plain http)
+        host = request.url.hostname or ''
+        store.push_contact = f'https://{host if "." in host or ":" in host else "localhost"}'
         return {'ok': True}
 
     @app.post('/api/push/unsubscribe')
     async def push_unsubscribe(request: Request):
         session = session_for(request)
         store.push_subscriptions.pop(session.token, None)
+        save_push_subscriptions()
         return {'ok': True}
 
     @app.get('/sw.js')
