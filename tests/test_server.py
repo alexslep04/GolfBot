@@ -518,6 +518,9 @@ class WebTests(unittest.TestCase):
             self.assertNotEqual(game.players[1][5].visible, hidden)
             self.host.post(url, json={'op': 'set', 'ref': [0, 0], 'rank': 5, 'suit': 'D'})
             self.assertEqual((game.players[0][0].card.rank, game.players[0][0].card.suit), (5, 'D'))
+            # a fresh Queen pair turned over at the end would earn a bonus swap; ending skips it
+            for index, suit in ((1, 'H'), (4, 'S')):
+                self.host.post(url, json={'op': 'set', 'ref': [0, index], 'rank': 12, 'suit': suit})
             state = self.host.post(url, json={'op': 'end'}).json()
         self.assertEqual(state['game']['phase'], 'over')
         self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
@@ -537,7 +540,7 @@ class WebTests(unittest.TestCase):
         # a spectator can't move, but can emote, as "Spectator"
         self.assertEqual(self.guest.post(f'/api/lobbies/{room.id}/action', json={'action': 'draw', 'version': room.version}).status_code, 403)
         after = self.guest.post(f'/api/lobbies/{room.id}/emote', json={'emote': 'wow'}).json()
-        self.assertEqual([emote['player'] for emote in after['emotes']], ['spectator'])
+        self.assertEqual([(emote['player'], emote['seat']) for emote in after['emotes']], [('spectator:0', 0)])
         with self.guest.websocket_connect(f'/ws/{room.id}') as socket:
             socket.send_text('ping')
             self.assertTrue(socket.receive_json()['spectator'])

@@ -45,6 +45,16 @@
   font-display: block;
 }
 :root {
+  /* the dim (and slight blur) behind results, sheets and popups: deep enough
+     that the table behind stops competing with what's on top */
+  --scrim: rgb(20 44 12 / 0.58);
+  --scrim-blur: blur(3px);
+}
+/* on the dark tables a green tint would muddy them: a plain deeper dark */
+:root:is([data-theme="poker"], [data-theme="night"]) {
+  --scrim: rgb(0 0 0 / 0.6);
+}
+:root {
   --u: min(1px, 100vw / 402);
   font-size: calc(var(--u) * 10);
   --bg: #c4efab;
@@ -1742,6 +1752,49 @@ button.tag-rules:active > .tag-in {
   align-items: center;
 }
 /* the old score, scrolling out over the new one (see rollScore) */
+/* the Spectate list: each player's name over their points, as stickers like the table's */
+.watch-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.6rem;
+  margin-bottom: 0.4rem;
+}
+.watch-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  color: var(--ink);
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.watch-player .who {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.4rem;
+}
+.watch-player .score {
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 0.2rem;
+  padding: 0;
+}
+.watch-player .score .digits {
+  height: 3rem;
+}
+.watch-player .score .digits .stk {
+  font-size: 3.4rem;
+  --sw: 0.7rem;
+}
+.watch-player .score .digits.long .stk {
+  font-size: 2.8rem;
+}
+.watch-player .score .pts {
+  font-size: 1.5rem;
+  --sw: 0.5rem;
+}
 .score:has(> .roll-out) {
   position: relative;
 }
@@ -1774,7 +1827,7 @@ button.tag-rules:active > .tag-in {
 }
 /* Dark themes: the avatar and the points numerals take the avatar picker's
    look, a dark fill of the seat's color inside an outline of that color */
-:root:is([data-theme="poker"], [data-theme="night"]) :is(.tag-avatar, .tag-score .score) {
+:root:is([data-theme="poker"], [data-theme="night"]) :is(.tag-avatar, .tag-score .score, .watch-badge) {
   --fill: var(--c2);
   --stroke: var(--c);
 }
@@ -1792,6 +1845,22 @@ button.tag-rules:active > .tag-in {
   flex: none;
   width: 100%;
   height: 3rem;
+}
+/* The streak and the cycle button share one row under the opponent's tag,
+   side by side and a size down so both fit across the column */
+.side-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  max-width: 100%;
+}
+.side-row > .streak,
+.side-row .cycle {
+  zoom: 0.72;
+}
+.side-row > .streak {
+  margin-top: 0;
 }
 /* Solo: your win streak against Golfbot, under its score tag. A faded gray
    flame at zero; lit in full color with a glow that brightens as it grows. */
@@ -1933,7 +2002,8 @@ button.tag-rules:active > .tag-in {
   visibility: hidden;
 }
 .b-top.sliding > .b-main,
-.b-top.sliding > .b-side > :not(.cycle-wrap) {
+.b-top.sliding > .b-side > :not(.side-row),
+.b-top.sliding .side-row > :not(.cycle-wrap) {
   translate: var(--slide, 0) 0;
   opacity: var(--slide-opacity, 1);
   filter: var(--slide-blur, none);
@@ -2894,16 +2964,129 @@ button.tag-rules:active > .tag-in {
   box-shadow: 0.25rem 0.25rem 0 var(--shadow);
   transform-origin: 100% 50%;
 }
-/* a spectator's emote: the same white tooltip, floating mid-table with no arrow */
-.player-emote.other.spectator {
+/* A spectator's emote, on behalf of the player they watch: a speech bubble in
+   that player's color, its tail pointing at the screen edge it glides in from:
+   the left for the hand at the bottom of the screen, the right for anyone
+   across the table. It eases in, rests, then drifts back out and fades. */
+.spectator-emote {
   position: absolute;
-  left: 50%;
-  top: 42%;
-  translate: -50% 0;
-  transform-origin: 50% 50%;
+  z-index: 87;
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  /* a paper rim, like the stickers': white on Original, each theme's own paper elsewhere */
+  border: 0.3rem solid var(--paper);
+  border-radius: 1.4rem;
+  background: var(--c);
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0.25rem 0.25rem 0 var(--shadow);
+  pointer-events: none;
 }
-.player-emote.other.spectator::after {
-  content: none;
+/* right on the edge: the tail's tip just reaches it */
+.spectator-emote.from-left {
+  left: 1rem;
+  top: 38%;
+  transform-origin: 0 50%;
+  animation: spectator-in-left 4s both;
+}
+.spectator-emote.from-right {
+  right: 1rem;
+  top: 36%;
+  transform-origin: 100% 50%;
+  animation: spectator-in-right 4s both;
+}
+/* the tail: a paper triangle, with the bubble's color inside it */
+.spectator-emote::before,
+.spectator-emote::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  border: solid transparent;
+}
+.spectator-emote::before {
+  margin-top: -1rem;
+  border-width: 1rem;
+}
+.spectator-emote::after {
+  margin-top: -0.6rem;
+  border-width: 0.6rem;
+}
+.spectator-emote.from-left::before {
+  right: calc(100% + 0.05rem);
+  border-right-color: var(--paper);
+  border-left: 0;
+}
+.spectator-emote.from-left::after {
+  right: calc(100% - 0.05rem);
+  border-right-color: var(--c);
+  border-left: 0;
+}
+.spectator-emote.from-right::before {
+  left: calc(100% + 0.05rem);
+  border-left-color: var(--paper);
+  border-right: 0;
+}
+.spectator-emote.from-right::after {
+  left: calc(100% - 0.05rem);
+  border-left-color: var(--c);
+  border-right: 0;
+}
+.spectator-emote img {
+  width: 3.6rem;
+  height: 3.6rem;
+  object-fit: contain;
+}
+.spectator-say {
+  font: 700 1.5rem/1.1 var(--text);
+}
+@keyframes spectator-in-left {
+  0% {
+    translate: calc(-100% - 1.6rem) 0;
+    scale: 0.85;
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.22, 1.2, 0.36, 1);
+  }
+  14% {
+    translate: 0 0;
+    scale: 1;
+    opacity: 1;
+  }
+  84% {
+    translate: 0 0;
+    scale: 1;
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.2);
+  }
+  100% {
+    translate: calc(-60% - 1.6rem) 0;
+    scale: 0.92;
+    opacity: 0;
+  }
+}
+@keyframes spectator-in-right {
+  0% {
+    translate: calc(100% + 1.6rem) 0;
+    scale: 0.85;
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.22, 1.2, 0.36, 1);
+  }
+  14% {
+    translate: 0 0;
+    scale: 1;
+    opacity: 1;
+  }
+  84% {
+    translate: 0 0;
+    scale: 1;
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 0.75, 0.2);
+  }
+  100% {
+    translate: calc(60% + 1.6rem) 0;
+    scale: 0.92;
+    opacity: 0;
+  }
 }
 .player-emote.other::after {
   content: "";
@@ -2962,7 +3145,7 @@ button.tag-rules:active > .tag-in {
   transform: translate(-50%, -50%);
   box-shadow:
     0.4rem 0.4rem 0 var(--shadow),
-    0 0 0 200vmax rgb(34 71 21 / 0.24);
+    0 0 0 200vmax var(--scrim);
   animation: summary-in 0.5s var(--spring) both;
 }
 .summary .row {
@@ -3201,7 +3384,9 @@ button.tag-rules:active > .tag-in {
   inset: 0;
   /* above everything on the table, lifted (60) and flying (80) cards included */
   z-index: 85;
-  background: rgb(34 71 21 / 0.36);
+  background: var(--scrim);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
   animation: scrim-in 0.4s ease-out both;
   animation-delay: var(--t, 0s);
 }
@@ -3306,6 +3491,41 @@ button.tag-rules:active > .tag-in {
 }
 .player-card-head {
   font-size: 1.6rem;
+}
+/* spectators watching from a player's seat: on the front right corner of their name tag,
+   the eye and the count as small stickers of the same size, in the tag's color inside a
+   paper outline (white on Original, each theme's own paper elsewhere) */
+.tag-score {
+  position: relative;
+}
+.watch-badge {
+  position: absolute;
+  top: -1rem;
+  right: -0.4rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  pointer-events: none;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+/* the opponent's tag hangs from the top of the screen: its front corner is the bottom one */
+.b-top .watch-badge {
+  top: auto;
+  bottom: -0.2rem;
+}
+.watch-badge[hidden] {
+  display: none;
+}
+.watch-badge .ico {
+  width: 2.1rem !important;
+  height: 2.1rem !important;
+  margin: 0 -0.1rem 0 0 !important;
+}
+.watch-badge .stk {
+  font: 700 1.6rem/1 var(--round);
+  --sw: 0.45rem;
 }
 .chart-title {
   display: flex;
@@ -3547,7 +3767,9 @@ button.tag-rules:active > .tag-in {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgb(34 71 21 / 0.35);
+  background: var(--scrim);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4145,7 +4367,9 @@ button:disabled > .haptic-switch {
   animation: pop 0.4s var(--spring);
 }
 .social-dialog::backdrop {
-  background: rgb(34 71 21 / 0.35);
+  background: var(--scrim);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
 }
 .social-dialog h2 {
   font-size: 2.4rem;

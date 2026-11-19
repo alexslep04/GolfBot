@@ -223,8 +223,9 @@ class Room:
     turn_clock: dict | None = None
     # a Practice game changed from the debug menu: its result is never recorded
     debug_edited: bool = False
-    # spectators' sockets by session token; they see the table from the first seat
+    # spectators' sockets by session token, and the seat each is watching from
     watchers: dict = field(default_factory=dict)
+    watch_seats: dict = field(default_factory=dict)
 
     practice: bool = False
     rated: bool = False
@@ -634,6 +635,9 @@ def snapshot(room, token, watch=False):
     viewer = 0 if watch else room.seats.index(token)
     state = {**public_room(room), "viewer": viewer, "version": room.version,
              "spectator": watch, "watchers": sum(bool(sockets) for sockets in room.watchers.values()),
+             # how many are watching from each player's seat (their name tag shows it)
+             "watchers_by_seat": [sum(1 for other, sockets in room.watchers.items() if sockets
+                                      and room.watch_seats.get(other, 0) == seat) for seat in range(len(room.seats))],
              "emotes": public_emotes(room),
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
@@ -1227,6 +1231,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 game.bonus_remaining = 0
                 game.scoring_reveal = True
                 game._resolve_scoring_reveal()
+                if game.phase == "bonus":
+                    # straight to the result: skip the swaps the final reveal would hand out
+                    game.final_bonus_queue, game.bonus_remaining = [], 0
+                    game.phase = "over"
+                    scores = [game.score(p) for p in range(game.player_count)]
+                    winners = [p for p, score in enumerate(scores) if score == min(scores)]
+                    game.message = f"Player {winners[0] + 1} wins." if len(winners) == 1 else "It's a draw!"
             else:
                 if edit.ref is None:
                     raise HTTPException(422, "Choose a card.")
@@ -1976,11 +1987,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 raise HTTPException(403, "You do not have a seat in this lobby.")
             if room.game is None or room.status not in ("playing", "round_over", "finished"):
                 raise HTTPException(409, "Emotes are available at the game table.")
-            # every spectator speaks as one "Spectator"
-            player = "spectator" if watching else room.seats.index(session.token)
+            # a spectator cheers on behalf of the player they watch from: everyone
+            # watching that seat speaks as one "Spectator" ("spectator:<seat>")
+            seat = room.watch_seats.get(session.token, 0) if watching else None
+            player = f"spectator:{seat}" if watching else room.seats.index(session.token)
             room.emote_sequence += 1
             room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
-                                   "expires_at": time.time() + EMOTE_SECONDS}
+                                   "expires_at": time.time() + EMOTE_SECONDS,
+                                   **({"seat": seat} if watching else {})}
             # Cosmetic events must not invalidate a simultaneous card action.
             await broadcast(room)
             return snapshot(room, session.token, watch=watching)
@@ -2045,12 +2059,18 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         try:
             await broadcast(room)  # the players see one more watching
             while True:
-                await ws.receive_text()
+                text = await ws.receive_text()
                 session = store.sessions.get(token)
                 if session is None or session.watching != room.id:
                     await ws.close(code=4403)
                     return
                 session.touched = time.time()
+                # "seat:N": the spectator turned the table to watch from player N's seat
+                seat = text.removeprefix("seat:")
+                if seat != text and seat.isdigit() and int(seat) < len(room.seats):
+                    room.watch_seats[token] = int(seat)
+                    await broadcast(room)
+                    continue
                 await ws.send_json(snapshot(room, token, watch=True))
         except WebSocketDisconnect:
             pass
@@ -2058,6 +2078,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             room.watchers.get(token, set()).discard(ws)
             if not room.watchers.get(token):
                 room.watchers.pop(token, None)
+                room.watch_seats.pop(token, None)
             await broadcast(room)
 
     @app.post("/api/lobbies/{room_id}/leave")

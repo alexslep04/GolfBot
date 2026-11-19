@@ -344,13 +344,14 @@ function stackCycleName(holder) {
 }
 
 /* ---------- card markup ---------- */
-function faceHtml(card) {
+/** `rippedFive`: whether the 5 of diamonds wears its torn skin (only with the rule in play at the table). */
+function faceHtml(card, rippedFive = !!state?.rules?.ripped_five) {
   if (!card)
     return `<span class="face front"></span><span class="face back"></span>`;
   const red = card.suit === "H" || card.suit === "D";
   const corner = `<span class="corner"><b>${e(card.label)}</b>${icon(SUIT_ICON[card.suit], 16, { idle: false, flat: true, sw: 2.4 })}</span>`;
-  // the 5 of diamonds is the ripped 5: torn across the middle
-  const ripped = card.suit === "D" && card.rank === 5 ? " ripped" : "";
+  // the 5 of diamonds is the ripped 5: torn across the middle (and only when that rule is on)
+  const ripped = rippedFive && card.suit === "D" && card.rank === 5 ? " ripped" : "";
   // (its two halves are drawn apart, so they can tear open as it turns over)
   const halves = ripped ? `<span class="rip-half top"></span><span class="rip-half bottom"></span>` : "";
   return `<span class="face front${red ? " red" : ""} suit-${card.suit}${ripped}">${halves}${corner}${corner}</span><span class="face back"></span>`;
@@ -392,11 +393,13 @@ function mountBoard() {
         <div class="hand" data-hand="opp">${hand("opp", HAND_TILT[1])}</div>
       </div>
       <div class="b-side">
-        <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span><span class="turn-label" data-turn-label aria-hidden="true">Up next</span></button>
+        <button type="button" class="tag tag-score" data-score-for="opp" data-stats-for="opp"><span class="tag-in"></span><span class="watch-badge" data-watch-badge hidden></span><span class="turn-label" data-turn-label aria-hidden="true">Up next</span></button>
         <span class="tag-avatar" data-avatar-for="opp" aria-hidden="true"></span>
         <div class="turn-slot" data-turn-slot></div>
-        <div class="streak" data-streak data-practice-streak role="img" hidden></div>
-        <div class="cycle-wrap"><button type="button" class="cycle" data-cycle-next hidden><span class="cycle-ico"></span><span class="cycle-name"></span></button><div class="cycle-emotes" data-emote-others></div></div>
+        <div class="side-row">
+          <div class="streak" data-streak data-practice-streak role="img" hidden></div>
+          <div class="cycle-wrap"><button type="button" class="cycle" data-cycle-next hidden><span class="cycle-ico"></span><span class="cycle-name"></span></button><div class="cycle-emotes" data-emote-others></div></div>
+        </div>
       </div>
     </section>
     <section class="b-mid">
@@ -431,7 +434,7 @@ function mountBoard() {
             <button type="button" class="icon-btn" data-emotes aria-label="Quick emotes">${icon("text.bubble.fill", 44)}</button>
           </div>
           <span class="tag-avatar" data-avatar-for="me" aria-hidden="true"></span>
-          <button type="button" class="tag tag-score c-p1" data-score-for="me" data-stats-for="me"><span class="tag-in"></span><span class="turn-label" data-turn-label aria-hidden="true">Your turn</span></button>
+          <button type="button" class="tag tag-score c-p1" data-score-for="me" data-stats-for="me"><span class="tag-in"></span><span class="watch-badge" data-watch-badge hidden></span><span class="turn-label" data-turn-label aria-hidden="true">Your turn</span></button>
         </div>
         <div class="b-main">
           <div class="hand" data-hand="me">${hand(me, HAND_TILT[0])}</div>
@@ -1015,6 +1018,14 @@ function renderTags() {
     const color = colorFor(player);
     const scoreTag = board.el.querySelector(`[data-score-for='${side}']`);
     const rulesTag = board.el.querySelector(`[data-rules-for='${side}']`);
+    // spectators watching from this player's seat: a small eye and count on the tag's corner
+    const watchBadge = scoreTag.querySelector("[data-watch-badge]");
+    const watchers = state.watchers_by_seat?.[player] || 0;
+    watchBadge.hidden = !watchers;
+    patch(`watch-${side}`, watchBadge, String(watchers), () =>
+      watchers ? `${icon("eye.fill", 12, { idle: false })}${stickerText(String(watchers), { idle: false })}` : "",
+    );
+    watchBadge.setAttribute("aria-label", `${watchers} watching`);
     for (const tag of [scoreTag, rulesTag]) {
       tag.classList.remove(...OPPONENT_COLORS);
       tag.classList.add(color);
@@ -1105,10 +1116,14 @@ function renderTags() {
   // the cycle button wears the color of the opponent it turns to
   const cycle = board.el.querySelector("[data-cycle-next]");
   const others = otherPlayers();
-  cycle.hidden = others.length < 2;
-  board.signatures.cycleShown = others.length > 1;
-  if (others.length > 1) {
-    const next = others[(others.indexOf(board.view.opp) + 1) % others.length];
+  // a spectator's turns the whole table, so it shows even at a 1v1
+  const cycles = state.spectator ? state.names.length > 1 : others.length > 1;
+  cycle.hidden = !cycles;
+  board.signatures.cycleShown = cycles;
+  if (cycles) {
+    const next = state.spectator
+      ? (state.viewer + 1) % state.names.length
+      : others[(others.indexOf(board.view.opp) + 1) % others.length];
     cycle.classList.remove(...OPPONENT_COLORS);
     cycle.classList.add(colorFor(next));
     patch("cycle", cycle.querySelector(".cycle-ico"), "static", () =>
@@ -1125,7 +1140,7 @@ function renderTags() {
     }
     cycle.setAttribute(
       "aria-label",
-      `Show ${state.names[next]}'s cards. Swipe to browse opponents.`,
+      state.spectator ? `Watch from ${state.names[next]}'s seat.` : `Show ${state.names[next]}'s cards. Swipe to browse opponents.`,
     );
   }
   board.el.querySelector("[data-draw-label]").textContent =
@@ -1308,9 +1323,11 @@ function renderChrome() {
 
 function renderEmotes() {
   const layer = board.el.querySelector("[data-emote-layer]");
+  // spectators cheer on behalf of the player they watch: "spectator:<seat>"
+  const spectators = Object.keys(activeEmotes).filter((key) => key.startsWith("spectator:"));
   const signature = state.names
     .map((_, p) => activeEmotes[p]?.sequence || 0)
-    .join() + `|${activeEmotes.spectator?.sequence || 0}`;
+    .join() + `|${spectators.map((key) => `${key}=${activeEmotes[key].sequence}`).join()}`;
   // you and the opponent showing react beside your own cards; anyone else
   // speaks up from the cycle button that leads to them
   const players = state.names.map((_, p) => p);
@@ -1318,9 +1335,9 @@ function renderEmotes() {
   // on the results everyone has a tile, and reacts from above it instead
   const tiles = [...(board.el.querySelectorAll?.("[data-tile-emote]") ?? [])];
   const results = tiles.length > 0;
-  // spectators all speak as one "Spectator", from the middle of the table (results too)
-  patch("emotes", layer, signature + board.view.opp + results, () =>
-    (results ? "" : players.filter(showing).map((p) => playerEmote(p)).join("")) + playerEmote("spectator"),
+  // spectators' bubbles slide in from the edges, over the results too
+  patch("emotes", layer, signature + board.view.opp + results + state.viewer, () =>
+    (results ? "" : players.filter(showing).map((p) => playerEmote(p)).join("")) + spectators.map(spectatorEmote).join(""),
   );
   patch("emotes-others", board.el.querySelector("[data-emote-others]"), signature + board.view.opp + results, () =>
     results ? "" : players.filter((p) => !showing(p)).map((p) => playerEmote(p)).join(""),
@@ -1369,18 +1386,33 @@ document.addEventListener?.(
 );
 /** A face emote is its sticker; a text emote is a speech bubble saying it. */
 function emoteArt(item, player) {
-  const who = player === "spectator" ? "Spectator" : state.names[player];
+  const who = String(player).startsWith("spectator") ? "Spectator" : state.names[player];
   if (TEXT_EMOTES.includes(item.id))
     return `<span class="emote-say" aria-label="${e(who)}: ${e(emoteNames[item.id])}">${e(emoteNames[item.id])}</span>`;
   return `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${e(who)}: ${emoteNames[item.id]} emote">`;
+}
+/**
+ * A spectator's emote, on behalf of the player they watch: a speech bubble in
+ * that player's color, sliding in from the left for the hand at the bottom of
+ * this screen and from the right for anyone across the table.
+ */
+function spectatorEmote(key) {
+  const item = activeEmotes[key];
+  if (!item || item.ends <= Date.now() || (opponentEmotesMuted && !state.spectator)) return "";
+  const seat = Number(item.seat ?? key.split(":")[1]);
+  if (!Number.isInteger(seat) || seat >= state.names.length) return "";
+  const age = Math.max(0, 4000 - (item.ends - Date.now()));
+  const side = seat === state.viewer ? "from-left" : "from-right";
+  const art = TEXT_EMOTES.includes(item.id)
+    ? `<b class="spectator-say">${e(emoteNames[item.id])}</b>`
+    : `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="${emoteNames[item.id]} emote">`;
+  return `<div class="spectator-emote ${side} ${colorFor(seat)}" data-emote-player="${e(key)}" role="status" aria-label="A spectator of ${e(state.names[seat])}: ${e(emoteNames[item.id])}" style="animation-delay:-${age}ms">${art}</div>`;
 }
 function playerEmote(player, onTile = false) {
   if (opponentEmotesMuted && player !== state.viewer) return "";
   const item = activeEmotes[player];
   if (!item || item.ends <= Date.now()) return "";
   const age = Math.max(0, 4000 - (item.ends - Date.now()));
-  if (player === "spectator")
-    return `<div class="player-emote other spectator c-fw" data-emote-player="spectator" role="status" style="animation-delay:-${age}ms"><span class="emote-who">${icon("eye.fill", 26, { idle: false })}<b>Spectator</b></span>${emoteArt(item, player)}</div>`;
   const where =
     player === state.viewer ? "me" : player === board.view.opp ? "them" : "other";
   const image = emoteArt(item, player);
@@ -2579,7 +2611,12 @@ document.addEventListener(
       swipeEnded = 0;
       event.stopPropagation();
       event.preventDefault();
-    } else if (event.target.closest?.("[data-cycle-next]")) cycleOpponent(1);
+    } else if (event.target.closest?.("[data-cycle-next]")) {
+      if (state?.spectator) {
+        watchNextSeat();
+        spinCycle(1);
+      } else cycleOpponent(1);
+    }
     else {
       const tip = event.target.closest?.(".callout[data-goto]");
       if (tip) goToOpponent(Number(tip.dataset.goto));

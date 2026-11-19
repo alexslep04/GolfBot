@@ -1119,6 +1119,19 @@ document.addEventListener(
   },
   true,
 );
+/**
+ * A spectator's cycle button turns the whole table: the next player's hand
+ * comes to the bottom, and the one that was there goes up top.
+ */
+function watchNextSeat() {
+  if (!state?.spectator) return;
+  const previous = state.viewer;
+  watchSeat = (previous + 1) % state.names.length;
+  state.viewer = watchSeat;
+  board.viewedOpponent = previous;
+  if (socket?.readyState === WebSocket.OPEN) socket.send(`seat:${watchSeat}`);
+  renderRoom();
+}
 function gameMenuSheet() {
   const link = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Table menu">
@@ -1479,6 +1492,7 @@ async function playSolo() {
    spectator can send emotes (every one shows as "Spectator"). When the table
    closes, the spectator follows its players to the next game they start. */
 let watching = null, // the table being watched
+  watchSeat = 0, // whose seat the spectator sees the table from (their hand at the bottom)
   followTimer = 0;
 async function spectatePage() {
   stopWatching();
@@ -1491,9 +1505,12 @@ async function spectatePage() {
   const kind = (game) => (game.solo ? "Solo" : game.game_type === "many" ? `${game.players} players` : "1v1");
   const list = others
     .map((game) => {
-      const players = game.names.map((name, p) => `${e(name)} <b>${game.scores[p]}</b>`).join(" · ");
+      // each player as their score tag reads at the table: name over sticker points, in their seat color
+      const players = game.names
+        .map((name, p) => `<span class="watch-player ${SEAT_COLORS[p % SEAT_COLORS.length]}"><span class="who">${e(name)}</span><span class="score">${scoreDigits(game.scores[p], `watch:${game.id}:${p}`)}</span></span>`)
+        .join("");
       const watchers = game.watchers ? ` · ${glyph("eye.fill", 12)} ${game.watchers}` : "";
-      return `<button type="button" class="list-item c-s4" data-watch="${e(game.id)}">${avatarBadge(game.avatars?.[0], "c-s4")}<div class="grow"><strong>${players}</strong><small>${kind(game)} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${glyph("chevron.right", 20)}</button>`;
+      return `<button type="button" class="list-item c-s4" data-watch="${e(game.id)}" aria-label="Watch ${e(game.names.map((name, p) => `${name} ${game.scores[p]} points`).join(", "))}">${avatarBadge(game.avatars?.[0], "c-s4")}<div class="grow"><span class="watch-scores">${players}</span><small>${kind(game)} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${glyph("chevron.right", 20)}</button>`;
     })
     .join("");
   show(
@@ -1509,6 +1526,7 @@ async function watchGame(id) {
 }
 function enterWatch(next) {
   clearTimeout(followTimer);
+  if (watching !== next.id) watchSeat = 0;
   watching = next.id;
   page = "room";
   history.replaceState({}, "", appPath("/spectate"));
@@ -1744,6 +1762,8 @@ function connectRoom(id) {
     opened = true;
     // the server only sends a turn notification when no page of yours is in front
     ws.send(pageAway() ? "hidden" : "visible");
+    // a spectator says whose seat they watch from (that player's name tag counts them)
+    if (watching === id) ws.send(`seat:${watchSeat}`);
     heartbeat = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send("ping");
     }, 20000);
@@ -1785,6 +1805,8 @@ function accept(next) {
   state = next;
   renderVoidOffer();
   if (next.spectator) {
+    // spectators see no hidden cards from any seat, so whose hand sits at the bottom is theirs to pick
+    next.viewer = Math.min(watchSeat, next.names.length - 1);
     // the table being watched closed: look for the players' next one
     if (next.status === "closed") followWatched();
   } else session.room_id = next.id;
@@ -1949,7 +1971,7 @@ function cardGallery() {
     Array.from({ length: 13 }, (_, i) => {
       const card = { rank: i + 1, label: labels[i + 1] || String(i + 1), suit };
       const tilt = HAND_TILT[0][(row * 13 + i) % 6];
-      return `<button type="button" class="slot gallery-slot is-face" style="--rot:${tilt}deg" aria-label="${e(cardName(card))}"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(card)}</span></span></button>`;
+      return `<button type="button" class="slot gallery-slot is-face" style="--rot:${tilt}deg" aria-label="${e(cardName(card))}"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(card, true)}</span></span></button>`;
     }),
   );
   show(
