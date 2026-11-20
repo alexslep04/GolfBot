@@ -360,8 +360,17 @@ function rememberRulesScroll() {
 function topbar() {
   return `<header class="topbar"><button type="button" class="icon-btn" data-settings aria-label="Settings">${icon("gear", 44)}${padTag("start", "under")}</button><div class="queue-slot"></div>${logoHtml()}</header>`;
 }
+/**
+ * Every page but the home menu: Back where the home menu has Settings, the Golf
+ * logo across from it, and the page's title on its own line underneath (with
+ * anything that sits beside the title, like Refresh, in `extra`).
+ */
+function pageHead(backAttrs, title = "", extra = "") {
+  const bar = `<header class="topbar">${backSticker(backAttrs)}<div class="queue-slot"></div>${logoHtml()}</header>`;
+  return title || extra ? `${bar}<div class="row page-head">${title ? `<h1 class="page-title">${e(title)}</h1>` : ""}${extra}</div>` : bar;
+}
 function subHeader(title, back = session?.room_id ? "resume" : "home") {
-  return `<header class="topbar">${backSticker(`data-nav="${back}"`)}<h1 class="page-title" style="margin-left:1.2rem">${e(title)}</h1><div class="queue-slot end"></div></header>`;
+  return pageHead(`data-nav="${back}"`, title);
 }
 function field(label, body, iconName, extra = "") {
   return `<label class="field ${extra}"><span class="label">${e(label)}</span>${iconName ? tilted(iconName, 24) : ""}${body}</label>`;
@@ -380,8 +389,12 @@ function selectField(label, attrs, options, iconName, extra = "") {
 function backSticker(attrs) {
   return `<button type="button" class="close-btn c-fw back-btn" ${attrs} aria-label="Back">${icon("arrowshape.backward.fill", 40)}<span>${padTag("b")}Back</span></button>`;
 }
-function backButton(target = "home") {
-  return backSticker(`data-nav="${target}"`);
+/** An empty list's message, centered in the room the page has left for it, one sentence a line. */
+function emptyNote(...lines) {
+  return `<div class="empty-fill"><p class="hint">${lines.map(e).join("<br>")}</p></div>`;
+}
+function refreshButton(target) {
+  return `<button type="button" class="close-btn c-fw" data-nav="${target}" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button>`;
 }
 
 /* ---------- presence, invitations, quickplay queue ---------- */
@@ -943,6 +956,7 @@ function prefsHtml() {
     row("turnAlerts", "bell.fill", "Turn notifications", onOff(prefs.turnAlerts), prefs.turnAlerts),
     // stored as hideTips (so existing choices carry over), shown the positive way round
     row("hideTips", "text.bubble.fill", "Show tooltips", onOff(!prefs.hideTips), !prefs.hideTips),
+    row("showOdds", "dice.fill", "Show win chances", onOff(prefs.showOdds), prefs.showOdds),
   ];
   if (hapticsAvailable)
     rows.push(row("haptics", "hand.tap.fill", "Haptics", onOff(prefs.haptics), prefs.haptics));
@@ -1181,7 +1195,7 @@ const draft = {
   rulesOpen: false,
 };
 const ENTRY_STYLE = {
-  passplay: { color: "c-s4", glyph: "person.2.fill" }, // Pass & play
+  passplay: { color: "c-s7", glyph: "person.2.fill" }, // Pass & play (green)
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
   solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice
 };
@@ -1218,7 +1232,7 @@ function setupPage() {
     const fixed = ["wins", "points"].includes(draft.style);
     show(
       "setup",
-      `<div class="page centered">${topbar()}<div class="stack wide">
+      `<div class="page">${subHeader("Host a Table", "friends")}<div class="stack wide">
       ${profileChosen() ? "" : field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
       ${
         draft.mode === "host"
@@ -1234,16 +1248,15 @@ function setupPage() {
           ? `<div class="stack">${selectField("Score Preview", `data-draft="scorePreview" aria-label="Score preview"`, [["on", "Before Confirm", draft.scorePreview === "on"], ["off", "None", draft.scorePreview === "off"]], "eye.fill")}<p class="hint">${draft.scorePreview === "on" ? "Players see the score a swap or discard would leave them with before they confirm it." : "Scores change only once a move is confirmed."}</p></div>`
           : ""
       }
-    </div><div class="row">${backButton("friends")}${entryButton("data-setup-next", "Continue")}</div></div>`,
+    </div><div class="row">${entryButton("data-setup-next", "Continue")}</div></div>`,
     );
     return;
   }
-  const back = backSticker("data-setup-back");
   const rules = `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
   const go = `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
   show(
     "setup",
-    `<div class="page">${topbar()}<div class="stack wide">${profileChosen() ? "" : avatarPicker()}${rules}</div><div class="row">${back}${entryButton("data-setup-go", go)}</div></div>`,
+    `<div class="page">${pageHead("data-setup-back", "Host a Table")}<div class="stack wide">${profileChosen() ? "" : avatarPicker()}${rules}</div><div class="row">${entryButton("data-setup-go", go)}</div></div>`,
   );
   centerAvatar(false);
 }
@@ -1530,9 +1543,10 @@ async function spectatePage() {
     .join("");
   show(
     "spectate",
-    `<div class="page scroll">${subHeader("Spectate", "home")}<div class="stack wide">
-    <div class="row" style="align-items:center"><p class="hint dark grow">Games in play right now, solo games included. Tap one to watch.</p><button type="button" class="close-btn c-fw" data-nav="spectate" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button></div>
-    <div class="list">${list || `<p class="hint dark">Nobody is playing right now. Check back soon!</p>`}</div></div></div>`,
+    // laid out like Play with Friends' open tables: the title and Refresh, then the list
+    `<div class="page top">${pageHead(`data-nav="home"`, "Active Games", refreshButton("spectate"))}${
+      list ? `<div class="stack wide"><div class="list">${list}</div></div>` : emptyNote("Nobody is playing right now.", "Check back soon!")
+    }</div>`,
   );
 }
 async function watchGame(id) {
@@ -1622,11 +1636,11 @@ function passPlayPage(step = passStep) {
   }
   show(
     "passplay",
-    `<div class="page">${topbar()}<div class="stack wide">
+    `<div class="page">${pageHead("data-pass-back")}<div class="stack wide">
     <h1 class="page-title pass-step ${SEAT_COLORS[p % SEAT_COLORS.length]}">Player ${p + 1} of ${passPlayers.length}</h1>
     ${avatarPicker(p, player.avatar)}
     ${field("Display Name", `<input data-pass-name="${p}" maxlength="32" value="${e(player.name)}" autocomplete="off" aria-label="Player ${p + 1} display name">`, "character.cursor.ibeam", SEAT_COLORS[p % SEAT_COLORS.length])}
-    </div><div class="row">${backSticker("data-pass-back")}${last ? entryButton("data-pass-start", "Start") : entryButton("data-pass-next", "Next player")}</div></div>`,
+    </div><div class="row">${last ? entryButton("data-pass-start", "Start") : entryButton("data-pass-next", "Next player")}</div></div>`,
   );
   centerAvatar(false);
 }
@@ -1827,19 +1841,18 @@ async function friendsPage() {
   const twin = [tilted("house.fill", 34), tilted("house.fill", 34, { mirror: true })];
   show(
     "friends",
-    `<div class="page">${topbar()}<div class="stack wide"><div class="stack">
-    <div class="row" style="align-items:center"><h1 class="page-title">Open tables</h1><button type="button" class="close-btn c-fw" data-nav="friends" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button></div>
-    <div class="list">${
-      lobbies
+    `<div class="page">${pageHead(`data-nav="home"`, "Open tables", refreshButton("friends"))}${
+      lobbies.length
+        ? `<div class="stack wide"><div class="stack"><div class="list">${lobbies
         .map((lobby) => {
           const open = lobby.status === "waiting" && lobby.players < lobby.capacity;
           return `<button type="button" class="list-item ${open ? "c-p1" : "c-fw"}" data-lobby="${e(lobby.id)}">${avatarBadge(lobby.avatars?.[0], open ? "c-p1" : "c-fw")}<div class="grow"><strong>${e(lobby.name)}</strong><small>${e(lobby.names[0])} · ${lobby.players}/${lobby.capacity} players · ${e(matchLength(lobby))}${open ? "" : " · " + e(lobby.status.replace("_", " "))}</small></div>${glyph("chevron.right", 20)}</button>`;
         })
-        .join("") ||
-      `<p class="hint">No open tables yet. Host one and invite a friend!</p>`
-    }</div></div></div>
+        .join("")}</div></div></div>`
+        : emptyNote("No open tables yet.", "Host one and invite a friend!")
+    }
     <div class="stack"><button type="button" class="btn c-p1" data-nav="host">${twin[0]}<span>${padTag("y")}Host a Table</span></button>
-    <div class="row">${backButton()}<button type="button" class="btn c-s4 grow" data-nav="passplay">${tilted("person.2.fill", 33)}<span>Pass &amp; Play</span></button></div></div></div>`,
+    <button type="button" class="btn c-s7" data-nav="passplay">${tilted("person.2.fill", 33)}<span>Pass &amp; Play</span></button></div></div>`,
   );
 }
 async function publicLobby(id) {
@@ -1854,12 +1867,12 @@ async function publicLobby(id) {
   const twin = [tilted("figure.2", 33), tilted("figure.2", 33, { mirror: true })];
   show(
     "public",
-    `<div class="page">${topbar()}<div class="stack wide">
+    `<div class="page">${pageHead(`data-nav="friends"`)}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${houseBadge(info)}</div><p class="hint">${e(rulesSummary(info.rules))}</p></div>
     ${profileChosen() ? "" : `${avatarPicker(info.players)}
     ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}`}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
-    </div><div class="row">${backButton("friends")}<button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>${padTag("y")}Join Table</span>${twin[1]}</button></div></div>`,
+    </div><div class="row"><button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>${padTag("y")}Join Table</span>${twin[1]}</button></div></div>`,
   );
   centerAvatar(false);
 }
@@ -1869,13 +1882,13 @@ function waitingRoom() {
   const seatColor = (seat) => `c-s${seat % 8}`;
   show(
     "room",
-    `<div class="page">${topbar()}<div class="stack wide">
+    `<div class="page">${pageHead("data-leave")}<div class="stack wide">
     <div class="stack"><h1 class="page-title">${e(state.name)}</h1><div class="meta"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${houseBadge(state)}</div></div>
     <div class="share">${field("Invite Link", `<input readonly aria-label="Lobby invite link" value="${e(url)}">`, "link")}<button type="button" class="btn c-p1" style="flex:none;min-height:5.6rem;font-size:1.8rem;padding:0 1.6rem" data-copy="${e(url)}">Copy</button></div>
     <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${seat === state.viewer ? youStar() : ""}${e(seatName)}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
     <p class="hint">${e(rulesSummary(state.rules))}</p>
     <p class="hint dark">${many ? "The host starts once at least three players have joined." : "The game starts automatically when a friend joins."}</p>
-    </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>${padTag("x")}Invite a Player</span></button>` : ""}<div class="row"><button type="button" class="btn round c-p2" data-leave aria-label="Leave table">${glyph("xmark", 20)}</button>${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>${padTag("y")}Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
+    </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>${padTag("x")}Invite a Player</span></button>` : ""}<div class="row">${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>${padTag("y")}Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
   );
 }
 

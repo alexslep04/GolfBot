@@ -32,6 +32,7 @@ from scoring import (active_rule_effects, column_score, visible_effect_total, mo
                      scoring_rule_keys, ANGEL_RANKS)
 from bot import fallback_action, legal_actions, play_action, public_position
 from bot_workers import BotWorkers
+from odds import odds_key, win_odds
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
@@ -237,6 +238,12 @@ class Room:
     watch_seats: dict = field(default_factory=dict)
     # each spectator's own row on wide screens, kept while they watch (lowest free first)
     watch_slots: dict = field(default_factory=dict)
+    # spectators see each player's chance of winning: the last estimate, and the
+    # table it was made from (see odds.py)
+    odds: list | None = None
+    odds_key: str | None = None
+    odds_game: GolfGame | None = None
+    odds_task: asyncio.Task | None = None
     # pass & play: everyone shares one device, whose session holds the first seat
     local: bool = False
     # when the game in play was dealt (saved with its result, for time played)
@@ -654,6 +661,39 @@ def public_emotes(room):
             for emote in room.emotes.values() if emote["expires_at"] > now]
 
 
+def spectator_odds(room):
+    """Each player's chance of winning this game. Just after a move it is the last
+    estimate, until the new one is ready (refresh_odds sends it on)."""
+    game = room.game
+    if (game is None or room.status != "playing" or game.phase == "over" or room.odds_game is not game
+            or not (room.score_preview or room.solo)):  # a host who turns off score previews turns these off too
+        return None
+    return room.odds
+
+
+def odds_stale(room):
+    game = room.game
+    return (game is not None and room.status == "playing" and game.phase != "over" and (room.score_preview or room.solo)
+            and any(room.watchers.values()) and odds_key(game) != room.odds_key)
+
+
+async def refresh_odds(room, send):
+    """Work out the chances again for a table that has changed, then show the spectators.
+
+    It runs in a thread (it takes a moment), after the players have their update."""
+    while odds_stale(room):
+        game = room.game
+        key = odds_key(game)
+        try:
+            odds = await asyncio.to_thread(win_odds, public_position(game), 300, 0.3)
+        except Exception:
+            log.exception("Win chances failed at table %s", room.id)
+            return
+        if room.game is game and odds_key(game) == key:
+            room.odds, room.odds_key, room.odds_game = odds, key, game
+            await send()
+
+
 def snapshot(room, token, watch=False):
     """The table as one seat sees it; a spectator (watch) sees the first seat's view, with no moves."""
     if token not in room.seats and not watch:
@@ -675,6 +715,7 @@ def snapshot(room, token, watch=False):
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [p in room.bot_seats or room.local or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
              "local": room.local,
+             "odds": spectator_odds(room) if watch else None,
              "message": message(room, viewer), "game": None}
     if room.progression:
         if room.rated:
@@ -1034,6 +1075,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         # A slow connection must not delay every other player at a large table.
         await asyncio.gather(*(send(*delivery) for delivery in deliveries))
         notify_turn(room)
+        # spectators' win chances follow a moment later, once worked out
+        if odds_stale(room) and (room.odds_task is None or room.odds_task.done()):
+            async def send_watchers():
+                watched = snapshot(room, None, watch=True)
+                await asyncio.gather(*(send(ws, sockets, watched) for sockets in list(room.watchers.values())
+                                       for ws in list(sockets)))
+            room.odds_task = asyncio.create_task(refresh_odds(room, send_watchers))
 
     # ---------- turn notifications (web push) ----------
     def push_keys():

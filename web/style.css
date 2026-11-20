@@ -622,6 +622,10 @@ p {
 .page:not(.scroll) > :last-child:not(:first-child) {
   margin-top: auto;
 }
+/* a page whose content all hangs from the top, with nothing pinned to the foot */
+.page.top > :last-child:not(:first-child) {
+  margin-top: 0;
+}
 /* the home menu sits in the middle of the space under the logo */
 .page.home > .stack {
   margin-block: auto;
@@ -732,6 +736,20 @@ p {
   color: var(--on-bg);
   flex: 1;
   min-width: 0;
+}
+/* an empty list's message fills the free space on the page, centered both ways */
+.empty-fill {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.page:not(.scroll) > .empty-fill + :last-child {
+  margin-top: 0;
+}
+/* a page's title, on its own line under the Back button and logo (Refresh beside it) */
+.row.page-head {
+  align-items: center;
 }
 .stack {
   display: flex;
@@ -1750,6 +1768,64 @@ button.tag-rules:active > .tag-in {
   height: 1.4rem;
   display: flex;
   align-items: center;
+}
+/* spectators: each player's chance of winning, tucked into the top of their points
+   (the numerals overlap its bottom edge), in the seat's light color inside an
+   outline of its own color */
+.tag-score .score {
+  position: relative;
+  z-index: 1;
+}
+.tag-score .odds {
+  display: flex;
+  justify-content: center;
+  margin: -0.6rem 0 -1.1rem;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.tag-score .odds[hidden] {
+  display: none;
+}
+.tag-score .odds .stk {
+  font: 700 1.5rem/1 var(--round);
+  letter-spacing: -0.03rem;
+  --sw: 0.4rem;
+  margin-right: -0.05rem;
+}
+/* the characters overlap leftmost on top, down to the % at the bottom; their
+   layers stay inside the percent, which still sits under the points numerals */
+.tag-score .odds {
+  position: relative;
+  z-index: 0;
+}
+.tag-score .odds .stk {
+  position: relative;
+}
+.tag-score .odds .stk:nth-child(1) {
+  z-index: 4;
+}
+.tag-score .odds .stk:nth-child(2) {
+  z-index: 3;
+}
+.tag-score .odds .stk:nth-child(3) {
+  z-index: 2;
+}
+.tag-score .odds .stk:nth-child(4) {
+  z-index: 1;
+}
+/* the percent sways only a little, a third of the other stickers' idle drift */
+.tag-score .odds .idle {
+  animation-name: idle-soft;
+}
+@keyframes idle-soft {
+  from {
+    translate: calc(var(--ix, 0.08rem) * -0.35) calc(var(--iy, 0.1rem) * -0.35);
+    rotate: calc(var(--ir, 1.5deg) * -0.35);
+  }
+  to {
+    translate: calc(var(--ix, 0.08rem) * 0.35) calc(var(--iy, 0.1rem) * 0.35);
+    rotate: calc(var(--ir, 1.5deg) * 0.35);
+  }
 }
 /* the old score, scrolling out over the new one (see rollScore) */
 /* the Spectate list: each player's name over their points, as stickers like the table's */

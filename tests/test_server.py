@@ -550,6 +550,20 @@ class WebTests(unittest.TestCase):
         with self.guest.websocket_connect(f'/ws/{room.id}') as socket:
             socket.send_text('ping')
             self.assertTrue(socket.receive_json()['spectator'])
+            # each player's chance of winning follows a moment later, for spectators only
+            odds = None
+            for _ in range(4):
+                odds = odds or socket.receive_json()['odds']
+            self.assertEqual(len(odds), 2)
+            self.assertAlmostEqual(sum(odds), 100, delta=0.5)
+            self.assertIsNone(self.host.get(f'/api/lobbies/{room.id}/state').json()['odds'])
+            # a host who turns off score previews turns these off too
+            from server import odds_stale, spectator_odds
+            room.solo, room.score_preview, room.odds_key = False, False, None
+            self.assertIsNone(spectator_odds(room))
+            self.assertFalse(odds_stale(room))
+            room.solo, room.score_preview = True, True
+            self.assertTrue(odds_stale(room))
             # a second spectator gets the next row, so both can cheer at once
             self.outsider.post(f'/api/spectate/{room.id}')
             with self.outsider.websocket_connect(f'/ws/{room.id}') as other:

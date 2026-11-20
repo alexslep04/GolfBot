@@ -136,6 +136,7 @@ const prefs = {
   turnAlerts: false, // a notification (and a buzz) when it's your turn while Golf is in the background
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
+  showOdds: true, // spectating: each player's chance of winning under their points
 };
 // Each theme is a set of color tokens in style.css, under :root[data-theme].
 // "golf" is the original sticker look and needs no attribute.

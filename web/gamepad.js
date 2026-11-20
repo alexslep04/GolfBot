@@ -478,7 +478,12 @@ function padPress(name) {
       break;
     case "start":
       if (!sheetRoot.hidden) closeSheet();
-      else document.querySelector("[data-game-menu], [data-settings]")?.click();
+      else {
+        // pages with Back in the corner have no gear: Start still opens Settings
+        const opener = document.querySelector("[data-game-menu], [data-settings]");
+        if (opener) opener.click();
+        else settingsSheet();
+      }
       break;
   }
 }

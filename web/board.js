@@ -813,6 +813,13 @@ function rollScore(score, oldDigits, oldBox) {
   else ghost.remove();
 }
 
+/** A chance of winning as a spectator reads it: whole percents, never a flat 0 or 100 while it could still go either way. */
+function oddsText(value) {
+  if (value === null || value === undefined) return null;
+  if (value > 0 && value < 1) return "<1%";
+  if (value > 99 && value < 100) return ">99%";
+  return `${Math.round(value)}%`;
+}
 function scoreDigits(value, side) {
   const text = String(value);
   return `<span class="digits${text.length > 2 ? " long" : ""}">${stickerText(text, { split: true, key: `score:${side}` })}</span>${stickerText("pts", { cls: "pts", key: `pts:${side}` })}`;
@@ -1058,19 +1065,29 @@ function renderTags() {
     scoreTag.classList.toggle("offline", offline);
     const oldDigits = scoreTag.querySelector(".score .digits");
     const oldBox = oldDigits?.getBoundingClientRect?.();
+    // spectators see each player's chance of winning this game, tucked into the top of their points
+    const chance = state.spectator && prefs.showOdds ? oddsText(state.odds?.[player]) : null;
     const changed = patch(
       `score-${side}`,
       scoreTag.firstElementChild,
-      `${player}|${label}|${shown}`,
+      `${player}|${label}|${shown}|${state.spectator}`,
       () =>
-        `<span class="who">${e(label)}</span><span class="score">${scoreDigits(shown, side)}</span>`,
+        `<span class="who">${e(label)}</span>${state.spectator ? `<span class="odds" data-odds hidden></span>` : ""}<span class="score">${scoreDigits(shown, side)}</span>`,
     );
+    if (changed) delete board.signatures[`odds-${side}`];
+    const oddsTag = scoreTag.querySelector("[data-odds]");
+    if (oddsTag) {
+      oddsTag.hidden = chance === null;
+      patch(`odds-${side}`, oddsTag, `${player}|${chance}`, () =>
+        chance === null ? "" : stickerText(chance, { split: true, key: `odds:${side}` }),
+      );
+    }
     if (changed && board.signatures[`seen-${side}`] === player)
       rollScore(scoreTag.querySelector(".score"), oldDigits, oldBox);
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${shown} points${shown !== score ? " once this move is confirmed" : ""}${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
+      `${state.names[player]}: ${shown} points${chance === null ? "" : `, ${chance} chance to win`}${shown !== score ? " once this move is confirmed" : ""}${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
     );
     // The bar under the score: how many modifiers this hand has in play, and
     // what they (and its matched columns) add to or take off the face value of
