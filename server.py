@@ -35,7 +35,7 @@ from bot_workers import BotWorkers
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
-from avatars import BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
+from avatars import AVATARS, BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -65,7 +65,7 @@ class VersionedStatic(StaticFiles):
 
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc", "luck"]
+    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc", "luck", "tempo"]
 
 
 class Settings(BaseModel):
@@ -88,6 +88,15 @@ class Settings(BaseModel):
         if value is not None and value % 2 == 0:
             raise ValueError("Best of must be an odd number.")
         return value
+
+
+class PassPlay(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    names: list[str] = Field(min_length=2, max_length=8)
+    avatars: list[str] = Field(default_factory=list, max_length=8)
+    house_rules: bool = True
+    rules: dict[str, bool] = Field(default_factory=dict)
+    first: Literal["host", "guest", "alternate", "random", "winner", "loser"] = "random"
 
 
 class SoloSettings(Settings):
@@ -234,6 +243,10 @@ class Room:
     watch_seats: dict = field(default_factory=dict)
     # each spectator's own row on wide screens, kept while they watch (lowest free first)
     watch_slots: dict = field(default_factory=dict)
+    # pass & play: everyone shares one device, whose session holds the first seat
+    local: bool = False
+    # when the game in play was dealt (saved with its result, for time played)
+    round_started_at: float | None = None
 
     practice: bool = False
     rated: bool = False
@@ -266,6 +279,16 @@ class Room:
         if game is None or game.phase in ("setup", "over") or game.scoring_reveal:
             return None
         return game.turns, game.current
+
+    def acting_seat(self):
+        """Pass & play: the seat the shared device is playing for right now."""
+        game = self.game
+        if game is None or self.status != "playing" or game.phase == "over":
+            return 0
+        if game.phase == "setup":
+            # opening flips go round the table, two each
+            return next((p for p in game.turn_order if game.visible_count(p) < 2), 0)
+        return game.decision_player
 
     def seat_present(self, seat):
         """A person (never a bot) with the table open and in front of them right now."""
@@ -361,6 +384,7 @@ class Room:
         self.emote_counts = []
 
     def start_round(self):
+        self.round_started_at = time.time()
         self.resize_seats()
         if self.practice and self.house_rules:
             # A saved Play solo run outlives updates, so each new deal is played with
@@ -423,6 +447,7 @@ class Room:
                              "house_rules": self.house_rules, "house_version": self.house_version,
                              "patch": self.patch,
                              "turns": self.game.turns,
+                             "started_at": self.round_started_at,
                              # the scores showing after each turn (for the comeback record)
                              "timeline": [point["scores"] for point in self.timeline if not point["final"]],
                              "ended_at": time.time(),
@@ -658,7 +683,7 @@ def snapshot(room, token, watch=False):
     if token not in room.seats and not watch:
         raise HTTPException(403, "You do not have a seat in this lobby.")
     room.expire_offer()
-    viewer = 0 if watch else room.seats.index(token)
+    viewer = 0 if watch else room.acting_seat() if room.local else room.seats.index(token)
     state = {**public_room(room), "viewer": viewer, "version": room.version,
              "spectator": watch, "watchers": sum(bool(sockets) for sockets in room.watchers.values()),
              # how many are watching from each player's seat (their name tag shows it)
@@ -672,7 +697,8 @@ def snapshot(room, token, watch=False):
              "player_ids": [(profile or {}).get("id") for profile in room.participants],
              "streak": room.streak if room.solo and not room.practice else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
-             "connected": [p in room.bot_seats or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
+             "connected": [p in room.bot_seats or room.local or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
+             "local": room.local,
              "message": message(room, viewer), "game": None}
     if room.progression:
         if room.rated:
@@ -760,7 +786,8 @@ def apply_move(room, token, move):
         raise HTTPException(409, "The table changed. Please try your action again.")
     if token not in room.seats:
         raise HTTPException(403, "You do not have a seat.")
-    seat = room.seats.index(token)
+    # pass & play: the shared device moves for whoever's turn it is
+    seat = room.acting_seat() if room.local and token == room.seats[0] else room.seats.index(token)
     game = room.game
     before = showing_scores(game) if room.solo and game is not None and room.status == "playing" and game.phase != "setup" else None
     if move.action == "ready":
@@ -776,6 +803,8 @@ def apply_move(room, token, move):
         if room.status != "round_over":
             raise HTTPException(409, "The next game is not available yet.")
         room.ready[seat] = True
+        if room.local:
+            room.ready = [True] * len(room.seats)  # one device readies the whole table
         if all(room.ready):
             room.start_round()
     elif move.action == "rematch":
@@ -890,7 +919,9 @@ def preview_move(room, token, move):
     game = room.game
     if game is None or room.status != "playing" or room.void_offer or move.version != room.version:
         raise HTTPException(409, "The table changed.")
-    if game.decision_player != room.seats.index(token):
+    # (pass & play: the shared device decides for whoever is up)
+    seat = room.acting_seat() if room.local and token == room.seats[0] else room.seats.index(token)
+    if game.decision_player != seat:
         raise HTTPException(403, "It is not your decision.")
     if move.action == "discard" and game.phase in ("drawn", "drawn_revealed"):
         after = game.preview()
@@ -1212,6 +1243,40 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if room.bot_task is asyncio.current_task():
                 room.bot_task = None
 
+    @app.post("/api/pass-play")
+    async def pass_play(body: PassPlay, request: Request):
+        """Pass & play: a table of 2-8 players taking turns on this one device, each with
+        their own name and avatar. Its games are not saved and count toward no stats, streak or Elo."""
+        session = session_for(request)
+        leave_old(session)
+        cancel_queue(session.token)
+        store.cleanup()
+        if len(store.rooms) >= 200:
+            raise HTTPException(503, "The server has too many tables.")
+        names = [clean_name(name)[:32] for name in body.names]
+        try:
+            chosen = [clean_avatar(avatar) for avatar in body.avatars]
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        seats = [session.token] + [f"local:{secrets.token_hex(6)}" for _ in names[1:]]
+        many = len(names) > 2
+        # a bigger table always shuffles its turn order; House rules pick a random first player
+        first = "random" if body.house_rules or many else body.first
+        room = Room(secrets.token_urlsafe(9), "Pass & play", parse_rules(house_rules() if body.house_rules else body.rules),
+                    None, first, False, seats, names, history_store=None, house_rules=body.house_rules,
+                    house_version=HOUSE_VERSION if body.house_rules else None, game_type='many' if many else '1v1')
+        room.local = True
+        room.resize_seats()
+        # anyone who didn't pick an avatar gets one nobody else has
+        spare = [avatar.id for avatar in AVATARS if avatar.selectable and avatar.id not in chosen]
+        room.avatars = [chosen[p] if p < len(chosen) else spare.pop(0) for p in range(len(names))]
+        room.participants = [{'id': f'local:{p}', 'kind': 'guest', 'display_name': name} for p, name in enumerate(names)]
+        store.rooms[room.id] = room
+        session.room_id = room.id
+        room.start_round()
+        room.version += 1
+        return snapshot(room, session.token)
+
     @app.post("/api/debug/bot-table")
     async def debug_bot_table(request: Request):
         """A ready-made 8-player table of bots and you (debug servers only)."""
@@ -1244,8 +1309,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             raise HTTPException(404, "Not found.")
         session = session_for(request)
         room = find_room(room_id)
-        if not room.practice or session.token not in room.seats:
-            raise HTTPException(403, "Only your own Practice games can be changed.")
+        if not (room.practice or room.local) or session.token not in room.seats:
+            raise HTTPException(403, "Only your own Practice or Pass & Play games can be changed.")
         async with room.lock:
             game = room.game
             if game is None or game.phase == "over":
@@ -1536,7 +1601,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get("/api/lobbies")
     async def lobbies():
         store.cleanup()
-        return [public_room(room) for room in store.rooms.values() if not room.solo and room.status != "closed"]
+        return [public_room(room) for room in store.rooms.values()
+                if not room.solo and not room.local and room.status != "closed"]
 
     def at_table(session):
         room = store.rooms.get(session.room_id)
