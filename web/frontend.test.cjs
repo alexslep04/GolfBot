@@ -64,10 +64,49 @@ test('Play solo starts a House rules game straight away, with no lobby, without 
   assert.doesNotMatch(h.nodes.get('app').innerHTML,/data-rules-picker|continues with the rules/);
 });
 
-test('advanced defaults account vs bot and current patch even without history',async()=>{
+test('advanced defaults account vs bot and all time even without history',async()=>{
   const h=harness();await h.run('statsPage()');
   const query=new URL(h.requests[0].url,'https://example.test').searchParams;
-  assert.equal(query.get('player'),'account:42');assert.equal(query.get('opponent'),'bot:golfbot');assert.equal(query.get('patch'),'1.2.0');
+  assert.equal(query.get('player'),'account:42');assert.equal(query.get('opponent'),'bot:golfbot');
+  assert.equal(query.get('patch'),null); // no patch filter: every patch counts
+});
+
+test('PVP is this patch; Solo is all time',()=>{
+  const h=harness();
+  const pvp=h.run('leaderboardBody("pvp",{patch:"1.3.0",pvp:[{id:"account:1",label:"Ann",elo:1040,wins:7,draws:1,losses:4,win_rate:.58}]})');
+  assert.match(pvp,/7–1–4/);assert.doesNotMatch(pvp,/Series/i);assert.match(pvp,/Patch 1\.3\.0/);
+  const solo=h.run('leaderboardBody("solo",{patch:"1.3.0",solo:[{id:"account:1",label:"Ann",best_streak:9,current_streak:2,wins:20,draws:1,losses:5,win_rate:.77}]})');
+  assert.match(solo,/All time/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);
+});
+
+test('records show the biggest yapper, the longest 1v1 game, the bogey monster and the party',()=>{
+  const h=harness();
+  const html=h.run('recordsBody({yapper:{id:"account:1",label:"Ann",emotes:1234},longest_pvp:{turns:41,players:["Ann","Bob"],scores:[12,9],label:"Bob"},bogey:{id:"account:2",label:"Bob <b>",points:57,scores:[57,3]},party:{count:3,players:["Ann","Bob","Cy"],seats:4}})');
+  assert.match(html,/Biggest yapper/);assert.match(html,/has sent the most emotes/);
+  assert.match(html,/Longest 1v1 game/);assert.match(html,/It&#39;s a party|It's a party/);assert.match(html,/Ann, Bob, Cy<\/strong> all played in one game of 4/);assert.match(html,/Ann vs Bob/);assert.match(html,/after 41 turns/);
+  assert.match(html,/Bogey monster/);assert.match(html,/Bob &lt;b&gt;/);assert.match(html,/57 pts, the most ever/);
+  assert.match(h.run('recordsBody({})'),/No emotes counted yet/);
+});
+
+test('settings follow a signed-in account, except this device\'s own',async()=>{
+  const h=harness();
+  // the account already has settings: this device takes them, but keeps its own turn alerts
+  h.run('prefs.turnAlerts=true;session.account={id:1,unique_name:"me"};session.preferences={theme:"night",haptics:false,turnAlerts:false,unknown:1};syncPrefs()');
+  assert.equal(h.run('prefs.theme'),'night');assert.equal(h.run('prefs.haptics'),false);
+  assert.equal(h.run('prefs.turnAlerts'),true);assert.equal(h.run('"unknown" in prefs'),false);
+  assert.equal(h.requests.length,0);
+  // a change is sent to the account, without the device-only setting
+  h.context.setTimeout=(run)=>{run();return 1;}; // the harness has no timers: save at once
+  h.run('setPref("hideTips",true)');
+  await new Promise((done)=>setImmediate(done));
+  const sent=h.requests.at(-1);
+  assert.equal(sent.url,'/golf/api/account/preferences');
+  const body=JSON.parse(sent.options.body).preferences;
+  assert.equal(body.hideTips,true);assert.equal(body.theme,'night');assert.equal('turnAlerts' in body,false);
+  // a guest's settings stay on the device
+  const g=harness();g.context.setTimeout=(run)=>{run();return 1;};g.run('session.account=null;setPref("hideTips",true)');
+  await new Promise((done)=>setImmediate(done));
+  assert.equal(g.requests.length,0);
 });
 
 test('void offer blocks actions and shows timed reply UI',async()=>{

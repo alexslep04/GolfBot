@@ -146,6 +146,10 @@ class AccountName(BaseModel):
     csrf_token: str = Field(min_length=1, max_length=128)
 
 
+class Preferences(BaseModel):
+    preferences: dict
+
+
 class Logout(BaseModel):
     csrf_token: str = Field(min_length=1, max_length=128)
 
@@ -198,6 +202,8 @@ class Room:
     started_at: float = field(default_factory=time.time)
     emotes: dict = field(default_factory=dict)
     emote_sequence: int = 0
+    # emotes each seat has sent since the last game was saved (for the Biggest yapper record)
+    emote_counts: list = field(default_factory=list)
     participants: list = field(default_factory=lambda: [None, None])
     house_rules: bool = False
     house_version: str | None = None
@@ -345,8 +351,25 @@ class Room:
         self.champion = winners[0] if len(winners) == 1 else None
         self.series_complete = True
 
+    def flush_emotes(self):
+        """Put the emotes sent since the last saved game onto the newest game's record."""
+        if not self.history or not any(self.emote_counts):
+            return
+        saved = self.history[-1].setdefault('emotes', [0] * len(self.seats))
+        for seat, count in enumerate(self.emote_counts[:len(saved)]):
+            saved[seat] += count
+        self.emote_counts = []
+
     def start_round(self):
         self.resize_seats()
+        if self.practice and self.house_rules:
+            # A saved Play solo run outlives updates, so each new deal is played with
+            # the House rules as they are now. Compared rule by rule, not by version:
+            # a rule added to House rules reaches saved runs even if nobody
+            # remembered to raise HOUSE_VERSION.
+            current = parse_rules(house_rules())
+            if self.rules != current or self.house_version != HOUSE_VERSION:
+                self.rules, self.house_version = current, HOUSE_VERSION
         self.void_offer = None
         self.void_offered = [False, False]
         if self.rated:
@@ -409,6 +432,7 @@ class Room:
                              "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in range(len(self.seats))]})
         self.history[-1].update(modifier_data(self.game, visible_only=False))
+        self.flush_emotes()
         self.last_winner = winner
         if self.solo:
             self.streak = self.streak + 1 if winner == 0 else 0
@@ -947,7 +971,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 "avatar": session.avatar, "account": session.account, "google_client_id": google_client_id,
                 "csrf_token": session.csrf_token, "google_nonce": session.google_nonce, "patch": PATCH_VERSION,
                 # this player's own stats profile: their account, or this browser as a guest
-                "player_id": 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)}
+                "player_id": 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session),
+                # a signed-in player's settings follow them (None until they save any)
+                "preferences": store.accounts.preferences(session.account['id']) if session.account else None}
 
     def browser_id(session):
         return sha256(session.token.encode()).hexdigest()[:32]
@@ -1703,6 +1729,18 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             players[identity] = other
         return list(players.values())
 
+    @app.post('/api/account/preferences')
+    async def save_preferences(body: Preferences, request: Request):
+        """Save a signed-in player's settings so their other devices pick them up."""
+        session = session_for(request)
+        if not session.account:
+            raise HTTPException(401, 'Sign in to save your settings to your account.')
+        try:
+            store.accounts.save_preferences(session.account['id'], body.preferences)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return {'saved': True}
+
     @app.post('/api/name')
     async def rename(body: Join, request: Request):
         session = session_for(request)
@@ -1727,7 +1765,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             'available_lobbies': sum(not room.solo and room.has_open_seat
                                      and session.token not in room.seats for room in store.rooms.values()),
             # games in play someone else is playing (the Spectate tile's count)
-            'spectatable_games': sum(watchable(room) and session.token not in room.seats
+            'spectatable_games': sum(in_play(room) and session.token not in room.seats
                                      for room in store.rooms.values()),
             'players': [{'id': other.public_id, 'display_name': other.username, 'avatar': other.avatar,
                          'unique_name': (other.account or {}).get('unique_name')}
@@ -1997,6 +2035,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             seat = room.watch_seats.get(session.token, 0) if watching else None
             slot = room.watch_slots.get(session.token, 0) if watching else None
             player = f"spectator:{slot}" if watching else room.seats.index(session.token)
+            if not watching:
+                room.emote_counts += [0] * (len(room.seats) - len(room.emote_counts))
+                room.emote_counts[player] += 1
             room.emote_sequence += 1
             room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
                                    "expires_at": time.time() + EMOTE_SECONDS,
@@ -2009,11 +2050,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     def watchable(room):
         return room.game is not None and room.status in ("playing", "round_over") and not all(room.departed)
 
+    def in_play(room):
+        # what the Spectate menu offers: a game still being played. One that has
+        # ended drops off the list, though whoever is watching it stays.
+        return watchable(room) and room.status == "playing" and room.game.phase != "over"
+
     @app.get("/api/spectate")
     async def spectate_list(request: Request):
         """Every game in play anyone can watch, solo games included, newest first."""
         session = session_for(request)
-        rooms = sorted((room for room in store.rooms.values() if watchable(room)),
+        rooms = sorted((room for room in store.rooms.values() if in_play(room)),
                        key=lambda room: room.started_at or 0, reverse=True)
         return [{**public_room(room), "round": len(room.history) + (0 if room.round_recorded else 1),
                  "turns": room.game.turns, "scores": showing_scores(room.game),
@@ -2138,6 +2184,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 try:
                     if not (room.practice and room.practice_account):
                         room.finish_continuous()
+                    room.flush_emotes()
                     store.history.save(room, abandoned=True)
                 except Exception:
                     log.exception("Could not save the history of table %s", room.id)

@@ -14,6 +14,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(build_records([]), {'highest_elo': None, 'comeback': None, 'most_modifier': None,
                                              'least_modifier': None, 'comeback_modifier': None,
                                              'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None,
+                                             'yapper': None, 'longest_pvp': None, 'bogey': None, 'party': None,
                                              'always_in_play': ['Poisoned Card'],
                                              'never_most': ['Beggars Will be Choosers']})
 
@@ -72,7 +73,8 @@ class RecordTests(unittest.TestCase):
         self.assertEqual((ann['elo'], ann['pvp_streak']), (1080, 2))
         self.assertEqual(set(ann['records']), {'highest_elo'})
         bob = player_card(results, ratings, 'player:Bob')
-        self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak'}))
+        # Bob also finished a game on the most points anyone has (2, reached first)
+        self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak', 'bogey'}))
         self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'elo': None, 'pvp_streak': 0, 'records': {}})
 
     def test_most_games_today_skips_earlier_days_and_bots(self):

@@ -2084,6 +2084,7 @@ async function renderGoogleSignIn() {
             const currentRoom = session.room_id;
             session = {...next, ...keep};
             if (next.account?.display_name) saveName(next.account.display_name);
+            syncPrefs();
             if (epoch !== tableEpoch || currentRoom !== roomId || page !== "account") {
               session.room_id = currentRoom;
               return;
@@ -2448,14 +2449,13 @@ async function statsPage(fromUrl = false) {
       enabled: query.getAll("enabled"),
       disabled: query.getAll("disabled"),
       house_rules: query.get("house_rules") !== "false",
-      patch: query.has("patch") ? query.get("patch") : (session.patch || matchOptions.patch),
+      patch: query.get("patch") || "",
     };
   }
-  // the Advanced tab opens on your own record against Golfbot, this patch
+  // the Advanced tab opens on your own record against Golfbot, all time
   if (!statsSelection.initialized) {
     statsSelection.player ||= myPlayerId();
     statsSelection.opponent ||= "bot:golfbot";
-    statsSelection.patch ||= (session.patch || matchOptions.patch);
     statsSelection.initialized = true;
   }
   const request = ++statsRequest;
@@ -2589,6 +2589,29 @@ function renderVoidOffer() {
   voidTimer = setTimeout(renderVoidOffer, 1000);
 }
 
+/* A signed-in player's settings follow their account: a device takes the
+   account's when it has any, and otherwise gives it this device's. Every later
+   change is saved to both. */
+let prefsTimer;
+function pushPrefs() {
+  if (!session?.account) return;
+  clearTimeout(prefsTimer);
+  prefsTimer = setTimeout(() => {
+    const preferences = accountPrefs();
+    api("/api/account/preferences", "POST", { preferences })
+      .then(() => {
+        if (session) session.preferences = preferences;
+      })
+      .catch(() => {}); // still saved on this device
+  }, 400);
+}
+function syncPrefs() {
+  if (!session?.account) return;
+  if (session.preferences) adoptPrefs(session.preferences);
+  else pushPrefs();
+}
+onPrefsSaved = pushPrefs;
+
 function leaderboardTabs(selected) {
   return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["records","Records"],["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
 }
@@ -2600,7 +2623,7 @@ function leaderboardBody(tab, result) {
   const solo = tab === "solo",
     rows = result[tab] || [];
   const mine = session.account ? "account:" + session.account.id : null;
-  const intro = `<p class="hint dark">${solo ? "Ranked by best solo streak against Golfbot" : "Ranked by Elo from rated games"} · Patch ${e(result.patch)}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
+  const intro = `<p class="hint dark">${solo ? "Ranked by best solo streak against Golfbot · All time" : `Ranked by Elo from rated games · Patch ${e(result.patch)}`}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
   if (!rows.length)
     return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>`;
   const value = (row) => (solo ? row.best_streak : row.elo);
@@ -2647,7 +2670,7 @@ function recordCards(records = {}) {
         ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
         : `<p class="hint dark">${empty}</p>`
     }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
-  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked } = records;
+  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, yapper, longest_pvp: marathon, bogey, party } = records;
   const cards = [
     card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
     card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet."),
@@ -2657,8 +2680,12 @@ function recordCards(records = {}) {
     card(5, "c-p4", "wand.and.stars", "Least common modifier", least, least && statPercent(least.rate), "", least && `<strong>${e(least.name)}</strong> came into play in ${statNumber(least.active)} of ${games(least.games)} it was on`, "Not enough games with modifiers yet."),
     card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet."),
     card(7, "c-s6", "sparkles", "Most modifiers in a game", stacked, stacked?.count, "", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with modifiers yet."),
+    card(8, "c-p2", "text.bubble.fill", "Biggest yapper", yapper, yapper && statNumber(yapper.emotes), yapper?.emotes === 1 ? "emote" : "emotes", yapper && `<strong>${who(yapper)}</strong> has sent the most emotes at the table`, "No emotes counted yet. Counting started with this update."),
+    card(9, "c-s7", "hourglass", "Longest 1v1 game", marathon, marathon && statNumber(marathon.turns), marathon?.turns === 1 ? "turn" : "turns", marathon && `<strong>${e((marathon.players || []).join(" vs "))}</strong>${marathon.scores ? ` finished ${e(marathon.scores.join(" to "))}` : ""} after ${statNumber(marathon.turns)} turns${marathon.at ? ` · ${when(marathon.at)}` : ""}`, "No 1v1 games between players yet."),
+    card(10, "c-p1", "tortoise.fill", "Bogey monster", bogey, bogey?.points, "pts", bogey && `<strong>${who(bogey)}</strong> finished a game on ${bogey.points} pts, the most ever${bogey.scores ? ` (scores: ${e(bogey.scores.join(", "))})` : ""}${bogey.at ? ` · ${when(bogey.at)}` : ""}`, "No games finished yet."),
+    card(11, "c-s4", "person.3.fill", "It's a party", party, party?.count, "signed in", party && `<strong>${e((party.players || []).join(", "))}</strong> all played in one game${party.seats > party.count ? ` of ${party.seats}` : ""}${party.at ? ` · ${when(party.at)}` : ""}`, "No game with two signed-in players yet."),
   ];
-  const held = [elo, streak, comeback, today, most, least, clutch, stacked];
+  const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, party];
   return cards.map((html, i) => ({ html, record: held[i] }));
 }
 /**
@@ -3306,6 +3333,7 @@ function bootData() {
       if (avatars.some((avatar) => avatar.id === saved && avatar.selectable))
         session.avatar = saved;
     } catch {}
+    syncPrefs();
     if (prefs.turnAlerts) subscribeTurnAlerts(false).catch(() => setPref("turnAlerts", false));
     const firstPoll = pollPresence();
     // while in the queue the server is asked far more often, so a match shows at once

@@ -126,7 +126,7 @@ function stickerText(text, opts = {}) {
     .join("");
 }
 
-/* ---------- preferences (kept on this device) ---------- */
+/* ---------- preferences (kept on this device, and on a signed-in account) ---------- */
 const prefs = {
   confirm: true, // moves wait for the Confirm button beside the discard pile
   padDrag: "hold", // controller: hold the trigger to carry a card, or "toggle"
@@ -163,13 +163,32 @@ function applyPrefs() {
   // the browser's own chrome (status bar, overscroll) takes the table's color
   document.querySelector("meta[name='theme-color']")?.setAttribute("content", theme[2]);
 }
-function setPref(key, value) {
-  prefs[key] = value;
-  if (key === "autoQueue") prefs.autoQueueChosen = true;
+// Settings that belong to this device alone (turn alerts need its own
+// notification permission), so they are never saved to or taken from an account.
+const DEVICE_PREFS = ["turnAlerts"];
+let onPrefsSaved = null; // app.js: save the change to a signed-in account too
+function storePrefs() {
   try {
     localStorage.setItem("golf-prefs", JSON.stringify(prefs));
   } catch {}
   applyPrefs();
+}
+function setPref(key, value) {
+  prefs[key] = value;
+  if (key === "autoQueue") prefs.autoQueueChosen = true;
+  storePrefs();
+  if (!DEVICE_PREFS.includes(key)) onPrefsSaved?.();
+}
+/** The settings an account keeps: everything but this device's own. */
+function accountPrefs() {
+  return Object.fromEntries(Object.entries(prefs).filter(([key]) => !DEVICE_PREFS.includes(key)));
+}
+/** Take the settings saved on the account (only ones this version knows). */
+function adoptPrefs(saved) {
+  for (const [key, value] of Object.entries(saved || {}))
+    if ((key in prefs || key === "autoQueueChosen") && !DEVICE_PREFS.includes(key) && typeof value !== "object") prefs[key] = value;
+  if (prefs.autoQueue && !prefs.autoQueueChosen) prefs.autoQueue = false;
+  storePrefs();
 }
 applyPrefs();
 
