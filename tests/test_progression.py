@@ -119,7 +119,10 @@ class ProgressionTests(unittest.TestCase):
         self.service.practice_result('a', A, 0, 'old')
         self.assertEqual(self.service.profile(A)['elo'], 984)
         self.assertEqual(self.service.leaderboard('old')['pvp'][0]['elo'], 1016)
-        self.assertEqual(self.service.leaderboard('empty'), {'pvp': [], 'solo': [], 'patch': 'empty'})
+        # Elo belongs to its patch; the Solo board is all time whichever patch is asked for
+        empty = self.service.leaderboard('empty', combine_guests=False)
+        self.assertEqual((empty['pvp'], empty['patch']), ([], 'empty'))
+        self.assertEqual([(r['id'], r['best_streak'], r['wins']) for r in empty['solo']], [(B['id'], 1, 1), (A['id'], 1, 2)])
         self.assertEqual(self.service.profile(A)['best_at'], 20)
 
     def test_persistence_practice_snapshot_and_shared_lock_concurrency(self):
@@ -268,7 +271,10 @@ class ProgressionPatchAndLegacyTests(unittest.TestCase):
         new = self.service.profile(A, '1.3.0')
         self.assertEqual((new['current_streak'], new['draws_in_row']), (1, 1))
         self.assertEqual((new['elo'], new['wins'], new['draws'], new['losses'], new['best_streak'], new['best_at']), (1000, 0, 0, 0, 0, None))
-        self.assertEqual(self.service.leaderboard('1.3.0'), {'patch': '1.3.0', 'pvp': [], 'solo': []})
+        board = self.service.leaderboard('1.3.0')
+        self.assertEqual((board['patch'], board['pvp']), ('1.3.0', []))
+        # the Solo board is all time: the 1.2.0 best is still shown, with the streak still running
+        self.assertEqual([(r['id'], r['best_streak'], r['current_streak']) for r in board['solo']], [(A['id'], 1, 1)])
         self.assertEqual(self.service.practice_result('second-draw', A, None, '1.3.0'), {'current': 0, 'best': 0, 'draws': 2})
         # Re-reading the profile must not re-seed it from the old patch.
         self.assertEqual(self.service.profile(A, '1.3.0')['current_streak'], 0)

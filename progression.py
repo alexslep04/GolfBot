@@ -255,16 +255,40 @@ class Progression:
             order = lambda row: (-row['elo'], row['id'])
         return sorted([row for row in rows if row['id'].startswith('account:')] + [combined], key=order)
 
+    def _all_time_solo(self, rows):
+        """Each player's solo record over every patch: their best streak ever, and the one they are on."""
+        players = {}
+        for patch, player, label, best, current, best_at, games, wins, draws, losses in rows:
+            version = self._patch_version(patch) or ()
+            entry = players.setdefault(player, {'id': player, 'label': label, 'best_streak': 0, 'current_streak': 0,
+                                                'best_at': None, 'wins': 0, 'draws': 0, 'losses': 0,
+                                                'games': 0, 'latest': None})
+            for key, value in (('games', games), ('wins', wins), ('draws', draws), ('losses', losses)):
+                entry[key] += value
+            earlier = best_at is not None and (entry['best_at'] is None or best_at < entry['best_at'])
+            if best > entry['best_streak'] or (best and best == entry['best_streak'] and earlier):
+                entry['best_streak'], entry['best_at'] = best, best_at
+            # a new patch carries the ongoing streak over, so the newest row has it
+            if entry['latest'] is None or version >= entry['latest']:
+                entry['latest'], entry['label'], entry['current_streak'] = version, label, current
+        board = []
+        for entry in players.values():
+            played = entry['wins'] + entry['draws'] + entry['losses']
+            if entry.pop('games') > 0:
+                del entry['latest']
+                board.append({**entry, 'win_rate': entry['wins'] / played if played else None})
+        return sorted(board, key=lambda row: (-row['best_streak'], row['best_at'] is None, row['best_at'] or 0, row['id']))
+
     def leaderboard(self, patch=PATCH, combine_guests=True):
+        """PVP is this patch's Elo; Solo is all time (a streak is not reset by an update)."""
         with self.lock:
             pvp = self.db.execute('''SELECT id,label,elo,wins,draws,losses FROM progression_players
                 WHERE patch=? AND wins+draws+losses>0 ORDER BY elo DESC,id''', (patch,)).fetchall()
-            solo = self.db.execute('''SELECT id,label,best_streak,current_streak,best_at,solo_wins,solo_draws,solo_losses
-                FROM progression_players WHERE patch=? AND solo_games>0
-                ORDER BY best_streak DESC,best_at IS NULL,best_at,id''', (patch,)).fetchall()
+            solo = self.db.execute('''SELECT patch,id,label,best_streak,current_streak,best_at,solo_games,solo_wins,solo_draws,solo_losses
+                FROM progression_players''').fetchall()
         boards = {'pvp': [dict(zip(('id', 'label', 'elo', 'wins', 'draws', 'losses', 'win_rate'),
                                    (*r, r[3] / sum(r[3:6])))) for r in pvp],
-                  'solo': [dict(zip(('id', 'label', 'best_streak', 'current_streak', 'best_at', 'wins', 'draws', 'losses', 'win_rate'), (*r, r[5] / sum(r[5:8]) if sum(r[5:8]) else None))) for r in solo]}
+                  'solo': self._all_time_solo(solo)}
         if combine_guests:
             boards = {'pvp': self._combine_guests(boards['pvp'], False),
                       'solo': self._combine_guests(boards['solo'], True)}

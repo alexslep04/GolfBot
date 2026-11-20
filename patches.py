@@ -32,6 +32,10 @@ PATCH_NOTES = [{
         "High contrast cards! Turn them on in settings for orange diamonds and blue clubs.",
         "Practice is now Play Solo: one tap starts a House rules game against Golfbot, or picks up the one you left.",
         "Quickplay is now Ranked.",
+        "New records: Biggest yapper, Longest 1v1 game, Bogey monster and It's a party.",
+        "A game that has ended no longer shows in the Spectate list.",
+        "The Solo leaderboard and Advanced stats now show all time.",
+        "Settings follow your account to every device you sign in on.",
         "Spectate! Watch any game in play, solo games included, and cheer with emotes as a Spectator. You'll follow the players to their next game.",
     ],
 }, {

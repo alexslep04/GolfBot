@@ -152,6 +152,61 @@ def most_modifiers_in_a_game(results):
     return best
 
 
+def biggest_yapper(results):
+    """Who has sent the most emotes at the table, over every game since they were counted."""
+    counts = {}
+    for _, game, seats in _played(results):
+        sent = game.get('emotes') or []
+        for seat, player, name in seats:
+            if player != BOT_ID and seat < len(sent) and sent[seat]:
+                entry = counts.setdefault(player, {'id': player, 'label': name, 'emotes': 0})
+                entry['emotes'] += sent[seat]
+                entry['label'] = name
+    return max(counts.values(), key=lambda entry: entry['emotes'], default=None)
+
+
+def longest_pvp_game(results):
+    """The 1v1 game between two people that took the most turns to finish (the first to reach it holds it)."""
+    best = None
+    for match, game in _rounds(results):
+        turns = game.get('turns') or 0
+        names, winner = match.get('names') or [], game.get('winner')
+        if (match.get('solo') or len(names) != 2 or game.get('forfeit') or turns <= 0
+                or (best and turns <= best['turns'])):
+            continue
+        ids = identities(match)
+        best = {'turns': turns, 'players': list(names), 'scores': game.get('scores'),
+                'id': ids[winner] if winner is not None and winner < len(ids) else None,
+                'label': names[winner] if winner is not None and winner < len(names) else None,
+                'at': game.get('ended_at')}
+    return best
+
+
+def highest_score(results):
+    """The most points any person has finished a single game with."""
+    best = None
+    for _, game, seats in _played(results):
+        scores = game.get('scores') or []
+        if game.get('forfeit'):
+            continue
+        for seat, player, name in seats:
+            if player != BOT_ID and seat < len(scores) and (best is None or scores[seat] > best['points']):
+                best = {'id': player, 'label': name, 'points': scores[seat], 'scores': scores,
+                        'at': game.get('ended_at')}
+    return best
+
+
+def biggest_party(results):
+    """The game with the most signed-in players at one table (the first to reach it holds it)."""
+    best = None
+    for match, game in _rounds(results):
+        names = match.get('names') or []
+        signed_in = [names[seat] for seat, player in enumerate(identities(match)) if (player or '').startswith('account:')]
+        if len(signed_in) >= 2 and (best is None or len(signed_in) > best['count']):
+            best = {'count': len(signed_in), 'players': signed_in, 'seats': len(names), 'at': game.get('ended_at')}
+    return best
+
+
 # a game is counted for at most this long, so a table left open doesn't run up the clock
 GAME_TIME_CAP = 30 * 60
 
@@ -185,7 +240,8 @@ def most_time_played(results):
     return max(time_played(results).values(), key=lambda entry: entry['seconds'], default=None)
 
 
-HELD_RECORDS = ('highest_elo', 'pvp_streak', 'comeback', 'games_today', 'modifiers_in_game', 'most_time')
+HELD_RECORDS = ('highest_elo', 'pvp_streak', 'comeback', 'games_today', 'modifiers_in_game', 'most_time',
+                'yapper', 'bogey')
 
 
 def player_card(results, ratings, player):
@@ -207,5 +263,7 @@ def build_records(results, ratings=()):
             'pvp_streak': best_pvp_streak(results), 'games_today': most_games_today(results),
             'modifiers_in_game': most_modifiers_in_a_game(results),
             'most_time': most_time_played(results),
+            'yapper': biggest_yapper(results), 'longest_pvp': longest_pvp_game(results),
+            'bogey': highest_score(results), 'party': biggest_party(results),
             'always_in_play': [RULE_NAMES[key] for key in ALWAYS_IN_PLAY],
             'never_most': [RULE_NAMES[key] for key in NOT_MOST_COMMON]}

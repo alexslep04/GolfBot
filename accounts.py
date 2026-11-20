@@ -1,5 +1,6 @@
 """Persistent Google identities and opaque local login sessions."""
 import hashlib
+import json
 import re
 import secrets
 import sqlite3
@@ -8,6 +9,7 @@ import time
 LOGIN_DAYS = 30
 ACCOUNT_COOKIE = 'golf_account'
 UNIQUE_NAME = re.compile(r'[a-z0-9_]{3,24}\Z')
+PREFERENCE_LIMIT = 2000  # characters of saved settings, as JSON
 
 
 def verify_google_token(credential, client_id, nonce):
@@ -35,6 +37,8 @@ class Accounts:
                 self.db.execute('ALTER TABLE accounts ADD COLUMN display_name TEXT')
             # every display name an account has saved, and when it last chose it
             self.db.execute('CREATE TABLE IF NOT EXISTS account_display_names (account_id TEXT NOT NULL, name TEXT NOT NULL, used_at REAL NOT NULL, PRIMARY KEY(account_id, name))')
+            # the settings a signed-in player chose, so every device they use has them
+            self.db.execute('CREATE TABLE IF NOT EXISTS account_preferences (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
 
     @staticmethod
     def public(row):
@@ -89,6 +93,25 @@ class Accounts:
             self.db.execute('UPDATE accounts SET display_name=? WHERE id=?', (name, account_id))
             self.db.execute('''INSERT INTO account_display_names VALUES (?, ?, ?)
                 ON CONFLICT(account_id, name) DO UPDATE SET used_at=excluded.used_at''', (account_id, name, now))
+
+    def save_preferences(self, account_id, preferences):
+        """Keep a small, flat set of settings (text, numbers, on/off) for an account."""
+        if not isinstance(preferences, dict) or any(
+                not isinstance(key, str) or not isinstance(value, (str, int, float, bool))
+                for key, value in preferences.items()):
+            raise ValueError('Settings must be simple values.')
+        payload = json.dumps(preferences)
+        if len(payload) > PREFERENCE_LIMIT:
+            raise ValueError('Too many settings to save.')
+        with self.lock, self.db:
+            self.db.execute('''INSERT INTO account_preferences VALUES (?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET payload=excluded.payload''', (account_id, payload))
+
+    def preferences(self, account_id):
+        """The settings saved for this account, or None if it never saved any."""
+        with self.lock:
+            row = self.db.execute('SELECT payload FROM account_preferences WHERE account_id=?', (account_id,)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def display_names(self, account_id):
         """Every display name this account has saved, with when it was last chosen."""
