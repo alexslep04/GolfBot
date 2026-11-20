@@ -1855,8 +1855,9 @@ button.tag-rules:active > .tag-in {
   gap: 0.4rem;
   max-width: 100%;
 }
-.side-row > .streak,
-.side-row .cycle {
+/* a size down only when both share the row; on its own, either is full size */
+.side-row:has(.cycle:not([hidden])) > .streak,
+.side-row:has(> .streak:not([hidden])) .cycle:not([hidden]) {
   zoom: 0.72;
 }
 .side-row > .streak {
@@ -2850,6 +2851,7 @@ button.tag-rules:active > .tag-in {
    (it takes the faces' width and never widens the pop-up itself) */
 .emote-words {
   display: flex;
+  flex-direction: column;
   gap: 0.6rem;
   width: 0;
   min-width: 100%;
@@ -2869,7 +2871,12 @@ button.tag-rules:active > .tag-in {
 .emote-words::-webkit-scrollbar {
   display: none;
 }
-.emote-words > .emote-word {
+.emote-words-row {
+  display: flex;
+  gap: 0.6rem;
+  width: max-content;
+}
+.emote-words-row > .emote-word {
   flex: none;
   scroll-snap-align: start;
 }
@@ -3573,6 +3580,28 @@ button.tag-rules:active > .tag-in {
 .watch-badge .stk {
   font: 700 1.6rem/1 var(--round);
   --sw: 0.45rem;
+}
+/* pass & play: the card that hands the device to whoever is up */
+.pass-shade {
+  z-index: 120;
+}
+.pass-wait {
+  position: fixed;
+  inset: 0;
+}
+.pass-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.8rem;
+  text-align: center;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.pass-card h2 {
+  font-size: 2.6rem;
+}
+.pass-card .btn {
+  width: 100%;
 }
 .chart-title {
   display: flex;

@@ -918,7 +918,7 @@ function faceValue(player) {
 const signed = (points) => `${points > 0 ? "+" : ""}${points}`;
 /** True while the table is waiting on this player (including opening flips). */
 /** The seat on show at the bottom is yours, unless you are only watching. */
-const isYou = (p) => !state.spectator && p === state.viewer;
+const isYou = (p) => !state.spectator && !state.local && p === state.viewer;
 function myTurn() {
   const g = state.game;
   if (!g || state.spectator || state.status !== "playing" || g.phase === "over") return false;
@@ -1378,9 +1378,13 @@ function emoteButtons() {
         `<button type="button" data-emote="${id}" aria-label="Send ${label.toLowerCase()} emote" ${closed}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
     )
     .join("");
-  const words = TEXT_EMOTES.map(
-    (id) => `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`,
-  ).join("");
+  // the sayings in two rows that scroll sideways together
+  const word = (id) =>
+    `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`;
+  const half = Math.ceil(TEXT_EMOTES.length / 2);
+  const words = [TEXT_EMOTES.slice(0, half), TEXT_EMOTES.slice(half)]
+    .map((row) => `<div class="emote-words-row">${row.map(word).join("")}</div>`)
+    .join("");
   return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div><div class="emote-words">${words}</div>`;
 }
 // the text emotes' fade at the edge goes once they are scrolled to the end
@@ -1686,7 +1690,7 @@ function renderSummary() {
   }
   settleLifted();
   // a spectator has no seat: every result is told by name
-  const viewer = state.spectator ? -1 : state.viewer;
+  const viewer = state.spectator || state.local ? -1 : state.viewer;
   const result = state.history.at(-1);
   const finished = state.status === "finished";
   const closed = state.status === "closed";
@@ -1750,6 +1754,10 @@ function renderSummary() {
       `<button type="button" class="btn c-p1 summary-main" ${attrs}>${tilted(symbol, 30)}<span>${extra}${label}</span></button>`;
     const main = state.spectator
       ? wide("disabled", "eye.fill", "Watching…")
+      : state.local
+      ? between
+        ? wide('data-action="next_round"', "checkmark.circle.fill", "Next game", padTag("y"))
+        : wide('data-action="rematch"', "arrow.clockwise", "Play again", padTag("y"))
       : between
       ? state.ready[viewer]
         ? wide("disabled", "hourglass", "Waiting…")
@@ -1759,7 +1767,7 @@ function renderSummary() {
         : wide('disabled title="The host can start a rematch."', "hourglass", "Host's call");
     const action = `<div class="summary-actions">${quit}${main}${look}</div>`;
     // spectators get the result told plainly: who won is the line under it
-    const heading = state.spectator
+    const heading = state.spectator || state.local
       ? resultTitle("draw", title, title, verdict === null || verdict === undefined ? "Draw" : finished ? "Series Over" : "Game Over")
       : resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
@@ -1959,8 +1967,11 @@ function restPose(slot) {
 }
 function paintSelection() {
   if (!board.el) return;
-  // nothing can be picked up when it is not your turn, so nothing stays outlined
-  board.selected = myTurn() ? board.selected.filter((ref) => slotFor(ref)) : [];
+  // nothing can be picked up when it is not your turn, so nothing stays outlined;
+  // a card picked from an opponent's hand stays picked while you cycle to another
+  // opponent, so a bonus swap can trade cards between two opponents
+  const onTable = (ref) => slotFor(ref) || (Number.isInteger(ref[0]) && !!state.game?.players?.[ref[0]]?.[ref[1]]);
+  board.selected = myTurn() ? board.selected.filter(onTable) : [];
   const pinned = pinnedCard();
   if (pinned && !board.staged && !board.carry && !board.drag?.active) board.selected = [pinned];
   board.slots.forEach((slot) => {

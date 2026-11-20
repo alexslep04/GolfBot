@@ -152,7 +152,40 @@ def most_modifiers_in_a_game(results):
     return best
 
 
-HELD_RECORDS = ('highest_elo', 'pvp_streak', 'comeback', 'games_today', 'modifiers_in_game')
+# a game is counted for at most this long, so a table left open doesn't run up the clock
+GAME_TIME_CAP = 30 * 60
+
+
+def time_played(results):
+    """Seconds each player has spent in games (bots aside): from each game's deal to its end.
+    Games saved before their start was recorded are timed from the end of the game before
+    them (or the series' start)."""
+    totals = {}
+    for match in results:
+        names, ids = match.get('names') or [], identities(match)
+        previous = match.get('started_at')
+        for game in match.get('rounds') or []:
+            ended = game.get('ended_at')
+            started = game.get('started_at')
+            started = previous if started is None else started
+            previous = ended or previous
+            if not (isinstance(ended, (int, float)) and isinstance(started, (int, float))):
+                continue
+            seconds = min(max(ended - started, 0), GAME_TIME_CAP)
+            for seat in range(min(len(names), len(game.get('scores') or names))):
+                if ids[seat] == BOT_ID:
+                    continue
+                entry = totals.setdefault(ids[seat], {'id': ids[seat], 'label': names[seat], 'seconds': 0})
+                entry['seconds'] += seconds
+                entry['label'] = names[seat]
+    return totals
+
+
+def most_time_played(results):
+    return max(time_played(results).values(), key=lambda entry: entry['seconds'], default=None)
+
+
+HELD_RECORDS = ('highest_elo', 'pvp_streak', 'comeback', 'games_today', 'modifiers_in_game', 'most_time')
 
 
 def player_card(results, ratings, player):
@@ -161,6 +194,7 @@ def player_card(results, ratings, player):
     rating = next((row for row in ratings if row['id'] == player), None)
     return {'id': player, 'elo': rating['elo'] if rating else None,
             'pvp_streak': (pvp_streaks(results).get(player) or {}).get('streak', 0),
+            'seconds_played': round((time_played(results).get(player) or {}).get('seconds', 0)),
             'records': {key: records[key] for key in HELD_RECORDS
                         if records.get(key) and records[key].get('id') == player}}
 
@@ -172,5 +206,6 @@ def build_records(results, ratings=()):
             'comeback_modifier': comeback_modifier(results),
             'pvp_streak': best_pvp_streak(results), 'games_today': most_games_today(results),
             'modifiers_in_game': most_modifiers_in_a_game(results),
+            'most_time': most_time_played(results),
             'always_in_play': [RULE_NAMES[key] for key in ALWAYS_IN_PLAY],
             'never_most': [RULE_NAMES[key] for key in NOT_MOST_COMMON]}

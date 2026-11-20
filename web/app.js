@@ -20,7 +20,7 @@ let catalog = [],
   tableEpoch = 0,
   toastTimer;
 // Pages that can be read without leaving (or redrawing over) an open table.
-const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard", "cards", "spectate"];
+const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard", "cards", "spectate", "passplay"];
 
 const starter = {
   host: "Host first",
@@ -68,9 +68,10 @@ const emoteNames = {
   save: "What a save!",
   ofc: "Ofc!",
   luck: "Good luck!",
+  tempo: "Not my tempo",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc"];
+const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo"];
 let activeEmotes = {},
   emoteSeen = {},
   emoteTimers = {},
@@ -913,9 +914,9 @@ function home() {
     `<div class="page home">${topbar()}<div class="stack">
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} <span>${padTag("select")}Resume your table</span></button>` : ""}
     ${patchChip()}
-    <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends</span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
+    <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends<span class="sub">or Pass &amp; Play</span></span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Ranked<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
-    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play solo</span>${practice[1]}</button>
+    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play Solo</span>${practice[1]}</button>
     <button type="button" class="btn c-p4" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span>${tilted("medal", 33, { mirror: true })}</button>
     <div class="row split">
       <button type="button" class="btn tile c-s4 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span><span id="spectate-count" class="badge" hidden></span></button>
@@ -1061,7 +1062,7 @@ const DEBUG_TOOLS = {
   edit: ["Change a card", "Tap a card to pick its suit and value"],
 };
 function debugMenuHtml() {
-  if (!DEBUG || !state?.practice || state.spectator) return "";
+  if (!DEBUG || !(state?.practice || state?.local) || state.spectator) return "";
   return `<p class="hint dark debug-label">Debug</p>
       <button type="button" class="btn c-p2" data-debug-end>${tilted("flag.pattern.checkered", 26)} End game: flip all cards</button>
       <button type="button" class="btn c-p1" data-debug-tool="flip">${tilted("sparkles", 26)} God mode: flip any card</button>
@@ -1180,12 +1181,13 @@ const draft = {
   rulesOpen: false,
 };
 const ENTRY_STYLE = {
+  passplay: { color: "c-s4", glyph: "person.2.fill" }, // Pass & play
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
   solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice
 };
 function entryButton(attribute, label) {
   const { color, glyph: symbol } = ENTRY_STYLE[draft.mode];
-  return `<button type="button" class="btn ${color} grow" ${attribute}>${tilted(symbol, 33)}<span>${padTag("y")}${label}</span>${tilted(symbol, 33, { mirror: true })}</button>`;
+  return `<button type="button" class="btn ${color} grow" ${attribute}>${tilted(symbol, 33)}<span>${padTag("y")}${label}</span></button>`;
 }
 function startSetup(mode) {
   Object.assign(draft, {
@@ -1246,16 +1248,17 @@ function setupPage() {
   centerAvatar(false);
 }
 /** `seat` is where you will sit (0 = player 1): the chosen avatar wears that player's color. */
-function avatarPicker(seat = 0) {
+function avatarPicker(seat = 0, chosen = null) {
   const options = avatars.filter((avatar) => avatar.selectable);
-  if (options.length && !options.some((avatar) => avatar.id === session.avatar)) saveAvatar(options[0].id);
+  if (!chosen && options.length && !options.some((avatar) => avatar.id === session.avatar)) saveAvatar(options[0].id);
+  const selected = chosen || session.avatar;
   // Each sticker's shadow is its own flat copy, so turning the wheel only ever
   // moves layers around and never has to redraw a textured sticker.
   const sticker = (avatar) => {
     const art = icon(avatar.icon, 44);
     return `<span class="avatar-shade">${art.replace('class="ico', 'class="ico flat')}</span>${art}`;
   };
-  return `<div class="avatar-pick ${`c-s${seat % 8}`}"><span class="pointer">${icon("chevron.down", 30, { idle: false, style: "--fill:var(--fw3);--stroke:var(--fw)", sw: 4 })}</span><div class="avatar-strip" role="radiogroup" aria-label="Avatar"><div class="avatar-track" role="presentation" style="--stops:${options.length - 1}"><div class="avatar-stage" role="presentation">${options.map((avatar) => `<button type="button" class="avatar" role="radio" aria-checked="${avatar.id === session.avatar}" aria-label="${e(avatar.name)}" data-avatar="${e(avatar.id)}">${sticker(avatar)}</button>`).join("")}</div><div class="avatar-stops" aria-hidden="true">${options.map(() => "<i></i>").join("")}</div></div></div><p class="avatar-name">Select Your Avatar</p></div>`;
+  return `<div class="avatar-pick ${`c-s${seat % 8}`}"><span class="pointer">${icon("chevron.down", 30, { idle: false, style: "--fill:var(--fw3);--stroke:var(--fw)", sw: 4 })}</span><div class="avatar-strip" role="radiogroup" aria-label="Avatar"><div class="avatar-track" role="presentation" style="--stops:${options.length - 1}"><div class="avatar-stage" role="presentation">${options.map((avatar) => `<button type="button" class="avatar" role="radio" aria-checked="${avatar.id === selected}" aria-label="${e(avatar.name)}" data-avatar="${e(avatar.id)}">${sticker(avatar)}</button>`).join("")}</div><div class="avatar-stops" aria-hidden="true">${options.map(() => "<i></i>").join("")}</div></div></div><p class="avatar-name">Select Your Avatar</p></div>`;
 }
 /**
  * The avatar wheel. The strip is a plain horizontal scroller (so touch, wheel
@@ -1351,7 +1354,9 @@ function centerAvatar(smooth = true) {
   layoutWheel(strip, !smooth);
 }
 function pickAvatar(id, scroll = true) {
-  saveAvatar(id);
+  // a pass & play player's pick is theirs, not this device's own avatar
+  if (page === "passplay" && passStep > 0) passPlayers[passStep - 1].avatar = id;
+  else saveAvatar(id);
   if (page === "account") saveProfile();
   root.querySelectorAll(".avatar").forEach((button) => {
     button.setAttribute("aria-checked", String(button.dataset.avatar === id));
@@ -1573,6 +1578,127 @@ function stopWatching() {
   state = null;
   api("/api/spectate-stop", "POST", {}).catch(() => {});
 }
+/* ---------- pass & play (from Settings) ----------
+   Everyone takes turns on this one device: the table always shows whoever is
+   up, with a "pass it on" card between turns. Nothing is saved or rated. */
+// the table being set up: one entry a player, and which screen is showing
+// (0 picks the player count and rules; 1..n are each player's profile)
+let passPlayers = null,
+  passStep = 0;
+function passPlayPage(step = passStep) {
+  page = "passplay";
+  document.title = "Pass & Play · Golf";
+  closeSheet();
+  if (!passPlayers) {
+    passPlayers = [
+      { name: session.username || "Player 1", avatar: session.avatar },
+      { name: "Player 2", avatar: null },
+    ];
+    Object.assign(draft, { mode: "passplay", preset: "house", rules: { ...matchOptions.house_rules }, first: "random", rulesOpen: false });
+  }
+  draft.mode = "passplay";
+  draft.gameType = passPlayers.length > 2 ? "many" : "1v1";
+  passStep = Math.max(0, Math.min(step, passPlayers.length));
+  if (passStep === 0) {
+    show(
+      "passplay",
+      `<div class="page scroll">${subHeader("Pass & Play", "friends")}<div class="stack wide">
+      ${selectField("Players", `data-pass-count aria-label="Number of players"`, [2, 3, 4, 5, 6, 7, 8].map((n) => [n, `${n} players`, n === passPlayers.length]), "person.2.fill")}
+      <div class="stack" data-rules-picker>${rulesPicker()}</div>
+      <div class="row">${entryButton("data-pass-next", "Choose players")}</div>
+      <p class="hint dark">Take turns on this device: the table shows whoever is up. These games aren't saved and don't count toward stats, streaks or Elo.</p>
+      </div></div>`,
+    );
+    return;
+  }
+  // one screen a player: their display name and avatar, in their seat's color
+  const p = passStep - 1;
+  const player = passPlayers[p];
+  const last = passStep === passPlayers.length;
+  // a player who hasn't picked starts on an avatar nobody else at the table has
+  if (!player.avatar) {
+    const taken = new Set(passPlayers.map((other) => other.avatar));
+    player.avatar = (avatars.find((avatar) => avatar.selectable && !taken.has(avatar.id)) || avatars[0]).id;
+  }
+  show(
+    "passplay",
+    `<div class="page">${topbar()}<div class="stack wide">
+    <h1 class="page-title pass-step ${SEAT_COLORS[p % SEAT_COLORS.length]}">Player ${p + 1} of ${passPlayers.length}</h1>
+    ${avatarPicker(p, player.avatar)}
+    ${field("Display Name", `<input data-pass-name="${p}" maxlength="32" value="${e(player.name)}" autocomplete="off" aria-label="Player ${p + 1} display name">`, "character.cursor.ibeam", SEAT_COLORS[p % SEAT_COLORS.length])}
+    </div><div class="row">${backSticker("data-pass-back")}${last ? entryButton("data-pass-start", "Start") : entryButton("data-pass-next", "Next player")}</div></div>`,
+  );
+  centerAvatar(false);
+}
+async function startPassPlay() {
+  const names = passPlayers.map((player, p) => player.name.trim() || `Player ${p + 1}`);
+  const house = draft.preset === "house";
+  if (!(await abandonExisting())) return;
+  const epoch = tableEpoch;
+  const next = await api("/api/pass-play", "POST", {
+    names,
+    avatars: passPlayers.map((player) => player.avatar),
+    house_rules: house,
+    first: house ? "random" : draft.first,
+    rules: Object.fromEntries(catalog.map((rule) => [rule.key, !!draft.rules[rule.key]])),
+  });
+  if (epoch === tableEpoch) enterRoom(next);
+}
+/** "Pass to …": hands the device to the player who is up, in their color. */
+let passTimer = 0,
+  passShown = null, // {table, seat}: whose hand is at the bottom of this device right now
+  passPending = null; // the seat the device is about to be handed to
+/**
+ * When the turn moves on, the table keeps showing the player who just moved for
+ * a beat, so their move is seen landing; then the board turns to the next
+ * player and the "pass it on" card comes up together.
+ */
+function holdForPass(next) {
+  if (next.status !== "playing" || !next.game) {
+    passShown = passPending = null;
+    clearTimeout(passTimer);
+    document.querySelector(".pass-wait")?.remove();
+    return;
+  }
+  const shown = passShown?.table === next.id ? passShown.seat : null;
+  if (shown === next.viewer) return;
+  if (shown === null) {
+    // the first deal: straight to the first player's hand, then the card after the beat
+    passShown = { table: next.id, seat: next.viewer };
+    return passScreen(next.viewer);
+  }
+  const seat = next.viewer;
+  next.viewer = shown; // still the last player's view, until the hand-over
+  if (passPending !== seat) passScreen(seat);
+}
+function passScreen(seat) {
+  document.querySelector(".pass-shade")?.remove();
+  clearTimeout(passTimer);
+  passPending = seat;
+  // an invisible cover takes taps meanwhile, so nobody plays the next turn early
+  const table = state?.id;
+  document.body.insertAdjacentHTML("beforeend", `<div class="pass-shade pass-wait" aria-hidden="true"></div>`);
+  passTimer = setTimeout(() => {
+    document.querySelector(".pass-wait")?.remove();
+    passPending = null;
+    if (state?.id !== table || !state.local || state.status !== "playing") return;
+    passShown = { table, seat };
+    if (state.viewer !== seat) {
+      state.viewer = seat;
+      renderRoom();
+    }
+    showPassCard(seat);
+  }, 750);
+}
+function showPassCard(seat) {
+  document.querySelector(".pass-shade")?.remove();
+  const name = state.names[seat];
+  const color = SEAT_COLORS[seat % SEAT_COLORS.length];
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="modal-shade pass-shade" data-pass-ready><section class="modal panel ${color} pass-card" role="dialog" aria-modal="true" aria-label="Pass to ${e(name)}"><span class="pass-avatar">${icon(avatarIcon(state.avatars?.[seat]), 64)}</span><h2>Pass to ${e(name)}</h2><p>${state.game.phase === "setup" ? "Flip two of your cards to start." : "It's your turn."}</p><button type="button" class="btn ${color}" data-pass-ready>${padTag("y")}I'm ${e(name)}</button></section></div>`,
+  );
+}
 async function submitSetup() {
   const epoch = tableEpoch;
   const house = draft.preset === "house";
@@ -1712,7 +1838,8 @@ async function friendsPage() {
         .join("") ||
       `<p class="hint">No open tables yet. Host one and invite a friend!</p>`
     }</div></div></div>
-    <div class="row">${backButton()}<button type="button" class="btn c-p1 grow" data-nav="host">${twin[0]}<span>${padTag("y")}Host a Table</span>${twin[1]}</button></div></div>`,
+    <div class="stack"><button type="button" class="btn c-p1" data-nav="host">${twin[0]}<span>${padTag("y")}Host a Table</span></button>
+    <div class="row">${backButton()}<button type="button" class="btn c-s4 grow" data-nav="passplay">${tilted("person.2.fill", 33)}<span>Pass &amp; Play</span></button></div></div></div>`,
   );
 }
 async function publicLobby(id) {
@@ -1814,6 +1941,8 @@ function accept(next) {
     state?.game?.decision_player !== next.game?.decision_player;
   state = next;
   renderVoidOffer();
+  // pass & play: when the turn moves to someone else, the device is handed over
+  if (next.local) holdForPass(next);
   if (next.spectator) {
     // spectators see no hidden cards from any seat, so whose hand sits at the bottom is theirs to pick
     next.viewer = Math.min(watchSeat, next.names.length - 1);
@@ -1914,7 +2043,9 @@ async function loadPlayerCard(id) {
   const elo = card.elo === null ? "—" : `${statNumber(card.elo)}<small>Elo</small>`;
   const streak = `${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(card.pvp_streak)}</span>`;
   const held = recordCards(card.records).filter(({ record }) => record && record.id === id);
-  holder.innerHTML = `<div class="list leader-list">${row("c-p3", "crown.fill", "Elo", elo)}${row("c-s4", "flame.fill", "Best PvP win streak", streak)}</div>${
+  const [played, unit] = timeParts(card.seconds_played || 0);
+  const time = `${statNumber(played)}<small>${unit}</small>`;
+  holder.innerHTML = `<div class="list leader-list">${row("c-p3", "crown.fill", "Elo", elo)}${row("c-s4", "flame.fill", "Best PvP win streak", streak)}${row("c-s2", "hourglass", "Time played", time)}</div>${
     held.length
       ? `<h3 class="player-card-head">Records held</h3><div class="records">${held.map(({ html }) => html).join("")}</div>`
       : `<p class="hint dark">No records held yet.</p>`
@@ -2629,6 +2760,17 @@ function leaderboardBody(tab, result) {
     .join("");
   return `${intro}${hero}<div class="list leader-list">${list}</div>`;
 }
+/** Time in games, as a number and its unit: hours once there's an hour of it, else minutes. */
+function timeParts(seconds) {
+  if (seconds == null) return [0, "hrs"];
+  if (seconds >= 3600) {
+    const hours = Math.round((seconds / 3600) * 10) / 10;
+    return [hours, hours === 1 ? "hr" : "hrs"];
+  }
+  const minutes = Math.round(seconds / 60);
+  return [minutes, minutes === 1 ? "min" : "mins"];
+}
+const timeLabel = (seconds) => timeParts(seconds).join(" ");
 /** Records: the all-time bests, one card each. */
 function recordsBody(records = {}) {
   return `<p class="hint dark">All-time bests from every saved game.</p><div class="records">${recordCards(records)
@@ -2647,7 +2789,8 @@ function recordCards(records = {}) {
         ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
         : `<p class="hint dark">${empty}</p>`
     }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
-  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked } = records;
+  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, most_time: hours } = records;
+  const [played, playedUnit] = timeParts(hours?.seconds);
   const cards = [
     card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
     card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet."),
@@ -2658,7 +2801,8 @@ function recordCards(records = {}) {
     card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet."),
     card(7, "c-s6", "sparkles", "Most modifiers in a game", stacked, stacked?.count, "", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with modifiers yet."),
   ];
-  const held = [elo, streak, comeback, today, most, least, clutch, stacked];
+  cards.push(card(8, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet."));
+  const held = [elo, streak, comeback, today, most, least, clutch, stacked, hours];
   return cards.map((html, i) => ({ html, record: held[i] }));
 }
 /**
@@ -2777,6 +2921,7 @@ async function navigate(target) {
   if (target === "cards") return cardGallery();
   if (target === "friends") return friendsPage();
   if (target === "spectate") return spectatePage();
+  if (target === "passplay") return passPlayPage(0);
   if (target === "resume") {
     closeSheet();
     page = "room";
@@ -3067,6 +3212,10 @@ document.addEventListener("click", async (event) => {
     }
     if ("leave" in data && state?.spectator) return spectatePage();
     if ("watch" in data) return watchGame(data.watch);
+    if ("passStart" in data) return startPassPlay();
+    if ("passNext" in data) return passPlayPage(passStep + 1);
+    if ("passBack" in data) return passPlayPage(passStep - 1);
+    if ("passReady" in data) return document.querySelector(".pass-shade")?.remove();
     if ("leave" in data) {
       const epoch = tableEpoch;
       if (!(await abandonExisting())) return;
@@ -3176,12 +3325,23 @@ root.addEventListener("submit", async (event) => {
     return;
   }
 });
+// pass & play setup: one handler each for the whole page (the page's elements are
+// reused from screen to screen, so a listener per screen would pile up)
+root.addEventListener("input", (event) => {
+  const index = event.target.dataset?.passName;
+  if (index !== undefined && passPlayers?.[Number(index)]) passPlayers[Number(index)].name = event.target.value;
+});
 root.addEventListener("change", async (event) => {
   const target = event.target;
   if (target.id === "account-display-name") return saveProfile();
   if (target.matches("select.cover"))
     target.previousElementSibling.textContent =
       target.selectedOptions[0]?.textContent || "";
+  if (target.matches("[data-pass-count]")) {
+    const n = Number(target.value);
+    passPlayers = Array.from({ length: n }, (_, p) => passPlayers[p] ?? { name: `Player ${p + 1}`, avatar: null });
+    return passPlayPage(0);
+  }
   if (target.dataset.draft) {
     const key = target.dataset.draft;
     draft[key] = key === "length" ? Number(target.value) : target.value;

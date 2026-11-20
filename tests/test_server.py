@@ -195,6 +195,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.host.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(self.guest.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(self.guest.post(path, json={'emote': 'luck'}).status_code, 200)  # "Good luck!"
+        self.assertEqual(self.guest.post(path, json={'emote': 'tempo'}).status_code, 200)  # "Not my tempo"
         self.assertEqual(len(self.state()['emotes']), 2)
         self.host.post(f'/api/lobbies/{self.id}/leave')
         self.assertEqual(self.guest.post(path, json={'emote': 'shocked'}).status_code, 409)
@@ -526,6 +527,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(state['game']['phase'], 'over')
         self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
         self.assertEqual(len(self.room.history), 1)
+        self.assertLessEqual(self.room.history[0]['started_at'], self.room.history[0]['ended_at'])  # for time played
         self.assertEqual(self.store.history.results(), [])  # an edited game is never saved
 
     def test_spectators_watch_any_game_send_emotes_and_follow_the_players(self):
@@ -564,6 +566,46 @@ class WebTests(unittest.TestCase):
         self.assertEqual((followed['id'], followed['spectator']), (new['id'], True))
         self.guest.post('/api/spectate-stop')
         self.assertEqual(self.guest.post('/api/spectate-follow').status_code, 404)
+
+    def test_pass_and_play_moves_for_whoever_is_up_on_one_device(self):
+        # each player's own name and avatar, and rules of the table's choosing
+        self.assertEqual(self.host.post('/api/pass-play', json={'names': ['Ann', 'Ben'], 'avatars': ['nope']}).status_code, 422)
+        custom = self.host.post('/api/pass-play', json={'names': ['Ann', 'Ben'], 'avatars': ['cat', 'dog'], 'house_rules': False,
+                                                        'rules': {'v10': True}, 'first': 'guest'}).json()
+        self.assertEqual((custom['avatars'], custom['house_rules'], custom['rules']['v10'], custom['rules']['royal_pairs'], custom['first']),
+                         (['cat', 'dog'], False, True, False, 'guest'))
+        self.host.post(f"/api/lobbies/{custom['id']}/leave")
+        state = self.host.post('/api/pass-play', json={'names': ['Ann', 'Ben', 'Cy'], 'avatars': ['cat']}).json()
+        room = self.store.rooms[state['id']]
+        self.assertTrue(state['local'])
+        self.assertEqual((room.house_rules, room.history_store, len(room.seats)), (True, None, 3))
+        self.assertEqual(state['avatars'][0], 'cat')
+        self.assertEqual(len(set(state['avatars'])), 3)  # the others get ones nobody else has
+        self.assertNotIn(room.id, [lobby['id'] for lobby in self.guest.get('/api/lobbies').json()])
+        act = lambda action, **extra: self.host.post(f'/api/lobbies/{room.id}/action',
+                                                     json={'action': action, 'version': room.version, **extra})
+        # opening flips go round the table, two each, all from this one device
+        for player in room.game.turn_order:
+            self.assertEqual(self.host.get(f'/api/lobbies/{room.id}/state').json()['viewer'], player)
+            for index in (0, 1):
+                self.assertEqual(act('flip', index=index).status_code, 200)
+        game = room.game
+        self.assertTrue(all(game.visible_count(p) == 2 for p in range(3)))
+        # then each turn is played by whoever's turn it is
+        for _ in range(3):
+            up = game.decision_player
+            self.assertEqual(self.host.get(f'/api/lobbies/{room.id}/state').json()['viewer'], up)
+            hidden = next(i for i, slot in enumerate(game.players[up]) if not slot.visible)
+            self.assertEqual(act('flip', index=hidden).status_code, 200)
+            if game.phase == 'revealed':
+                act('end_turn')
+            self.assertNotEqual(game.decision_player, up)
+        # every seat counts as at the table, and a finished game readies everyone at once
+        self.assertTrue(all(self.host.get(f'/api/lobbies/{room.id}/state').json()['connected']))
+        game.phase, room.status = 'over', 'playing'
+        room.record_result()
+        self.assertEqual(act('next_round').status_code, 200)
+        self.assertEqual(room.status, 'playing')
 
     def test_solo_series_ties_next_round_champion_and_rematch(self):
         state = self.host.post('/api/solo', json={'first': 'alternate', 'best_of': 3, 'rules': {'roman_fives': True}}).json()

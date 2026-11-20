@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from records import build_records, most_games_today, player_card
+from records import build_records, most_games_today, player_card, time_played
 
 
 def match(rounds, names=('Ann', 'Bob')):
@@ -13,7 +13,7 @@ class RecordTests(unittest.TestCase):
     def test_empty_history_has_no_records(self):
         self.assertEqual(build_records([]), {'highest_elo': None, 'comeback': None, 'most_modifier': None,
                                              'least_modifier': None, 'comeback_modifier': None,
-                                             'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None,
+                                             'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None, 'most_time': None,
                                              'always_in_play': ['Poisoned Card'],
                                              'never_most': ['Beggars Will be Choosers']})
 
@@ -72,8 +72,30 @@ class RecordTests(unittest.TestCase):
         self.assertEqual((ann['elo'], ann['pvp_streak']), (1080, 2))
         self.assertEqual(set(ann['records']), {'highest_elo'})
         bob = player_card(results, ratings, 'player:Bob')
-        self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak'}))
-        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'elo': None, 'pvp_streak': 0, 'records': {}})
+        self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak', 'most_time'}))
+        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'elo': None, 'pvp_streak': 0, 'seconds_played': 0, 'records': {}})
+
+    def test_time_played_counts_each_game_for_its_players_capped_and_never_bots(self):
+        timed = lambda start, end: {'winner': 0, 'scores': [1, 2], 'started_at': start, 'ended_at': end}
+        results = [
+            # recorded starts: 5 and 10 minutes
+            match([timed(1000, 1300), timed(2000, 2600)]),
+            # older games with no start: timed from the series' start, then from the game before
+            {**match([{'winner': 0, 'scores': [1, 2], 'ended_at': 5240}, {'winner': 0, 'scores': [1, 2], 'ended_at': 5480}],
+                     names=('Ann', 'Cy')), 'started_at': 5000},
+            # a table left open all night counts for 30 minutes at most
+            match([timed(0, 20000)], names=('Cy', 'Dee')),
+            # Golfbot is never timed
+            {**match([timed(0, 60)], names=('Ann', 'Golfbot')), 'solo': True},
+        ]
+        totals = time_played(results)
+        self.assertEqual(totals['player:Ann']['seconds'], 300 + 600 + 240 + 240 + 60)
+        self.assertEqual(totals['player:Bob']['seconds'], 900)
+        self.assertEqual(totals['player:Cy']['seconds'], 480 + 1800)
+        self.assertNotIn('bot:golfbot', totals)
+        most = build_records(results)['most_time']
+        self.assertEqual((most['label'], most['seconds']), ('Cy', 2280))
+        self.assertEqual(player_card(results, [], 'player:Ann')['seconds_played'], 1440)
 
     def test_most_games_today_skips_earlier_days_and_bots(self):
         now = time.time()
