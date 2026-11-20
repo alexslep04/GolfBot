@@ -51,7 +51,7 @@
   --scrim-blur: blur(3px);
 }
 /* on the dark tables a green tint would muddy them: a plain deeper dark */
-:root:is([data-theme="poker"], [data-theme="night"]) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) {
   --scrim: rgb(0 0 0 / 0.6);
 }
 :root {
@@ -123,7 +123,7 @@
 :root {
   --p3-edge: var(--paper);
 }
-:root:is([data-theme="poker"], [data-theme="night"]) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) {
   --p3-edge: color-mix(in srgb, var(--p3) 62%, #000);
 }
 /* a rule's state in the rules panel ("active", "one move away"): the panel's
@@ -140,7 +140,7 @@
 }
 /* dark themes: "one move away" is filled with a dark shade of the accent (a step
    up from the panel itself), its words in the panel's light text color */
-:root:is([data-theme="poker"], [data-theme="night"]) .pill.rule-state.near {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .pill.rule-state.near {
   background: color-mix(in srgb, var(--c) 40%, var(--c2));
   color: var(--ct);
 }
@@ -290,9 +290,69 @@
   --sad: #8b80c4;
   --shadow: rgb(0 0 0 / 0.45);
 }
+/* "Focus" takes the color out: a black room and one dark gray for everything
+   on it, every button, panel, seat and sticker alike. Only the cards keep a
+   suit color (red, or the high contrast orange and blue), and the decorative
+   icons beside labels go (see the end of the file). */
+:root[data-theme="focus"] {
+  --f-edge: #4a4a4a; /* every border and sticker outline */
+  --f-fill: #161616; /* every panel and button */
+  --f-text: #cfcfcf; /* every label */
+  --scrim: rgb(0 0 0 / 0.72);
+  --bg: #000;
+  --fw: var(--f-edge);
+  --fw2: var(--f-edge);
+  --fw3: var(--f-fill);
+  --fw-text: var(--f-text);
+  --accent: #6a6a6a;
+  --ink: #dcdcdc;
+  --black: #dcdcdc;
+  --gray: #858585;
+  --flame: #9a9a9a; /* lit is a lighter gray than unlit */
+  --paper: #0e0e0e;
+  --red: #b04a46; /* the red suits */
+  --red2: var(--f-fill);
+  --p1: var(--f-edge);
+  --p1b: var(--f-fill);
+  --p1t: var(--f-text);
+  --p2: var(--f-edge);
+  --p2b: var(--f-fill);
+  --p2t: var(--f-text);
+  --p3: var(--f-edge);
+  --p3b: var(--f-fill);
+  --p3t: var(--f-text);
+  --p4: var(--f-edge);
+  --p4b: var(--f-fill);
+  --p4t: var(--f-text);
+  --p5: var(--f-edge);
+  --p5b: var(--f-fill);
+  --p5t: var(--f-text);
+  --p6: var(--f-edge);
+  --p6b: var(--f-fill);
+  --p6t: var(--f-text);
+  --p7: var(--f-edge);
+  --p7b: var(--f-fill);
+  --p7t: var(--f-text);
+  --p8: var(--f-edge);
+  --p8b: var(--f-fill);
+  --p8t: var(--f-text);
+  --s0on: var(--f-text);
+  --s1on: var(--f-text);
+  --s2on: var(--f-text);
+  --s3on: var(--f-text);
+  --s4on: var(--f-text);
+  --s5on: var(--f-text);
+  --s6on: var(--f-text);
+  --s7on: var(--f-text);
+  --p3-edge: var(--f-edge);
+  --on-bg: var(--f-text);
+  --on-bg2: #6a6a6a;
+  --sad: var(--f-edge);
+  --shadow: rgb(0 0 0 / 0.6);
+}
 /* Dark themes: the lit flame keeps an outline of its own orange, dimmer than
    its fill, instead of vanishing into the dark sticker edge */
-:root:is([data-theme="poker"], [data-theme="night"]) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) {
   --flame-edge: color-mix(in srgb, var(--flame) 55%, var(--paper));
 }
 :root[data-theme="night"] {
@@ -300,7 +360,7 @@
 }
 /* Both dark themes: buttons keep their color in a quiet outline rather than
    a bold one, so the dark surfaces carry the look. */
-:root:is([data-theme="poker"], [data-theme="night"]) :is(.btn, .chip) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) :is(.btn, .chip) {
   border-color: color-mix(in srgb, var(--c) 30%, var(--c2));
 }
 .c-s0 {
@@ -442,6 +502,10 @@ body {
 /* Night Golf: the same course after dark */
 :root[data-theme="night"] #backdrop {
   background-image: url(assets/fairway-night.svg);
+}
+/* Focus: nothing behind the table but black */
+:root[data-theme="focus"] #backdrop {
+  background: #000;
 }
 /* Poker: a felt card table in place of the fairway, the same shape and size,
    with the dark room around it running out to every edge of the screen */
@@ -669,7 +733,7 @@ p {
   transition: transform 0.25s var(--spring);
 }
 /* Dark themes: the icon's light outline, softened toward the table */
-:root:is([data-theme="poker"], [data-theme="night"]) .icon-btn {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .icon-btn {
   --stroke: color-mix(in srgb, var(--ink) 50%, var(--paper));
 }
 .icon-btn:hover {
@@ -1581,7 +1645,7 @@ body > header.topbar .brand {
   color: var(--on-bg2);
 }
 /* Poker: a link on the bare table needs a light color, not the seat's dark one */
-:root:is([data-theme="poker"], [data-theme="night"]) body > header.topbar a:not(.brand) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) body > header.topbar a:not(.brand) {
   color: var(--on-bg);
 }
 body > header.topbar {
@@ -1955,7 +2019,7 @@ button.tag-rules:active > .tag-in {
 }
 /* Dark themes: the avatar and the points numerals take the avatar picker's
    look, a dark fill of the seat's color inside an outline of that color */
-:root:is([data-theme="poker"], [data-theme="night"]) :is(.tag-avatar, .tag-score .score, .watch-badge) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) :is(.tag-avatar, .tag-score .score, .watch-badge) {
   --fill: var(--c2);
   --stroke: var(--c);
 }
@@ -2262,6 +2326,10 @@ button.tag-rules:active > .tag-in {
 :root[data-theme="poker"] .face.back {
   background-image: url(assets/card-back-poker.png);
 }
+/* Focus: the same back in grays */
+:root[data-theme="focus"] .face.back {
+  background-image: url(assets/card-back-focus.png);
+}
 .face.front {
   background-image: url(assets/card-face-black.png);
   color: var(--ink);
@@ -2279,13 +2347,18 @@ button.tag-rules:active > .tag-in {
 }
 /* Dark themes: the same hand-drawn face turned inside out, a dark card with
    a light border, so a hand doesn't glare against the table. */
-:root:is([data-theme="poker"], [data-theme="night"]) .face.front {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .face.front {
   background-image: url(assets/card-face-black-dark.png);
 }
-:root:is([data-theme="poker"], [data-theme="night"]) .face.front.red {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .face.front.red {
   background-image: url(assets/card-face-red-dark.png);
   color: #f08a86;
   --fill: #f08a86;
+}
+/* Focus: the red suits in its muted red */
+:root[data-theme="focus"] .face.front.red {
+  color: #c25e59;
+  --fill: #c25e59;
 }
 /* Night Golf's borders are brighter, to stand out on its darker table */
 :root[data-theme="night"] .face.front {
@@ -2306,12 +2379,12 @@ button.tag-rules:active > .tag-in {
   color: #3f7fd6;
   --fill: #3f7fd6;
 }
-:root.contrast-cards:is([data-theme="poker"], [data-theme="night"]) .face.front.suit-D {
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .face.front.suit-D {
   background-image: url(assets/card-face-orange-dark.png);
   color: #f2a061;
   --fill: #f2a061;
 }
-:root.contrast-cards:is([data-theme="poker"], [data-theme="night"]) .face.front.suit-C {
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .face.front.suit-C {
   background-image: url(assets/card-face-blue-dark.png);
   color: #7fb0f2;
   --fill: #7fb0f2;
@@ -2333,7 +2406,7 @@ button.tag-rules:active > .tag-in {
      (and every theme's face rule outranks this one, hence !important) */
   background-image: none !important;
 }
-:root:is([data-theme="poker"], [data-theme="night"]) .face.front.ripped {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .face.front.ripped {
   --rip-face: url(assets/card-face-red-dark-ripped.png);
 }
 :root[data-theme="night"] .face.front.ripped {
@@ -2342,7 +2415,7 @@ button.tag-rules:active > .tag-in {
 :root.contrast-cards .face.front.ripped {
   --rip-face: url(assets/card-face-orange-ripped.png);
 }
-:root.contrast-cards:is([data-theme="poker"], [data-theme="night"]) .face.front.ripped {
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .face.front.ripped {
   --rip-face: url(assets/card-face-orange-dark-ripped.png);
 }
 :root.contrast-cards[data-theme="night"] .face.front.ripped {
@@ -2710,7 +2783,7 @@ button.tag-rules:active > .tag-in {
   animation: pop 0.4s var(--spring);
 }
 /* (on felt the labels are read against a dark table, not a pale fairway) */
-:root:is([data-theme="poker"], [data-theme="night"]) .side-act {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .side-act {
   color: var(--on-bg);
 }
 /* Confirm and Undo are wanted the instant a move is staged */
@@ -4166,11 +4239,11 @@ button.tag-rules:active > .tag-in {
 }
 /* dark themes: a well a shade darker than the sheet, tinted with its color,
    rather than a pale wash that turns gray on the dark sheets (the stat tiles too) */
-:root:is([data-theme="poker"], [data-theme="night"]) :is(.tally, .stat-tiles > div) {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) :is(.tally, .stat-tiles > div) {
   background: color-mix(in srgb, var(--c2) 55%, #000);
 }
 /* the series tally, plain on light sheets, becomes the same rounded well */
-:root:is([data-theme="poker"], [data-theme="night"]) .tally.plain {
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .tally.plain {
   padding: 1.2rem 1.4rem;
   border-radius: 1.8rem;
 }
@@ -5000,3 +5073,26 @@ button:disabled > .haptic-switch {
 
 .rule-eye { --fill:var(--c); --stroke:var(--paper); }
 .rule-eye.c-p3 { --fill:var(--p3); --stroke:var(--paper); }
+
+/* Focus: only the icons that do something stay. Every .btn already says what
+   it is in words, so the picture beside them goes (home buttons, settings
+   rows, fields); the round icon buttons, Back and the table's own actions keep theirs. */
+:root[data-theme="focus"] .btn > .tilt,
+:root[data-theme="focus"] .field > .tilt {
+  display: none;
+}
+:root[data-theme="focus"] .btn.tile {
+  justify-content: center;
+}
+/* Focus: a card shows its rank and suit once, in the middle */
+:root[data-theme="focus"] .face.front {
+  justify-content: center;
+  align-items: center;
+}
+:root[data-theme="focus"] .face.front > .corner + .corner {
+  display: none;
+}
+:root[data-theme="focus"] .face.front > .corner {
+  width: auto;
+  transform: scale(1.6);
+}

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function harness() {
+function harness({debug=false}={}) {
   const nodes = new Map(), listeners = {}, requests = [];
   function element() {
     const children = new Map();
@@ -31,6 +31,10 @@ function harness() {
     fetch:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({pvp:[{label:'Alice <admin>',elo:1210,wins:3,draws:1,losses:2,win_rate:.5}],solo:[],patch:'1.2.0'})};}
   });
   for(const file of ['icons.js','ui.js','board.js','gamepad.js','app.js']) {
+    // debug: a debug server's page, as far as ui.js's theme list goes (app.js's
+    // debug tools need more of a browser than this harness has)
+    if(debug && file==='ui.js') context.document.documentElement.dataset.debug='';
+    else delete context.document.documentElement.dataset.debug;
     let source=fs.readFileSync(path.join(__dirname,file),'utf8');
     if(file==='app.js') source=source.slice(0,source.lastIndexOf('\n(async () => {'));
     vm.runInContext(source,context,{filename:file});
@@ -562,8 +566,12 @@ test('a double-tap flips whatever else has happened at the table, and waits its 
   assert.equal(h.requests.length,count);assert.equal(h.run('board.queuedFlip'),null);
 });
 
-test('settings offer the Original, Poker and Night Golf themes, and the choice re-skins the page',()=>{
-  const h=harness();
+test('settings offer the Original, Poker, Night Golf and (debug only) Focus themes, and the choice re-skins the page',()=>{
+  // without debug, Night Golf goes straight back to Original
+  const plain=harness();
+  plain.run('togglePref("theme");togglePref("theme");togglePref("theme")');
+  assert.equal(plain.run('prefs.theme'),'golf');
+  const h=harness({debug:true});
   h.run('settingsSheet()');
   assert.match(h.nodes.get('sheet').innerHTML,/data-pref="theme"[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Original<\/b>/);
   assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
@@ -573,6 +581,9 @@ test('settings offer the Original, Poker and Night Golf themes, and the choice r
   h.run('togglePref("theme")');
   assert.equal(h.run('prefs.theme'),'night');assert.equal(h.run('document.documentElement.dataset.theme'),'night');
   h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Night Golf<\/b>/);
+  h.run('togglePref("theme")');
+  assert.equal(h.run('prefs.theme'),'focus');assert.equal(h.run('document.documentElement.dataset.theme'),'focus');
+  h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Focus<\/b>/);
   h.run('togglePref("theme")');
   assert.equal(h.run('prefs.theme'),'golf');assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
   // every theme the settings offer has its tokens in the stylesheet
