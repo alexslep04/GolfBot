@@ -81,6 +81,8 @@ class Settings(BaseModel):
     game_type: Literal["1v1", "many"] = "1v1"
     # whether a staged move may show the score it would leave before Confirm
     score_preview: bool = True
+    # whether spectators see each player's chance of winning
+    show_odds: bool = True
     avatar: str | None = Field(default=None, max_length=32)
 
     @field_validator("best_of")
@@ -221,6 +223,7 @@ class Room:
     series_mode: str = "wins"
     game_type: str = "1v1"
     score_preview: bool = True
+    show_odds: bool = True  # spectators see each player's chance of winning
     patch: str = PATCH_VERSION
     series_complete: bool = False
     avatars: list = field(default_factory=lambda: [DEFAULT_AVATAR, DEFAULT_AVATAR])
@@ -648,7 +651,7 @@ def public_room(room):
             "players": sum(seat is not None for seat in room.seats), "solo": room.solo,
             "house_rules": room.house_rules, "house_version": room.house_version,
             "series_mode": room.series_mode, "game_type": room.game_type, "capacity": room.capacity,
-            "score_preview": room.score_preview or room.solo,
+            "score_preview": room.score_preview or room.solo, "show_odds": room.show_odds or room.solo,
             "patch": room.patch, "avatars": room.avatars, "practice": room.practice, "rated": room.rated}
 
 
@@ -690,14 +693,14 @@ def spectator_odds(room):
     estimate, until the new one is ready (refresh_odds sends it on)."""
     game = room.game
     if (game is None or room.status != "playing" or game.phase == "over" or room.odds_game is not game
-            or not (room.score_preview or room.solo)):  # a host who turns off score previews turns these off too
+            or not (room.show_odds or room.solo)):  # the host can turn these off
         return None
     return room.odds
 
 
 def odds_stale(room):
     game = room.game
-    return (game is not None and room.status == "playing" and game.phase != "over" and (room.score_preview or room.solo)
+    return (game is not None and room.status == "playing" and game.phase != "over" and (room.show_odds or room.solo)
             and any(room.watchers.values()) and odds_key(game) != room.odds_key)
 
 
@@ -1962,7 +1965,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room = Room(secrets.token_urlsafe(9), clean_name(settings.name), parse_rules(house_rules() if settings.house_rules else settings.rules), settings.best_of, 'random' if settings.house_rules or many else settings.first, False, [session.token] if many else [session.token, None], [session.username] if many else [session.username, "Waiting..."], history_store=store.history,
                     house_rules=settings.house_rules, house_version=HOUSE_VERSION if settings.house_rules else None,
                     series_mode=settings.series_mode, game_type=settings.game_type,
-                    score_preview=settings.score_preview)
+                    score_preview=settings.score_preview, show_odds=settings.show_odds)
         room.resize_seats()
         room.avatars[0] = session.avatar
         room.participants[0] = profile_for(session)

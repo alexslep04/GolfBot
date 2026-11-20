@@ -68,7 +68,7 @@ const emoteNames = {
   save: "What a save!",
   ofc: "Ofc!",
   luck: "Good luck!",
-  tempo: "Not my tempo",
+  tempo: "Not my tempo.",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
 const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo"];
@@ -385,6 +385,14 @@ function selectField(label, attrs, options, iconName, extra = "") {
     extra,
   );
 }
+/** A field with an info sticker on the top edge of its border, opposite its
+ * label; tapping it shows or hides the explanation underneath. */
+const openInfo = new Set();
+function infoField(key, fieldHtml, text) {
+  const open = openInfo.has(key);
+  const button = `<button type="button" class="field-info" data-info="${key}" aria-label="About this setting" aria-expanded="${open}">${icon("info.circle.fill", 20, { idle: false })}</button>`;
+  return `<div class="stack">${fieldHtml.replace(/<\/label>$/, `${button}</label>`)}<div class="info-hint${open ? " open" : ""}" id="info-${key}"><p class="hint">${e(text)}</p></div></div>`;
+}
 /** Back: the stacked sticker (icon over its label), like Close, Quit and Refresh. */
 function backSticker(attrs) {
   return `<button type="button" class="close-btn c-fw back-btn" ${attrs} aria-label="Back">${icon("arrowshape.backward.fill", 40)}<span>${padTag("b")}Back</span></button>`;
@@ -423,29 +431,29 @@ function queueLabel() {
   const queue = presenceState.queue;
   if (queue?.status === "waiting") return "In queue… tap to leave";
   if (queue?.status === "offer") return "Match found!";
-  const waiting = presenceState.queue_size || 0;
-  return `${waiting} player${waiting === 1 ? "" : "s"} in Queue`;
+  return ""; // how many are waiting shows as the count on the button's corner
+}
+/** The count on a home button's corner (hidden at zero). */
+function setCount(id, count, label) {
+  const badge = document.getElementById(id);
+  if (!badge) return;
+  badge.hidden = !count;
+  badge.textContent = count;
+  badge.setAttribute("aria-label", label);
 }
 function renderHomeLive() {
   const sub = document.getElementById("queue-sub");
-  if (sub) sub.textContent = queueLabel();
-  const badge = document.getElementById("lobby-count");
-  if (badge) {
-    badge.hidden = !presenceState.available_lobbies;
-    badge.textContent = presenceState.available_lobbies;
-    badge.setAttribute(
-      "aria-label",
-      `${presenceState.available_lobbies} open ${presenceState.available_lobbies === 1 ? "table" : "tables"}`,
-    );
+  if (sub) {
+    sub.textContent = queueLabel();
+    sub.hidden = !sub.textContent;
   }
-  // the same red count on Spectate: games in play you could watch
+  const waiting = presenceState.queue_size || 0;
+  setCount("queue-count", waiting, `${waiting} ${waiting === 1 ? "player" : "players"} in queue`);
+  const open = presenceState.available_lobbies || 0;
+  setCount("lobby-count", open, `${open} open ${open === 1 ? "table" : "tables"}`);
+  // the same count on Spectate: games in play you could watch
   const watchable = presenceState.spectatable_games || 0;
-  const spectate = document.getElementById("spectate-count");
-  if (spectate) {
-    spectate.hidden = !watchable;
-    spectate.textContent = watchable;
-    spectate.setAttribute("aria-label", `${watchable} ${watchable === 1 ? "game" : "games"} to watch`);
-  }
+  setCount("spectate-count", watchable, `${watchable} ${watchable === 1 ? "game" : "games"} to watch`);
 }
 function renderQueueBanner() {
   const banner = document.getElementById("queue-banner");
@@ -928,7 +936,7 @@ function home() {
     ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} <span>${padTag("select")}Resume your table</span></button>` : ""}
     ${patchChip()}
     <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends<span class="sub">or Pass &amp; Play</span></span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
-    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Ranked<span class="sub" id="queue-sub"></span></span>${quick[1]}</button>
+    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Ranked<span class="sub" id="queue-sub" hidden></span></span>${quick[1]}<span id="queue-count" class="badge" hidden></span></button>
     <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play Solo</span>${practice[1]}</button>
     <button type="button" class="btn c-p4" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span>${tilted("medal", 33, { mirror: true })}</button>
     <div class="row split">
@@ -1189,6 +1197,7 @@ const draft = {
   lobbyName: "Friendly Golf",
   gameType: "1v1",
   scorePreview: "on",
+  showOdds: "on",
   preset: "house",
   rules: {},
   first: "random",
@@ -1245,7 +1254,8 @@ function setupPage() {
       </div><p class="hint">${e(styleHint())}</p></div>
       ${
         draft.mode === "host"
-          ? `<div class="stack">${selectField("Score Preview", `data-draft="scorePreview" aria-label="Score preview"`, [["on", "Before Confirm", draft.scorePreview === "on"], ["off", "None", draft.scorePreview === "off"]], "eye.fill")}<p class="hint">${draft.scorePreview === "on" ? "Players see the score a swap or discard would leave them with before they confirm it." : "Scores change only once a move is confirmed."}</p></div>`
+          ? `${infoField("preview", selectField("Score Preview", `data-draft="scorePreview" aria-label="Score preview"`, [["on", "Before Confirm", draft.scorePreview === "on"], ["off", "None", draft.scorePreview === "off"]], "eye.fill"), draft.scorePreview === "on" ? "Players see the score a swap or discard would leave them with before they confirm it." : "Scores change only once a move is confirmed.")}
+            ${infoField("odds", selectField("Spectator Odds", `data-draft="showOdds" aria-label="Spectator odds"`, [["on", "Shown", draft.showOdds === "on"], ["off", "Hidden", draft.showOdds === "off"]], "dice.fill"), draft.showOdds === "on" ? "Spectators see each player's chance of winning." : "Spectators see no win chances.")}`
           : ""
       }
     </div><div class="row">${entryButton("data-setup-next", "Continue")}</div></div>`,
@@ -1729,6 +1739,7 @@ async function submitSetup() {
     series_mode: draft.style === "points" ? "points" : "wins",
     game_type: draft.gameType,
     score_preview: draft.scorePreview !== "off",
+    show_odds: draft.showOdds !== "off",
     house_rules: house,
     first: house ? "random" : draft.first,
     rules: Object.fromEntries(
@@ -3002,6 +3013,14 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (data.leaderTab) return data.leaderTab === "advanced" ? statsPage() : leaderboardPage(data.leaderTab);
+    if (data.info) {
+      event.preventDefault();
+      const open = !openInfo.delete(data.info);
+      if (open) openInfo.add(data.info);
+      document.getElementById(`info-${data.info}`).classList.toggle("open", open);
+      button.setAttribute("aria-expanded", open);
+      return;
+    }
     if (data.ruleExample) {
       const example = document.getElementById(`example-${data.ruleExample}`);
       example.hidden = !example.hidden;
@@ -3385,7 +3404,7 @@ root.addEventListener("change", async (event) => {
   if (target.dataset.draft) {
     const key = target.dataset.draft;
     draft[key] = key === "length" ? Number(target.value) : target.value;
-    if (key === "style" || key === "length" || key === "scorePreview") {
+    if (key === "style" || key === "length" || key === "scorePreview" || key === "showOdds") {
       saveName(name());
       setupPage();
     }

@@ -951,10 +951,15 @@ p {
   border-radius: 1.4rem;
   display: grid;
   place-items: center;
-  background: var(--p2);
-  color: #fff;
+  /* in the button's own color: its border color, with its fill color for the number */
+  background: var(--c);
+  color: var(--c2);
   font: 700 1.6rem/1 var(--text);
   box-shadow: 0.2rem 0.2rem 0 var(--shadow);
+}
+.btn .badge[hidden],
+.btn .sub[hidden] {
+  display: none;
 }
 .field {
   position: relative;
@@ -1023,6 +1028,53 @@ p {
   opacity: 0;
   cursor: pointer;
   font-size: 1.6rem;
+}
+/* an info sticker on the border's top edge, at the opposite end from the label */
+.field > .field-info {
+  position: absolute;
+  right: 1.2rem;
+  top: -1.9rem;
+  z-index: 1; /* above the invisible picker that covers the field */
+  display: grid;
+  place-items: center;
+  padding: 0.8rem; /* a fingertip-sized target around the small sticker */
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.field > .field-info .ico {
+  filter: none; /* drawn flat on the border, like the label */
+}
+/* the explanation under a field unfolds when its info sticker is tapped
+   (closed, it also gives back the stack's gap above it) */
+.info-hint {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -1rem;
+  opacity: 0;
+  transform: translateY(-0.6rem);
+  transition: grid-template-rows 0.28s ease, margin-top 0.28s ease,
+    opacity 0.2s ease, transform 0.28s ease, visibility 0s 0.28s;
+  visibility: hidden;
+}
+.info-hint > .hint {
+  min-height: 0;
+  overflow: hidden;
+}
+.info-hint.open {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+  opacity: 1;
+  transform: none;
+  transition: grid-template-rows 0.28s ease, margin-top 0.28s ease,
+    opacity 0.24s ease 0.06s, transform 0.28s ease, visibility 0s;
+  visibility: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .info-hint,
+  .info-hint.open {
+    transition: none;
+  }
 }
 .field.hug {
   width: auto;

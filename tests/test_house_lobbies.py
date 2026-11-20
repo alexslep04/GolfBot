@@ -97,6 +97,13 @@ class LobbyFeatureTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertIn('score previews', response.json()['detail'])
 
+    def test_host_can_hide_win_chances_from_spectators(self):
+        self.assertTrue(self.guest.post('/Golfgame/api/lobbies', json={'username': 'Guest'}).json()['show_odds'])
+        state = self.create(show_odds=False)
+        # a setting of its own: score previews stay on
+        self.assertFalse(state['show_odds'])
+        self.assertTrue(state['score_preview'])
+
     def test_house_preset_overrides_tampered_settings_and_locks_solo_rules(self):
         with patch('server.secrets.randbelow', return_value=1):
             response = self.host.post('/Golfgame/api/solo', json={
