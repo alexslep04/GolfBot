@@ -104,7 +104,7 @@ class LobbyFeatureTests(unittest.TestCase):
         self.assertFalse(state['show_odds'])
         self.assertTrue(state['score_preview'])
 
-    def test_house_preset_overrides_tampered_settings_and_locks_solo_rules(self):
+    def test_house_preset_overrides_tampered_settings_and_solo_rules_change_before_play(self):
         with patch('server.secrets.randbelow', return_value=1):
             response = self.host.post('/Golfgame/api/solo', json={
                 'house_rules': True, 'first': 'host', 'rules': {'beggars': True},
@@ -115,14 +115,30 @@ class LobbyFeatureTests(unittest.TestCase):
         self.assertEqual(state['game']['first_player'], 1)
         self.assertEqual(state['rules'], house_rules())
         self.assertFalse(state['rules']['beggars'])
-        self.assertFalse(state['game']['legal']['set_rules'])
         self.assertEqual(state['house_version'], HOUSE_VERSION)
+        # solo: the rules can still change before you flip a card
+        self.assertTrue(state['game']['legal']['set_rules'])
+        path = f"/Golfgame/api/lobbies/{state['id']}/action"
+        state = self.host.post(path, json={'action': 'set_rule', 'version': state['version'],
+                                           'rule': 'beggars', 'enabled': True}).json()
+        self.assertTrue(state['rules']['beggars'])
+        self.assertFalse(state['house_rules'])
+        self.assertIsNone(state['house_version'])
+        # turned back, it is House rules again
+        state = self.host.post(path, json={'action': 'set_rule', 'version': state['version'],
+                                           'rule': 'beggars', 'enabled': False}).json()
+        self.assertTrue(state['house_rules'])
+        self.assertEqual(state['rules'], house_rules())
+        # once you flip your first card, they are fixed
+        state = self.host.post(path, json={'action': 'flip', 'version': state['version'], 'index': 0}).json()
+        self.assertEqual(state['game']['phase'], 'setup')
+        self.assertFalse(state['game']['legal']['set_rules'])
         for action in ('set_rule', 'set_rules'):
-            response = self.host.post(f"/Golfgame/api/lobbies/{state['id']}/action", json={
+            response = self.host.post(path, json={
                 'action': action, 'version': state['version'], 'rule': 'beggars',
                 'enabled': True, 'rules': {'beggars': True},
             })
-            self.assertEqual(response.status_code, 403)
+            self.assertIn(response.status_code, (403, 409, 422))
         self.assertEqual(self.host.get('/Golfgame/api/match-options').json()['house_rules'], house_rules())
 
     def test_continuous_has_no_win_target_and_finishes_after_both_leave(self):

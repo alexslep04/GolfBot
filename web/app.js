@@ -139,6 +139,41 @@ const houseBadge = (match) =>
   match.house_rules
     ? `<span class="pill c-p1">${glyph("house.fill", 14)} House rules</span>`
     : "";
+/** A lobby's rules chip: House rules, or how many rules are on; a tap opens the rules sheet. */
+const rulesChip = (match) => {
+  const count = catalog.filter((rule) => match.rules?.[rule.key]).length;
+  return `<button type="button" class="pill c-p1 rules-chip" data-lobby-rules aria-label="Show the rules">${glyph(match.house_rules ? "house.fill" : "list.bullet.clipboard.fill", 14)}${match.house_rules ? "House rules" : `${count} ${count === 1 ? "rule" : "rules"}`}</button>`;
+};
+// the lobby whose rules the chip shows (the join page's, or the waiting room's own)
+let chipMatch = null;
+/** A lobby's rules, made like the table's rules sheet: the rules that will be in play. */
+function lobbyRulesSheet(match) {
+  const enabled = catalog.filter((rule) => match.rules?.[rule.key]);
+  return `<section class="sheet rules-sheet c-p1" role="dialog" aria-modal="true" aria-label="Rules in play">
+    <div class="sheet-head"><h2>${e(match.name)}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <h3>${enabled.length} modifier${enabled.length === 1 ? "" : "s"} in play${match.house_rules ? " · House rules" : ""}</h3>
+    <div>${enabled.map((rule) => ruleHelpCard(rule)).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>
+  </section>`;
+}
+/** Opens the lobby's rules sheet; `kept` redraws it as it was after a table update. */
+function openLobbyRules(kept = null) {
+  openSheet(lobbyRulesSheet(chipMatch));
+  sheetRoot.dataset.lobbyRules = "";
+  const sheet = sheetRoot.querySelector(".sheet");
+  if (!kept) return;
+  const { scroll, examples } = kept;
+  // just as it was, without sliding in again
+  sheet?.classList.add("settled");
+  for (const id of examples) {
+    const example = document.getElementById(id);
+    if (!example) continue;
+    example.hidden = false;
+    const eye = sheetRoot.querySelector(`[aria-controls="${id}"]`);
+    eye?.setAttribute("aria-expanded", "true");
+    eye?.classList.add("c-p3");
+  }
+  if (sheet) sheet.scrollTop = scroll;
+}
 const avatarIcon = (id) =>
   (avatars.find((avatar) => avatar.id === id) || avatars[0] || {}).icon ||
   "dog.fill";
@@ -177,7 +212,7 @@ function saveAvatar(id) {
 }
 function toast(text) {
   const el = document.getElementById("toast");
-  el.innerHTML = `<span class="toast-text">${e(text)}</span><button type="button" class="toast-close" data-toast-close aria-label="Dismiss">${icon("xmark.circle.fill", 20)}</button>`;
+  el.innerHTML = `<span class="toast-text">${e(text)}</span><button type="button" class="toast-close" data-toast-close aria-label="Dismiss">${icon("xmark.circle.fill", 20, { idle: false })}</button>`;
   el.hidden = true;
   el.classList.remove("leaving");
   el.style.removeProperty("translate");
@@ -341,12 +376,19 @@ function openSheet(html, player = "") {
   sheetRoot.dataset.player = String(player);
   sheetRoot.innerHTML = html;
   sheetRoot.hidden = false;
+  // its stickers hold still until it has risen into place (see .sheet.entering)
+  const sheet = sheetRoot.querySelector(".sheet");
+  if (sheet) {
+    sheet.classList.add("entering");
+    setTimeout(() => sheet.classList.remove("entering"), 500);
+  }
 }
 function closeSheet() {
   rememberRulesScroll();
   sheetRoot.hidden = true;
   sheetRoot.innerHTML = "";
   sheetRoot.dataset.player = "";
+  delete sheetRoot.dataset.lobbyRules;
 }
 // A rules sheet opens again where it was left, for each player at this table.
 const rulesScroll = new Map();
@@ -796,24 +838,69 @@ function renderSocial() {
   const invitation = session.room_id
     ? null
     : presenceState.invitations.find((item) => !dismissedInvites.has(item.id));
-  if (socialMode !== "players") socialMode = invitation ? "invitation" : null;
+  // an invitation drops in as its own pill (see renderInvitePill), not here
+  renderInvitePill(invitation);
+  if (socialMode !== "players") socialMode = null;
   if (!socialMode) {
     if (dialog.open) closeSocial();
     return;
   }
-  const signature = JSON.stringify([
-    socialMode,
-    socialMode === "players"
-      ? [presenceState.players, presenceState.invited]
-      : invitation,
-  ]);
+  const signature = JSON.stringify([socialMode, presenceState.players, presenceState.invited]);
   if (signature === socialSignature) return;
   socialSignature = signature;
   dialog.innerHTML =
     socialMode === "players"
-      ? `<h2>Invite a player</h2><p class="hint">Players online right now who aren't at a table.</p><div class="list" style="margin-top:1.2rem">${presenceState.players.map((player) => `<div class="list-item c-p1">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}</small></div><button type="button" class="btn small c-p1" data-invite-player="${e(player.id)}" ${presenceState.invited.includes(player.id) ? "disabled" : ""}>${presenceState.invited.includes(player.id) ? "Invited" : "Invite"}</button></div>`).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div><div class="dialog-actions"><button type="button" class="btn c-fw" data-social-close>${padTag("b")}Close</button></div>`
-      : `<h2>${tilted("figure.2", 30)} You're invited</h2><p><strong>${e(invitation.host)}</strong> invited you to <strong>${e(invitation.lobby.name)}</strong>.</p><div class="meta" style="margin:1rem 0"><span class="pill c-p1">${e(matchLength(invitation.lobby))}</span>${houseBadge(invitation.lobby)}</div><details><summary>More info</summary><p>First player: ${e(starter[invitation.lobby.first])}</p><p>${e(rulesSummary(invitation.lobby.rules))}</p></details><div class="dialog-actions"><button type="button" class="btn c-p1" data-invite-reply="accept" data-invitation="${e(invitation.id)}">${padTag("y")}Accept</button><button type="button" class="btn c-p2" data-invite-reply="decline" data-invitation="${e(invitation.id)}">${padTag("x")}Decline</button></div>`;
+      ? `<button type="button" class="dialog-x" data-social-close aria-label="Close">${icon("xmark.circle.fill", 26)}</button><h2>Invite a player</h2><p class="hint">Players online right now who aren't at a table.</p><div class="list invite-list">${presenceState.players.map((player) => {
+          const invited = presenceState.invited.includes(player.id);
+          // the player's card, and beside it the invite sticker over its label
+          return `<div class="invite-row"><div class="list-item c-p1 grow">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}</small></div></div><button type="button" class="close-btn c-p1" data-invite-player="${e(player.id)}" aria-label="${invited ? "Invited" : "Invite"} ${e(player.display_name)}" ${invited ? "disabled" : ""}>${icon(invited ? "checkmark.circle.fill" : "person.fill.badge.plus", 30)}<span>${invited ? "Invited" : "Invite"}</span></button></div>`;
+        }).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div>`
+      : "";
+  // (the invite list's x sits out on the dialog's corner)
+  dialog.classList.toggle("invite-dialog", socialMode === "players");
   if (!dialog.open) dialog.showModal();
+}
+/**
+ * A table invitation, made like the Ranked "Match found!" pill but blue: who
+ * invited you to which table and its match style beside a Decline sticker, and
+ * Accept hanging below. It drops in from the top, and leaves the same way.
+ */
+let shownInvite = null;
+function renderInvitePill(invitation) {
+  const banner = document.getElementById("invite-banner");
+  if (!banner) return;
+  const id = invitation?.id ?? null;
+  if (id === shownInvite) return;
+  const wasShowing = shownInvite !== null;
+  shownInvite = id;
+  const motion = !reducedMotion.matches && banner.animate;
+  if (!invitation) {
+    if (!wasShowing || !motion) {
+      banner.hidden = true;
+      banner.innerHTML = "";
+      return;
+    }
+    banner.getAnimations().forEach((animation) => animation.cancel());
+    banner
+      .animate([{ transform: "none" }, { transform: "translateY(calc(-100% - 2rem))", opacity: 0 }], { duration: 260, easing: "cubic-bezier(0.4, 0, 0.9, 0.6)", fill: "forwards" })
+      .finished.then(() => {
+        if (shownInvite !== null) return; // another invitation came meanwhile
+        banner.hidden = true;
+        banner.innerHTML = "";
+        banner.getAnimations().forEach((animation) => animation.cancel());
+      }, () => {});
+    return;
+  }
+  const lobby = invitation.lobby || {};
+  const style = `${e(matchLength(lobby))}${lobby.house_rules ? " · House rules" : ""}`;
+  const sparkle = (mirror) => icon("sparkles", 24, { idle: false, sw: 3.4, cls: mirror ? "mirrored" : "" });
+  const decline = `<button type="button" class="act side-act queue-leave queue-decline" data-invite-reply="decline" data-invitation="${e(invitation.id)}" aria-label="Decline the invitation"><span class="act-ico">${icon("xmark.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Decline</span></button>`;
+  const accept = `<button type="button" class="btn c-p1 queue-accept" data-invite-reply="accept" data-invitation="${e(invitation.id)}">${sparkle(false)}<span>${padTag("y")}Accept</span>${sparkle(true)}</button>`;
+  banner.innerHTML = `<div class="queue-pill offer open invite-pill" role="dialog" aria-label="Table invitation"><div class="queue-offer-row"><span class="queue-text"><b>Table invite!</b><small>${e(invitation.host)} · ${e(lobby.name || "Table")}<br>${style}</small></span>${decline}</div>${accept}</div>`;
+  banner.hidden = false;
+  if (!motion) return;
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  banner.animate([{ transform: "translateY(calc(-100% - 2rem))" }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(0.3, 0.8, 0.25, 1.1)" });
 }
 async function pollPresence() {
   if (!session || presenceBusy) return;
@@ -854,10 +941,7 @@ document.getElementById("social-dialog").addEventListener("cancel", (event) => {
     closeSocial();
     return;
   }
-  if (socialMode === "invitation") {
-    event.preventDefault();
-    document.querySelector("[data-invite-reply='decline']")?.click();
-  } else closeSocial();
+  closeSocial();
 });
 
 /* ---------- home ---------- */
@@ -1059,7 +1143,6 @@ function settingsSheet() {
       ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
       <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} Profile</button>
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
-      <button type="button" class="btn c-p2" data-nav="leaderboard">${tilted("medal", 26)} Leaderboard</button>
       ${voidOfferButton()}
       <button type="button" class="btn c-p4" data-nav="patches">${tilted("newspaper.fill", 26)} Patch notes</button>
       <a class="btn c-fw" href="privacy">${tilted("lock.fill", 26)} Privacy</a>
@@ -1084,7 +1167,7 @@ const DEBUG_TOOLS = {
   edit: ["Change a card", "Tap a card to pick its suit and value"],
 };
 function debugMenuHtml() {
-  if (!DEBUG || !(state?.practice || state?.local) || state.spectator) return "";
+  if (!DEBUG || !(state?.practice || state?.local || state?.debug_table) || state.spectator) return "";
   return `<p class="hint dark debug-label">Debug</p>
       <button type="button" class="btn c-p2" data-debug-end>${tilted("flag.pattern.checkered", 26)} End game: flip all cards</button>
       <button type="button" class="btn c-p1" data-debug-tool="flip">${tilted("sparkles", 26)} God mode: flip any card</button>
@@ -1204,7 +1287,7 @@ const draft = {
   rulesOpen: false,
 };
 const ENTRY_STYLE = {
-  passplay: { color: "c-s7", glyph: "person.2.fill" }, // Pass & play (green)
+  passplay: { color: "c-s7 c-passplay", glyph: "person.2.fill" }, // Pass & play (green; light green on Original)
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
   solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice
 };
@@ -1863,7 +1946,7 @@ async function friendsPage() {
         : emptyNote("No open tables yet.", "Host one and invite a friend!")
     }
     <div class="stack"><button type="button" class="btn c-p1" data-nav="host">${twin[0]}<span>${padTag("y")}Host a Table</span></button>
-    <button type="button" class="btn c-s7" data-nav="passplay">${tilted("person.2.fill", 33)}<span>Pass &amp; Play</span></button></div></div>`,
+    <button type="button" class="btn c-s7 c-passplay" data-nav="passplay">${tilted("person.2.fill", 33)}<span>Pass &amp; Play</span></button></div></div>`,
   );
 }
 async function publicLobby(id) {
@@ -1874,12 +1957,13 @@ async function publicLobby(id) {
   }
   history.replaceState({}, "", appPath(`/lobby/${id}`));
   document.title = `${info.name} · Golf`;
+  chipMatch = info;
   const full = info.players >= info.capacity || info.status !== "waiting";
   const twin = [tilted("figure.2", 33), tilted("figure.2", 33, { mirror: true })];
   show(
     "public",
     `<div class="page">${pageHead(`data-nav="friends"`)}<div class="stack wide">
-    <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${houseBadge(info)}</div><p class="hint">${e(rulesSummary(info.rules))}</p></div>
+    <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${rulesChip(info)}</div></div>
     ${profileChosen() ? "" : `${avatarPicker(info.players)}
     ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}`}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
@@ -1891,16 +1975,23 @@ function waitingRoom() {
   const many = state.game_type === "many";
   const url = `${location.origin}${appPath(`/lobby/${state.id}`)}`;
   const seatColor = (seat) => `c-s${seat % 8}`;
+  chipMatch = state;
+  // a table update redraws the room, which closes sheets: the rules stay open
+  const rulesOpen = !sheetRoot.hidden && "lobbyRules" in sheetRoot.dataset;
+  const kept = rulesOpen && {
+    scroll: sheetRoot.querySelector(".sheet")?.scrollTop || 0,
+    examples: [...sheetRoot.querySelectorAll(".rule-example:not([hidden])")].map((node) => node.id),
+  };
   show(
     "room",
     `<div class="page">${pageHead("data-leave")}<div class="stack wide">
-    <div class="stack"><h1 class="page-title">${e(state.name)}</h1><div class="meta"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${houseBadge(state)}</div></div>
-    <div class="share">${field("Invite Link", `<input readonly aria-label="Lobby invite link" value="${e(url)}">`, "link")}<button type="button" class="btn c-p1" style="flex:none;min-height:5.6rem;font-size:1.8rem;padding:0 1.6rem" data-copy="${e(url)}">Copy</button></div>
+    <div class="stack"><h1 class="page-title">${e(state.name)}</h1><div class="meta"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${rulesChip(state)}</div></div>
+    <div class="share">${field("Invite Link", `<input readonly aria-label="Lobby invite link" value="${e(url)}">`, "link")}<button type="button" class="close-btn c-fw share-copy" data-copy="${e(url)}" aria-label="Copy the invite link">${icon("doc.on.doc.fill", 30)}<span>Copy</span></button></div>
     <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${seat === state.viewer ? youStar() : ""}${e(seatName)}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
-    <p class="hint">${e(rulesSummary(state.rules))}</p>
     <p class="hint dark">${many ? "The host starts once at least three players have joined." : "The game starts automatically when a friend joins."}</p>
-    </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>${padTag("x")}Invite a Player</span></button>` : ""}<div class="row">${many && state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>${padTag("y")}Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div></div></div>`,
+    </div><div class="stack">${state.viewer === 0 ? `<button type="button" class="btn c-p3" data-invite-open>${tilted("person.fill.badge.plus", 32)}<span>${padTag("x")}Invite a Player</span></button>` : ""}${!many ? "" /* a 2-player table starts by itself: the hint above says so */ : `<div class="row">${state.viewer === 0 ? `<button type="button" class="btn c-p1 grow" data-action="start" ${state.players < 3 ? "disabled" : ""}>${tilted("play.fill", 32)}<span>${padTag("y")}Start Game</span></button>` : `<div class="btn c-fw grow" style="font-size:1.8rem" role="status">Waiting for players…</div>`}</div>`}</div></div>`,
   );
+  if (rulesOpen) openLobbyRules(kept);
 }
 
 /* ---------- live table connection ---------- */
@@ -2007,11 +2098,57 @@ function closeSheetIfStale() {
   const player = sheetRoot.dataset.player;
   if (sheetRoot.hidden || player === undefined || player === "") return;
   const scroll = sheetRoot.querySelector(".sheet")?.scrollTop || 0;
+  // where each rule (and section heading) was, so a rule turned on or off can
+  // be seen gliding to its new section, and the others close up behind it
+  const before = new Map(
+    [...(sheetRoot.querySelectorAll?.("[data-flip]") || [])].map((node) => [node.dataset.flip, { top: node.getBoundingClientRect().top, on: node.dataset.on, gliding: node.classList.contains("gliding") }]),
+  );
   sheetRoot.innerHTML = rulesSheet(Number(player));
   const sheet = sheetRoot.querySelector(".sheet");
   if (!sheet) return;
   sheet.classList.add("settled");
   sheet.scrollTop = scroll;
+  glideRules(before);
+}
+// like a dragged card's shadow (.slot .shadow), offset down and a little right
+// and softly blurred, but fainter: in the theme's shadow color at half strength.
+// It reaches at most 1.2rem past the rule's right edge and 1.6rem below it,
+// inside the sheet's 1.6rem padding, so the sheet's edge never cuts it off.
+const ruleShadow = (node, lifted) => {
+  const color = getComputedStyle(node).getPropertyValue("--shadow").trim() || "rgb(0 0 0 / 0.25)";
+  return lifted
+    ? `0.2rem 0.6rem 1rem color-mix(in srgb, ${color} 50%, transparent)`
+    : "0rem 0rem 0rem transparent";
+};
+/** Each rule that moved starts where it was and glides to where it is now; the one
+ * just turned on or off rides above the rest, on the sheet's own color. */
+function glideRules(before) {
+  if (!before.size || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const node of sheetRoot.querySelectorAll("[data-flip]")) {
+    const was = before.get(node.dataset.flip);
+    if (!was || !node.animate) continue;
+    const dy = was.top - node.getBoundingClientRect().top;
+    if (Math.abs(dy) < 1) continue;
+    // (the table's update can redraw the sheet again mid-glide: the rule keeps riding on top)
+    const toggled = (node.dataset.on !== undefined && was.on !== node.dataset.on) || was.gliding;
+    if (toggled) node.classList.add("gliding");
+    // the rule turned on or off lifts off the sheet like a dragged card (the same
+    // soft, offset shadow), glides, and settles back down as it lands
+    const frames = toggled
+      ? [
+          { transform: `translateY(${dy}px)`, boxShadow: ruleShadow(node, false) },
+          { offset: 0.22, boxShadow: ruleShadow(node, true) },
+          { offset: 0.7, boxShadow: ruleShadow(node, true) },
+          { transform: "none", boxShadow: ruleShadow(node, false) },
+        ]
+      : [{ transform: `translateY(${dy}px)` }, { transform: "none" }];
+    node
+      .animate(frames, {
+        duration: toggled ? 520 : 380,
+        easing: "cubic-bezier(0.3, 1.15, 0.5, 1)",
+      })
+      .finished.then(() => node.classList.remove("gliding"), () => {});
+  }
 }
 function openRulesSheet(player) {
   openSheet(rulesSheet(player), player);
@@ -2713,7 +2850,7 @@ function ruleHelpCard(rule, {player = null, on = true, editable = false} = {}) {
   } else {
     examples = (RULE_EXAMPLES[rule.key] || []).map(([caption,cards,other,otherCaption]) => `<p class="example-caption">${e(caption)}</p>${exampleHand(cards)}${other ? `<p class="example-caption">${e(otherCaption)}</p>${exampleHand(other)}` : ""}`).join("");
   }
-  return `<div class="rule-card${on ? "" : " off"}"><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill rule-state active">active</span>` : near ? ` <span class="pill rule-state near">one move away</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}${editable ? `<button type="button" class="btn small ${on ? "c-p2" : "c-p1"}" style="margin-top:.6rem" data-live-rule="${e(rule.key)}" data-enable="${!on}">${on ? "Turn off" : "Turn on"}</button>` : ""}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div>`;
+  return `<div class="rule-card${on ? "" : " off"}"${inMatch ? ` data-flip="rule:${e(rule.key)}" data-on="${on}"` : ""}><span class="rule-ico">${icon(RULE_ICON[rule.key] || "star.fill",30,{idle:false})}</span><div class="rule-help-copy"><strong>${e(rule.name)}${active ? ` <span class="pill rule-state active">active</span>` : near ? ` <span class="pill rule-state near">one move away</span>` : ""}</strong><p>${e(rule.description)}</p>${variantsHtml(rule.key)}<div class="rule-example" id="example-${e(token)}"${expanded ? "" : " hidden"}>${examples}</div></div><div class="rule-side">${editable ? `<button type="button" class="rule-check" role="checkbox" aria-checked="${on}" data-live-rule="${e(rule.key)}" data-enable="${!on}" aria-label="${e(rule.name)}">${icon(on ? "checkmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5, cls: on ? "" : "bare" })}</button>` : ""}<button type="button" class="rule-eye${expanded ? " c-p3" : ""}" data-rule-example="${e(token)}"${inMatch ? ` data-rule-player="${player}" data-rule-key="${e(rule.key)}"` : ""} aria-expanded="${expanded}" aria-controls="example-${e(token)}" aria-label="Show examples for ${e(rule.name)}">${icon("eye.fill",18,{idle:false})}</button></div></div>`;
 }
 
 let voidTimer;
@@ -2836,7 +2973,7 @@ function recordCards(records = {}) {
         ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
         : `<p class="hint dark">${empty}</p>`
     }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
-  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, most_time: hours, yapper, longest_pvp: marathon, bogey, party } = records;
+  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, most_time: hours, yapper, longest_pvp: marathon, bogey, lowest, party } = records;
   const [played, playedUnit] = timeParts(hours?.seconds);
   const cards = [
     card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
@@ -2850,10 +2987,11 @@ function recordCards(records = {}) {
     card(8, "c-p2", "text.bubble.fill", "Biggest yapper", yapper, yapper && statNumber(yapper.emotes), yapper?.emotes === 1 ? "emote" : "emotes", yapper && `<strong>${who(yapper)}</strong> has sent the most emotes at the table`, "No emotes counted yet. Counting started with this update."),
     card(9, "c-s7", "clock.arrow.circlepath", "Longest 1v1 game", marathon, marathon && statNumber(marathon.turns), marathon?.turns === 1 ? "turn" : "turns", marathon && `<strong>${e((marathon.players || []).join(" vs "))}</strong>${marathon.scores ? ` finished ${e(marathon.scores.join(" to "))}` : ""} after ${statNumber(marathon.turns)} turns${marathon.at ? ` · ${when(marathon.at)}` : ""}`, "No 1v1 games between players yet."),
     card(10, "c-p1", "tortoise.fill", "Bogey monster", bogey, bogey?.points, "pts", bogey && `<strong>${who(bogey)}</strong> finished a game on ${bogey.points} pts, the most ever${bogey.scores ? ` (scores: ${e(bogey.scores.join(", "))})` : ""}${bogey.at ? ` · ${when(bogey.at)}` : ""}`, "No games finished yet."),
-    card(11, "c-s4", "person.3.fill", "It's a party", party, party?.count, "signed in", party && `<strong>${e((party.players || []).join(", "))}</strong> all played in one game${party.seats > party.count ? ` of ${party.seats}` : ""}${party.at ? ` · ${when(party.at)}` : ""}`, "No game with two signed-in players yet."),
+    card(11, "c-s5", "bird.fill", "Lowest score", lowest, lowest?.points, "pts", lowest && `<strong>${who(lowest)}</strong> finished a game on ${lowest.points} pts, the fewest ever${lowest.scores ? ` (scores: ${e(lowest.scores.join(", "))})` : ""}${lowest.at ? ` · ${when(lowest.at)}` : ""}`, "No games finished yet."),
+    card(12, "c-s4", "person.3.fill", "It's a party", party, party?.count, "signed in", party && `<strong>${e((party.players || []).join(", "))}</strong> all played in one game${party.seats > party.count ? ` of ${party.seats}` : ""}${party.at ? ` · ${when(party.at)}` : ""}`, "No game with two signed-in players yet."),
   ];
-  cards.push(card(12, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet."));
-  const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, party, hours];
+  cards.push(card(13, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet."));
+  const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, lowest, party, hours];
   return cards.map((html, i) => ({ html, record: held[i] }));
 }
 /**
@@ -3044,6 +3182,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if ("sheetClose" in data) return closeSheet();
+    if ("lobbyRules" in data) return chipMatch && openLobbyRules();
     if ("confirm" in data) return await confirmStaged();
     if ("undo" in data) return cancelStaged();
     if (data.pref) return togglePref(data.pref);

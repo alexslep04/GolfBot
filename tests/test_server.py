@@ -449,7 +449,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.host.post('/api/lobbies', json={}, headers={'Origin': 'https://evil.invalid'}).status_code, 403)
         self.assertEqual(TestClient(self.app).post('/api/lobbies', json={}).status_code, 401)
 
-    def test_select_all_rules_is_atomic_and_only_editable_during_solo_setup(self):
+    def test_select_all_rules_is_atomic_and_only_editable_before_the_first_solo_flip(self):
         state = self.host.post('/api/solo', json={}).json()
         self.id, self.room = state['id'], self.store.rooms[state['id']]
         all_rules = dict.fromkeys(Rules.__dataclass_fields__, True)
@@ -462,8 +462,9 @@ class WebTests(unittest.TestCase):
         self.assertEqual(before, self.state())
         self.move('set_rules', rules={})
         self.assertFalse(any(self.state()['rules'].values()))
+        # fixed from your first flip on, even before the second
         self.move('flip', index=0)
-        self.move('set_rules', rules=all_rules)
+        self.move('set_rules', rules=all_rules, status=409)
         self.move('flip', index=1)
         self.move('set_rules', rules={}, status=403)
         self.host.post(f'/api/lobbies/{self.id}/leave').raise_for_status()
@@ -529,6 +530,20 @@ class WebTests(unittest.TestCase):
         self.assertEqual(len(self.room.history), 1)
         self.assertLessEqual(self.room.history[0]['started_at'], self.room.history[0]['ended_at'])  # for time played
         self.assertEqual(self.store.history.results(), [])  # an edited game is never saved
+
+    def test_debug_tools_work_on_the_8_bot_debug_table(self):
+        with patch.dict('os.environ', {'GOLFBOT_DEBUG': '1'}):
+            state = self.host.post('/api/debug/bot-table', json={}).json()
+            self.assertTrue(state['debug_table'])
+            room = self.store.rooms[state['id']]
+            url = f'/api/debug/practice/{room.id}'
+            self.assertEqual(self.outsider.post(url, json={'op': 'flip', 'ref': [3, 5]}).status_code, 403)
+            hidden = room.game.players[3][5].visible
+            self.assertEqual(self.host.post(url, json={'op': 'flip', 'ref': [3, 5]}).status_code, 200)
+            self.assertNotEqual(room.game.players[3][5].visible, hidden)
+            self.assertEqual(self.host.post(url, json={'op': 'end'}).json()['game']['phase'], 'over')
+        # an ordinary table has no debug flag
+        self.assertFalse(self.guest.post('/api/solo', json={}).json()['debug_table'])
 
     def test_spectators_watch_any_game_send_emotes_and_follow_the_players(self):
         state = self.host.post('/api/solo', json={'practice': True}).json()

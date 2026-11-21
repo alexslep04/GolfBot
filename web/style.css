@@ -122,9 +122,11 @@
    yellow from whichever yellow the theme uses */
 :root {
   --p3-edge: var(--paper);
+  --p1-edge: var(--paper);
 }
 :root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) {
   --p3-edge: color-mix(in srgb, var(--p3) 62%, #000);
+  --p1-edge: color-mix(in srgb, var(--p1) 62%, #000);
 }
 /* a rule's state in the rules panel ("active", "one move away"): the panel's
    text color as the fill, its accent color as the words */
@@ -345,6 +347,7 @@
   --s6on: var(--f-text);
   --s7on: var(--f-text);
   --p3-edge: var(--f-edge);
+  --p1-edge: var(--f-edge);
   --on-bg: var(--f-text);
   --on-bg2: #6a6a6a;
   --sad: var(--f-edge);
@@ -437,6 +440,13 @@
   --p1: var(--s7);
   --p1b: var(--s7b);
   --p1t: var(--s7t);
+}
+/* Pass & Play: the dark green of the 8th seat on the dark themes, and the
+   fairway's own light green on Original */
+:root:not([data-theme]) .c-passplay {
+  --c: var(--fw);
+  --c2: var(--fw3);
+  --ct: var(--fw-text);
 }
 .c-p1 {
   --c: var(--p1);
@@ -1229,6 +1239,19 @@ p {
   white-space: nowrap;
 }
 
+/* a lobby's rules chip opens its rules sheet */
+button.pill {
+  border: none;
+  font-family: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  transition: transform 0.25s var(--spring);
+}
+button.pill:active {
+  transform: scale(0.92);
+}
+
 /* ---------- avatar carousel ---------- */
 .avatar-pick {
   display: flex;
@@ -1616,7 +1639,12 @@ fieldset {
 }
 .share {
   display: flex;
-  gap: 0.8rem;
+  align-items: center;
+  gap: 1.2rem;
+}
+/* Copy: a sticker over its label, like Quit and View under the results */
+.share-copy {
+  margin-top: 0.4rem;
 }
 .share .field {
   font-size: 1.5rem;
@@ -1904,9 +1932,9 @@ button.tag-rules:active > .tag-in {
 }
 .tag-score .odds .stk {
   font: 700 1.5rem/1 var(--round);
-  letter-spacing: -0.03rem;
+  letter-spacing: 0;
   --sw: 0.4rem;
-  margin-right: -0.05rem;
+  margin-right: 0.18rem;
 }
 /* the characters overlap leftmost on top, down to the % at the bottom; their
    layers stay inside the percent, which still sits under the points numerals */
@@ -1916,6 +1944,12 @@ button.tag-rules:active > .tag-in {
 }
 .tag-score .odds .stk {
   position: relative;
+  /* textured, but without a shadow of its own: one shadow falls from the whole
+     percent (below), never from one character onto the next */
+  filter: url(#texture);
+}
+.tag-score .odds {
+  filter: drop-shadow(var(--shx, 0.3rem) var(--shy, 0.3rem) 0 var(--shadow));
 }
 .tag-score .odds .stk:nth-child(1) {
   z-index: 4;
@@ -2976,6 +3010,13 @@ button.tag-rules:active > .tag-in {
   z-index: 5;
   margin: 0 0 1.4rem 1rem;
 }
+/* a line under a sheet's title: the rules sheet's modifier count */
+.sheet-head h2 .sheet-sub {
+  display: block;
+  margin-top: 0.4rem;
+  font: 700 1.5rem/1.3 var(--text);
+  opacity: 0.75;
+}
 .sheet .sheet-head + * {
   clear: both;
 }
@@ -3017,8 +3058,12 @@ button.tag-rules:active > .tag-in {
   --fill: var(--paper);
   --stroke: var(--ink);
 }
-.emote-pop button:hover {
-  transform: scale(1.15) rotate(-5deg);
+/* (only with a real pointer: on a touch screen the tilt would catch the drag
+   meant to scroll the sayings, and stay stuck after a tap) */
+@media (hover: hover) and (pointer: fine) {
+  .emote-pop button:hover {
+    transform: scale(1.15) rotate(-5deg);
+  }
 }
 .emote-pop img {
   width: 4.6rem;
@@ -3041,6 +3086,8 @@ button.tag-rules:active > .tag-in {
   flex: 0 1 5.2rem;
   width: auto;
   min-width: 0;
+  /* (the faces' large images would otherwise stretch the menu to its widest) */
+  max-width: 5.2rem;
   height: auto;
   aspect-ratio: 1;
 }
@@ -3092,7 +3139,7 @@ button.tag-rules:active > .tag-in {
   white-space: nowrap;
 }
 /* (only with a real pointer: a tap would leave it stuck mid-tilt under the finger) */
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .emote-pop button.emote-word:hover {
     transform: scale(1.06) rotate(-2deg);
   }
@@ -3630,7 +3677,11 @@ button.tag-rules:active > .tag-in {
      screen height, so a fixed width would leave wide empty margins) */
   width: calc(100vw - 2.4rem);
   max-width: 50rem;
-  padding: 0.6rem 0 1rem;
+  /* when it has to scroll, it scrolls the whole height of the screen, so the
+     results slide off at the screen's own edges rather than being cut off in
+     mid-air; its padding keeps them clear of the notch and home bar */
+  max-height: 100%;
+  padding: calc(env(safe-area-inset-top) + 0.6rem) 0 calc(env(safe-area-inset-bottom) + 1rem);
   box-shadow: none;
 }
 /* one even dim over the whole table, behind the floating pieces */
@@ -3708,8 +3759,21 @@ button.tag-rules:active > .tag-in {
   transform-origin: 50% 0;
   animation: pop 0.35s var(--spring) both;
 }
+/* under the results there is room to show the sayings whole: the menu takes
+   their width too (up to the results' width, then they scroll) */
+.summary-emotes .emote-words {
+  width: auto;
+  min-width: 0;
+}
 .summary-panel .ready-tiles {
   margin-top: 0;
+}
+/* the match style and the games left, above the player tiles */
+.summary-match {
+  margin: -0.2rem 0 0.8rem;
+  text-align: center;
+  color: var(--ct);
+  font: 700 1.4rem/1.2 var(--text);
 }
 .summary.floating .result-title small {
   color: var(--paper);
@@ -3832,6 +3896,7 @@ button.tag-rules:active > .tag-in {
 }
 .eval-plot {
   position: relative;
+  margin-inline: auto; /* narrowed to fit a short screen (fitSummary), it stays centered */
 }
 .eval-plot svg {
   display: block;
@@ -4149,16 +4214,45 @@ button.tag-rules:active > .tag-in {
 .sheet-shade {
   align-items: flex-end;
   padding: 0;
+  /* the dim and blur are a layer of their own behind the sheet (below): fading
+     the shade itself in would fade the sheet with it, so Safari would redraw
+     the blurred table and the whole sheet together on every frame */
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: none;
+}
+.sheet-shade::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+  -webkit-backdrop-filter: var(--scrim-blur);
+  backdrop-filter: var(--scrim-blur);
+  animation: fade 0.2s both;
+}
+/* while the sheet rises, its stickers hold still: each drifting sticker is a
+   layer of its own that would otherwise be redrawn into the moving, fading
+   sheet on every frame */
+.sheet.entering .idle {
+  animation: none;
+  will-change: auto;
 }
 .sheet {
+  position: relative; /* over the shade's dim (::before) */
+  /* the sheet runs on below the bottom of the screen (its tail), so however the
+     screen's bottom edge moves (Safari's toolbar coming and going) no gap opens
+     under it; the tail's padding lets its last line still scroll into view */
+  --sheet-tail: max(10rem, 7dvh);
   width: 100%;
   max-width: 48rem;
-  max-height: 86dvh;
+  max-height: calc(86dvh + var(--sheet-tail));
+  margin-bottom: calc(-1 * var(--sheet-tail));
   overflow: auto;
   overscroll-behavior: contain;
   /* an equal gutter each side, so the scrollbar never pushes content off-center */
   scrollbar-gutter: stable both-edges;
-  padding: 2rem 1.6rem max(2rem, env(safe-area-inset-bottom));
+  padding: 2rem 1.6rem calc(max(2rem, env(safe-area-inset-bottom)) + var(--sheet-tail));
   border: 0.4rem solid var(--c);
   border-bottom: 0;
   border-radius: 3.2rem 3.2rem 0 0;
@@ -4166,7 +4260,13 @@ button.tag-rules:active > .tag-in {
   color: var(--ct);
   --fill: var(--c2);
   --stroke: var(--c);
+  /* it springs up into place: the spring rises past its place by up to ~6% of
+     the sheet's height before settling, which the tail (at least 7% of the
+     screen) always covers. It moves as one layer, so its stickers aren't
+     redrawn every frame. */
   animation: sheet-in 0.45s var(--spring) both;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -4336,8 +4436,49 @@ button.tag-rules:active > .tag-in {
   font: 700 1.4rem/1.35 var(--text);
   opacity: 0.8;
 }
-.rule-card.off {
+/* a rule not in play is dimmed, all but its checkbox and eye */
+.rule-card.off > :not(.rule-side) {
   opacity: 0.5;
+}
+/* the right of a rule: (solo, before the first flip) its checkbox, an open
+   circle when off and a filled one with a checkmark when on, above the
+   examples eye */
+.rule-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rule-check {
+  display: grid;
+  place-items: center;
+  padding: 0.4rem;
+  cursor: pointer;
+  --fill: var(--c2);
+  --stroke: color-mix(in srgb, var(--c) 55%, var(--c2));
+  transition: transform 0.25s var(--spring);
+}
+/* checked: a filled circle with the check cut out of it, like the Ready marks */
+.rule-check[aria-checked="true"] {
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.rule-check:hover {
+  transform: scale(1.12);
+}
+/* the rule just turned on or off, gliding to its new section over the others */
+.rule-card.gliding {
+  position: relative;
+  z-index: 2;
+  background: var(--c2);
+  border-radius: 1.6rem;
+  /* its shadow comes and goes with the glide (glideRules) */
+}
+.rule-section {
+  margin: 1.6rem 0 0.2rem;
+  font-size: 1.5rem;
+  opacity: 0.7;
 }
 .menu-list {
   display: flex;
@@ -4415,10 +4556,13 @@ button:disabled > .haptic-switch {
 }
 .toast {
   position: fixed;
-  left: 50%;
+  /* centered by its margins (not a transform), so the pop-in is the only
+     transform it ever has */
+  left: 0;
+  right: 0;
+  margin-inline: auto;
   bottom: max(2.4rem, env(safe-area-inset-bottom));
   z-index: 200;
-  transform: translateX(-50%);
   /* wide and low: a line or two of text, read from the left */
   width: max-content;
   max-width: min(46rem, calc(100vw - 3.2rem));
@@ -4432,6 +4576,12 @@ button:disabled > .haptic-switch {
   text-align: left;
   box-shadow: 0.3rem 0.3rem 0 var(--shadow);
   animation: toast-in 0.4s var(--spring);
+  /* drawn once onto its own layer and moved as a whole: redrawing the ✕
+     sticker's textured filter on every frame of the pop-in and the slide away
+     made it stutter and flicker in Safari (so the ✕ also holds still, without
+     the idle drift) */
+  will-change: transform, translate, opacity;
+  backface-visibility: hidden;
   /* it can be swiped away (app.js) */
   touch-action: none;
   user-select: none;
@@ -4471,7 +4621,7 @@ button:disabled > .haptic-switch {
 }
 @keyframes toast-in {
   from {
-    transform: translateX(-50%) translateY(3rem) scale(0.8);
+    transform: translateY(3rem) scale(0.8);
     opacity: 0;
   }
 }
@@ -4624,6 +4774,33 @@ button:disabled > .haptic-switch {
   scale: -1 1;
   --shx: -0.3rem;
 }
+/* A table invitation: the Ranked "Match found!" pill, opened out, in blue. It
+   drops in at the top of the screen, over any page. */
+.invite-banner {
+  position: fixed;
+  left: 50%;
+  top: max(0.8rem, env(safe-area-inset-top));
+  z-index: 95;
+  translate: -50% 0;
+}
+.queue-pill.invite-pill {
+  border-color: color-mix(in srgb, var(--p1) 45%, var(--p1b));
+  background: var(--p1b);
+  color: var(--p1t);
+  --c: var(--p1);
+  --c2: var(--p1b);
+  --ct: var(--p1t);
+}
+.invite-pill .side-act.queue-leave {
+  color: var(--p1t);
+  --fill: var(--p1);
+  --stroke: var(--p1-edge);
+}
+.queue-pill.invite-pill .queue-accept {
+  border-color: var(--p1);
+  --fill: var(--p1b);
+  --stroke: var(--p1);
+}
 .social-dialog {
   width: min(42rem, calc(100vw - 3.2rem));
   max-height: 86dvh;
@@ -4639,6 +4816,34 @@ button:disabled > .haptic-switch {
   --ct: var(--p1t);
   --fill: var(--p1b);
   --stroke: var(--p1);
+}
+/* inviting players: the dismiss x on the corner (so the dialog doesn't clip it),
+   and the players scrolling inside it instead */
+.social-dialog.invite-dialog {
+  overflow: visible;
+}
+.invite-list {
+  margin-top: 1.2rem;
+  max-height: 56dvh;
+  overflow-y: auto;
+  padding: 0.4rem 0.6rem 0.6rem 0.2rem;
+  margin-inline: -0.2rem -0.6rem;
+}
+.invite-row {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+.invite-row .list-item {
+  min-width: 0;
+}
+/* the same width for Invite and Invited, so the cards line up */
+.invite-row .close-btn {
+  width: 6.6rem;
+}
+.invite-row .close-btn:disabled {
+  opacity: 0.6;
+  transform: none;
 }
 .social-dialog[open] {
   animation: pop 0.4s var(--spring);
@@ -4805,8 +5010,17 @@ button:disabled > .haptic-switch {
     padding: 1.6rem;
   }
   .sheet {
+    --sheet-tail: 0rem;
     border-bottom: 0.4rem solid var(--c);
     border-radius: 3.2rem;
+    /* centered on a wide screen: it rises a little into place as it fades in */
+    animation-name: sheet-in-center;
+  }
+  @keyframes sheet-in-center {
+    from {
+      transform: translateY(6rem);
+      opacity: 0;
+    }
   }
 }
 

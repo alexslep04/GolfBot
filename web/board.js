@@ -1789,9 +1789,53 @@ function renderSummary() {
       : resultTitle(mood, title, sub);
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     // the verdict and the graph float over the table; the green panel holds the rest
-    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div>${summaryEmotesHtml()}</section>`;
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating" role="dialog" aria-label="Results" style="--t:-${lag}s">${heading}${evalChart()}<div class="panel c-fw summary-panel"><p class="summary-match">${e(matchProgress(finished))}</p><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div>${summaryEmotesHtml()}</section>`;
   });
+  fitSummary();
 }
+
+/** The match style and how many games are left, for the line above the results' player tiles. */
+function matchProgress(finished) {
+  const played = (state.history || []).length;
+  const n = state.best_of;
+  const games = (count) => `${count} game${count === 1 ? "" : "s"}`;
+  if (n === null || n === undefined) return `Play until you leave · ${games(played)} played`;
+  if (n === 1) return "Single game";
+  const points = state.series_mode === "points";
+  const style = points ? `Lowest total over ${n} games` : `Best of ${n}`;
+  if (finished) return `${style} · Match over`;
+  if (points) return `${style} · ${games(Math.max(n - played, 0))} left`;
+  // by wins: as few as the leader needs, as many as it takes if nobody else wins
+  // first (draws can add more)
+  const target = Math.floor(n / 2) + 1;
+  const wins = state.wins || [];
+  const fewest = Math.max(target - Math.max(0, ...wins), 1);
+  const most = Math.max(wins.reduce((sum, w) => sum + Math.max(target - 1 - w, 0), 0) + 1, fewest);
+  return `${style} · ${fewest === most ? games(most) : `${fewest}–${most} games`} left`;
+}
+
+/**
+ * The results must fit on the screen whole: on a short screen (a phone with
+ * its browser bars showing) the graph narrows, keeping its shape, until the
+ * title, graph, ready-up card and emotes all fit with nothing cut off. Only if
+ * it would have to shrink past half its width does the panel scroll instead.
+ */
+function fitSummary() {
+  const summary = board.el?.querySelector(".summary.floating");
+  // sayings that fit whole need no fade hinting at more to scroll to
+  for (const row of summary?.querySelectorAll(".emote-words") || [])
+    row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
+  const plot = summary?.querySelector(".eval-plot");
+  if (!plot) return;
+  plot.style.maxWidth = "";
+  const over = summary.scrollHeight - summary.clientHeight;
+  if (over <= 0) return;
+  const { width, height } = plot.getBoundingClientRect();
+  if (!width || !height) return;
+  plot.style.maxWidth = `${Math.max(width * 0.5, width - (over + 2) * (width / height)).toFixed(1)}px`;
+  summary.scrollTop = 0;
+}
+window.addEventListener("resize", fitSummary);
 
 /**
  * The quick emotes under the results: a little green tab peeking out from the
@@ -2743,6 +2787,15 @@ function variantsHtml(key) {
     ? `<div class="rule-variants">${variants.map(([glyph, label]) => `<span>${icon(glyph, 22, { idle: false })}${e(label)}</span>`).join("")}</div>`
     : "";
 }
+/** Solo, before the game: every rule, with a checkbox each, in play first. */
+function ruleSections(ordered, player) {
+  const section = (title, rules, empty) =>
+    `<h4 class="rule-section" data-flip="section:${title}">${title}</h4><div>${rules.map((rule) => ruleHelpCard(rule, { player, on: !!state.rules[rule.key], editable: true })).join("") || `<p class="hint dark">${empty}</p>`}</div>`;
+  return (
+    section("In-Play", ordered.filter((rule) => state.rules[rule.key]), "Base scoring only — no optional rules.") +
+    section("Not In-Play", ordered.filter((rule) => !state.rules[rule.key]), "Every rule is in play.")
+  );
+}
 function rulesSheet(player) {
   const g = state.game;
   const color = colorFor(player);
@@ -2760,17 +2813,15 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} modifiers in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}
       <div class="total"><span>${g.phase === "over" ? "Final score" : "Active score"}</span><b>${total} pts</b></div>
     </div>
-    <p class="hint dark" style="margin-top:.8rem">Face-down cards are not counted until the game ends.</p>
     ${state.names.length > 2 ? `<div class="meta" style="margin-top:1rem">${others.map((p) => `<button type="button" class="btn small ${colorFor(p)}" data-sheet-player="${p}">${e(state.names[p])}</button>`).join("")}</div>` : ""}
-    <h3>${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} modifiers in play${state.house_rules ? " · House rules" : ""}</h3>
-    ${editable ? `<p class="hint dark">You can change rules until your second opening flip.</p>` : ""}
-    <div>${ordered.map((rule) => ruleHelpCard(rule, {player, on:!!state.rules[rule.key], editable})).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>
+    ${editable ? `<p class="hint dark" style="margin-top:.8rem">You can change rules until you flip your first card.</p>` : ""}
+    ${editable ? ruleSections(ordered, player) : `<div>${ordered.map((rule) => ruleHelpCard(rule, {player, on:!!state.rules[rule.key]})).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>`}
     <h3>Match</h3>
     <div class="tally">
       <div><span>Game ${state.round} · ${e(matchLength(state))}</span></div>
@@ -2778,6 +2829,6 @@ function rulesSheet(player) {
       ${state.history.map((game) => `<div><span>Game ${game.round}: ${game.winner === null ? "draw" : e(state.names[game.winner])}</span><b>${game.scores.join(" · ")}</b></div>`).join("")}
     </div>
     ${state.names.length > 2 ? `<h3>Turn order · ${g.deck_count} decks</h3><p>${g.turn_order.map((p) => (p === g.current ? `<u>${e(state.names[p])}</u>` : e(state.names[p]))).join(" → ")}</p>` : ""}
-    <p class="hint dark" style="margin-top:1.2rem">${e(g.last_move)}</p>
+    <p class="hint dark" style="margin-top:1.2rem">${e(g.last_move)}<br>Face-down cards are not counted until the game ends.</p>
   </section>`;
 }

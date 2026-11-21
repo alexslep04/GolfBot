@@ -125,6 +125,8 @@ class NewRecordTests(unittest.TestCase):
         self.assertEqual((records['longest_pvp']['turns'], records['longest_pvp']['players'], records['longest_pvp']['label']),
                          (22, ['Ann', 'Bob'], 'Bob'))
         self.assertEqual((records['bogey']['label'], records['bogey']['points']), ('Ann', 30))
+        # the fewest points: Bob's 2 (the forfeit's 0 and Golfbot's games don't count)
+        self.assertEqual((records['lowest']['label'], records['lowest']['points']), ('Bob', 2))
         self.assertIsNone(records['yapper'])
         self.assertEqual(records['party'], {'count': 3, 'players': ['Ann', 'Bob', 'Di'], 'seats': 4, 'at': 60})
 

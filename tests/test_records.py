@@ -14,7 +14,7 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(build_records([]), {'highest_elo': None, 'comeback': None, 'most_modifier': None,
                                              'least_modifier': None, 'comeback_modifier': None,
                                              'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None, 'most_time': None,
-                                             'yapper': None, 'longest_pvp': None, 'bogey': None, 'party': None,
+                                             'yapper': None, 'longest_pvp': None, 'bogey': None, 'lowest': None, 'party': None,
                                              'always_in_play': ['Poisoned Card'],
                                              'never_most': ['Beggars Will be Choosers']})
 
@@ -71,7 +71,8 @@ class RecordTests(unittest.TestCase):
         ratings = [{'id': 'player:Ann', 'label': 'Ann', 'elo': 1080}, {'id': 'player:Bob', 'label': 'Bob', 'elo': 1010}]
         ann = player_card(results, ratings, 'player:Ann')
         self.assertEqual((ann['elo'], ann['pvp_streak']), (1080, 2))
-        self.assertEqual(set(ann['records']), {'highest_elo'})
+        # Ann also finished a game on the fewest points anyone has (1, reached first)
+        self.assertEqual(set(ann['records']), {'highest_elo', 'lowest'})
         bob = player_card(results, ratings, 'player:Bob')
         # Bob also finished a game on the most points anyone has (2, reached first)
         self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak', 'most_time', 'bogey'}))

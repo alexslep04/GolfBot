@@ -196,6 +196,20 @@ def highest_score(results):
     return best
 
 
+def lowest_score(results):
+    """The fewest points any person has finished a single game with (the first to reach it holds it)."""
+    best = None
+    for _, game, seats in _played(results):
+        scores = game.get('scores') or []
+        if game.get('forfeit'):
+            continue
+        for seat, player, name in seats:
+            if player != BOT_ID and seat < len(scores) and (best is None or scores[seat] < best['points']):
+                best = {'id': player, 'label': name, 'points': scores[seat], 'scores': scores,
+                        'at': game.get('ended_at')}
+    return best
+
+
 def biggest_party(results):
     """The game with the most signed-in players at one table (the first to reach it holds it)."""
     best = None
@@ -241,7 +255,7 @@ def most_time_played(results):
 
 
 HELD_RECORDS = ('highest_elo', 'pvp_streak', 'comeback', 'games_today', 'modifiers_in_game', 'most_time',
-                'yapper', 'bogey')
+                'yapper', 'bogey', 'lowest')
 
 
 def player_card(results, ratings, player):
@@ -264,6 +278,7 @@ def build_records(results, ratings=()):
             'modifiers_in_game': most_modifiers_in_a_game(results),
             'most_time': most_time_played(results),
             'yapper': biggest_yapper(results), 'longest_pvp': longest_pvp_game(results),
-            'bogey': highest_score(results), 'party': biggest_party(results),
+            'bogey': highest_score(results), 'lowest': lowest_score(results),
+            'party': biggest_party(results),
             'always_in_play': [RULE_NAMES[key] for key in ALWAYS_IN_PLAY],
             'never_most': [RULE_NAMES[key] for key in NOT_MOST_COMMON]}

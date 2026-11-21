@@ -742,6 +742,8 @@ def snapshot(room, token, watch=False):
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [p in room.bot_seats or room.local or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
              "local": room.local,
+             # the debug 8-bot table, where the debug tools work as in Practice
+             "debug_table": bool(room.bot_seats),
              "odds": spectator_odds(room) if watch else None,
              "message": message(room, viewer), "game": None}
     if room.progression:
@@ -774,7 +776,8 @@ def snapshot(room, token, watch=False):
                     if game.arrangement_plan(game.arrange_pending["player"], game.arrange_pending["rank"], cols)]
                     if active and game.phase == "arrange" else [],
         "keep_layout": active and game.phase == "arrange",
-        "set_rules": not watch and room.solo and not room.house_rules and game.phase == "setup",
+        # solo: the rules can change until you flip your first card (House rules too)
+        "set_rules": not watch and room.solo and viewer == 0 and game.phase == "setup" and game.visible_count(0) == 0,
     }
     last_move = game.last_move
     actor = re.match(r'^Player (\d+) ', last_move)
@@ -867,8 +870,10 @@ def apply_move(room, token, move):
         if move.action == "flip" and game.phase == "setup":
             game.opening_reveal(seat, move.index)
         elif move.action in ("set_rule", "set_rules"):
-            if not room.solo or room.house_rules or seat != 0 or game.phase != "setup":
+            if not room.solo or seat != 0 or game.phase != "setup":
                 raise HTTPException(403, "Lobby rules stay fixed during a match.")
+            if game.visible_count(seat):
+                raise HTTPException(409, "Rules can only change before you flip a card.")
             if move.action == "set_rules":
                 if move.rules is None:
                     raise HTTPException(422, "Choose the rules to enable.")
@@ -880,6 +885,9 @@ def apply_move(room, token, move):
                     raise HTTPException(422, "Choose whether the rule is enabled.")
                 game.set_rule(move.rule, move.enabled)
             room.rules = Rules(**asdict(game.rules))
+            # still House rules only while every rule matches them
+            room.house_rules = asdict(room.rules) == asdict(parse_rules(house_rules()))
+            room.house_version = HOUSE_VERSION if room.house_rules else None
         else:
             if game.decision_player != seat:
                 raise HTTPException(403, "It is not your decision.")
@@ -1355,13 +1363,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     @app.post("/api/debug/practice/{room_id}")
     async def debug_practice(room_id: str, edit: DebugEdit, request: Request):
-        """Change a Practice game by hand (debug servers only): end it, or flip or replace any card."""
+        """Change a Practice, Pass & Play or 8-bot debug game by hand (debug servers only):
+        end it, or flip or replace any card."""
         if not debug_mode():
             raise HTTPException(404, "Not found.")
         session = session_for(request)
         room = find_room(room_id)
-        if not (room.practice or room.local) or session.token not in room.seats:
-            raise HTTPException(403, "Only your own Practice or Pass & Play games can be changed.")
+        if not (room.practice or room.local or room.bot_seats) or session.token not in room.seats:
+            raise HTTPException(403, "Only your own Practice, Pass & Play or debug bot games can be changed.")
         async with room.lock:
             game = room.game
             if game is None or game.phase == "over":
