@@ -134,6 +134,7 @@ const prefs = {
   hideTips: false,
   autoQueue: false, // join the Ranked queue as soon as the site opens (off unless chosen)
   turnAlerts: false, // a notification (and a buzz) when it's your turn while Golf is in the background
+  queueAlerts: false, // a notification when someone joins the Ranked queue
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
   showOdds: true, // spectating: each player's chance of winning under their points
@@ -167,9 +168,9 @@ function applyPrefs() {
   // the browser's own chrome (status bar, overscroll) takes the table's color
   document.querySelector("meta[name='theme-color']")?.setAttribute("content", theme[2]);
 }
-// Settings that belong to this device alone (turn alerts need its own
-// notification permission), so they are never saved to or taken from an account.
-const DEVICE_PREFS = ["turnAlerts"];
+// Settings that belong to this device alone (notifications need its own
+// permission), so they are never saved to or taken from an account.
+const DEVICE_PREFS = ["turnAlerts", "queueAlerts"];
 let onPrefsSaved = null; // app.js: save the change to a signed-in account too
 function storePrefs() {
   try {

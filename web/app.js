@@ -457,6 +457,7 @@ let presenceState = {
     queue_size: 0,
   },
   presenceBusy = false,
+  queueSizeSeen, // the queue's size at the last presence update (none before the first)
   socialMode = null,
   socialSignature = "";
 const dismissedInvites = new Set();
@@ -906,10 +907,15 @@ async function pollPresence() {
   if (!session || presenceBusy) return;
   presenceBusy = true;
   try {
+    const queued = queueSizeSeen;
     presenceState = await api("/api/presence", "POST", {
       username: name(),
       avatar: session.avatar,
+      // a page in front shows its own note, so the server need not push one
+      visible: document.visibilityState === "visible",
     });
+    queueSizeSeen = presenceState.queue_size;
+    if (queued !== undefined && queueSizeSeen > queued) queueJoinedToast();
     // a display name changed on another device follows you here
     if (session.account && presenceState.username && presenceState.username !== session.username)
       saveName(presenceState.username);
@@ -933,6 +939,14 @@ async function pollPresence() {
   } finally {
     presenceBusy = false;
   }
+}
+/** Ranked queue notifications, with Golf open: a toast when someone joins the
+ * queue, unless you are in it yourself or playing someone. */
+function queueJoinedToast() {
+  if (!prefs.queueAlerts || document.visibilityState !== "visible") return;
+  if (presenceState.queue?.status !== "off") return;
+  if (page === "room" && state && !state.solo && state.status !== "closed") return;
+  toast("Someone joined the Ranked queue. Tap Ranked to play them.");
 }
 document.getElementById("social-dialog").addEventListener("cancel", (event) => {
   if (socialMode === "queue") {
@@ -1046,6 +1060,7 @@ function prefsHtml() {
     row("autoQueue", "sparkles", "Join Ranked on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
     row("turnAlerts", "bell.fill", "Turn notifications", onOff(prefs.turnAlerts), prefs.turnAlerts),
+    row("queueAlerts", "sparkles", "Ranked notifications", onOff(prefs.queueAlerts), prefs.queueAlerts),
     // stored as hideTips (so existing choices carry over), shown the positive way round
     row("hideTips", "text.bubble.fill", "Show tooltips", onOff(!prefs.hideTips), !prefs.hideTips),
     row("showOdds", "dice.fill", "Show win chances", onOff(prefs.showOdds), prefs.showOdds),
@@ -1059,16 +1074,20 @@ function prefsHtml() {
     );
   return `<h3>Preferences</h3><div class="menu-list" data-prefs>${rows.join("")}</div>`;
 }
-/* ---------- turn notifications ----------
-   With them on, the server pushes a "your turn" notification (which also buzzes
-   phones that allow it) whenever your turn comes while Golf is in the background. */
+/* ---------- turn and Ranked queue notifications ----------
+   With turn notifications on, the server pushes a "your turn" notification
+   (which also buzzes phones that allow it) whenever your turn comes while Golf
+   is in the background. With Ranked queue notifications on, it pushes one when
+   someone joins the Ranked queue while you are away (at most every ten
+   minutes), and an open page shows a toast instead. Both share this browser's
+   one push subscription, which tells the server which of the two it wants. */
 const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 function pushKeyBytes(key) {
   const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(key.length / 4) * 4, "="));
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
 }
-/** Subscribe this browser to turn notifications (asking permission first, when `ask`). */
-async function subscribeTurnAlerts(ask) {
+/** Subscribe this browser to notifications (asking permission first, when `ask`). */
+async function subscribeAlerts(ask, wanted = { turn: prefs.turnAlerts, queue: prefs.queueAlerts }) {
   if (!pushSupported()) throw new Error("This browser can't show notifications. On iPhone, add Golf to your Home Screen first.");
   const permission = ask ? await Notification.requestPermission() : Notification.permission;
   if (permission !== "granted") throw new Error("Notifications are blocked for Golf. Allow them in your browser's settings.");
@@ -1078,7 +1097,7 @@ async function subscribeTurnAlerts(ask) {
   const subscription =
     (await registration.pushManager.getSubscription()) ||
     (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(key) }));
-  await api("/api/push/subscribe", "POST", { subscription: subscription.toJSON() });
+  await api("/api/push/subscribe", "POST", { subscription: subscription.toJSON(), turn: !!wanted.turn, queue: !!wanted.queue });
 }
 /**
  * On a phone, your turn also shows a short notification while Golf is open, so
@@ -1104,26 +1123,32 @@ async function buzzTurnNotification() {
     }, 4000);
   } catch {}
 }
-async function toggleTurnAlerts() {
-  const on = !prefs.turnAlerts;
+/** Turn one kind of notification on or off; the subscription goes once neither is wanted. */
+async function toggleAlerts(key) {
+  const on = !prefs[key];
+  const wanted = {
+    turn: key === "turnAlerts" ? on : prefs.turnAlerts,
+    queue: key === "queueAlerts" ? on : prefs.queueAlerts,
+  };
   try {
-    if (on) await subscribeTurnAlerts(true);
+    if (wanted.turn || wanted.queue) await subscribeAlerts(on, wanted);
     else {
       await api("/api/push/unsubscribe", "POST");
       const registration = await navigator.serviceWorker?.getRegistration(appPath("/sw.js"));
       await (await registration?.pushManager.getSubscription())?.unsubscribe();
     }
-    setPref("turnAlerts", on);
-    if (on) toast("You'll get a notification when it's your turn.");
+    setPref(key, on);
+    if (on)
+      toast(key === "turnAlerts" ? "You'll get a notification when it's your turn." : "You'll get a notification when someone joins the Ranked queue.");
   } catch (error) {
-    setPref("turnAlerts", false);
+    setPref(key, false);
     toast(error.message);
   }
   const holder = sheetRoot.querySelector("[data-prefs]");
   if (holder) holder.outerHTML = prefsHtml().replace(/^<h3>.*?<\/h3>/, "");
 }
 function togglePref(key) {
-  if (key === "turnAlerts") return toggleTurnAlerts();
+  if (key === "turnAlerts" || key === "queueAlerts") return toggleAlerts(key);
   if (key === "padDrag") setPref(key, prefs.padDrag === "toggle" ? "hold" : "toggle");
   else if (key === "theme") {
     const at = THEMES.findIndex(([name]) => name === prefs.theme);
@@ -3665,7 +3690,11 @@ function bootData() {
         session.avatar = saved;
     } catch {}
     syncPrefs();
-    if (prefs.turnAlerts) subscribeTurnAlerts(false).catch(() => setPref("turnAlerts", false));
+    if (prefs.turnAlerts || prefs.queueAlerts)
+      subscribeAlerts(false).catch(() => {
+        setPref("turnAlerts", false);
+        setPref("queueAlerts", false);
+      });
     const firstPoll = pollPresence();
     // while in the queue the server is asked far more often, so a match shows at once
     let lastPoll = performance.now();

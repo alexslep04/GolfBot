@@ -1,4 +1,4 @@
-"""Turn notifications: pushed once per turn, only while no page of yours is in front."""
+"""Turn and Ranked queue notifications: pushed only while no page of yours is in front."""
 import base64
 import threading
 import unittest
@@ -96,6 +96,33 @@ class TurnNotificationTests(unittest.TestCase):
                 self.move(self.host, room, 'flip', index=index)
             self.assertFalse(self.sent.wait(0.5))
         self.assertEqual(self.pushed, [])
+
+    def test_someone_joining_ranked_tells_those_who_asked_once_in_a_while(self):
+        self.host.post('/api/push/subscribe', json={'subscription': real_subscription(), 'queue': True}).raise_for_status()
+        self.guest.post('/api/queue/join', json={'username': 'B'}).raise_for_status()
+        self.assertTrue(self.sent.wait(5))
+        self.assertEqual(len(self.pushed), 1)
+        # leaving and joining again soon after does not tell them again
+        self.sent.clear()
+        self.guest.post('/api/queue/leave').raise_for_status()
+        self.guest.post('/api/queue/join', json={'username': 'B'}).raise_for_status()
+        self.assertFalse(self.sent.wait(0.5))
+        self.assertEqual(len(self.pushed), 1)
+
+    def test_ranked_notifications_are_only_for_those_who_asked_and_are_away(self):
+        # turn notifications alone say nothing about the queue
+        self.host.post('/api/push/subscribe', json={'subscription': real_subscription()}).raise_for_status()
+        self.guest.post('/api/queue/join', json={'username': 'B'}).raise_for_status()
+        self.assertFalse(self.sent.wait(0.5))
+        # asked for, but with Golf in front of them: the page shows its own note
+        self.guest.post('/api/queue/leave').raise_for_status()
+        self.host.post('/api/push/subscribe', json={'subscription': real_subscription(), 'turn': False, 'queue': True}).raise_for_status()
+        self.host.post('/api/presence', json={'username': 'A', 'visible': True}).raise_for_status()
+        self.guest.post('/api/queue/join', json={'username': 'B'}).raise_for_status()
+        self.assertFalse(self.sent.wait(0.5))
+        self.assertEqual(self.pushed, [])
+        # and no "your turn" either, once only the queue is asked for
+        self.assertEqual([wanted['turn'] for wanted in self.store.push_subscriptions.values()], [False])
 
 
 if __name__ == '__main__':
