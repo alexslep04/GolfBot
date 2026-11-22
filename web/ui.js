@@ -133,8 +133,9 @@ const prefs = {
   haptics: true,
   hideTips: false,
   autoQueue: false, // join the Ranked queue as soon as the site opens (off unless chosen)
-  turnAlerts: false, // a notification (and a buzz) when it's your turn while Golf is in the background
-  queueAlerts: false, // a notification when someone joins the Ranked queue
+  alerts: false, // notifications at all (the Notifications page's main switch)
+  turnAlerts: true, // with it: a notification (and a buzz) when it's your turn while Golf is in the background
+  queueAlerts: true, // with it: a notification when someone joins the Ranked queue
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
   showOdds: true, // spectating: each player's chance of winning under their points
@@ -155,6 +156,19 @@ try {
   // together, so a saved "on" from then was never chosen: only one turned on
   // since (marked autoQueueChosen) counts. A saved "off" was always a choice.
   if (saved.autoQueue && !saved.autoQueueChosen) delete saved.autoQueue;
+  // Before the main notifications switch, each kind had only its own. One
+  // that was on keeps notifications on, with each kind as it was; with none
+  // on, both kinds start out on under the (off) main switch.
+  if (!("alerts" in saved)) {
+    saved.alerts = !!(saved.turnAlerts || saved.queueAlerts);
+    if (saved.alerts) {
+      saved.turnAlerts = !!saved.turnAlerts;
+      saved.queueAlerts = !!saved.queueAlerts;
+    } else {
+      delete saved.turnAlerts;
+      delete saved.queueAlerts;
+    }
+  }
   Object.assign(prefs, saved);
 } catch {}
 function applyPrefs() {
@@ -170,7 +184,7 @@ function applyPrefs() {
 }
 // Settings that belong to this device alone (notifications need its own
 // permission), so they are never saved to or taken from an account.
-const DEVICE_PREFS = ["turnAlerts", "queueAlerts"];
+const DEVICE_PREFS = ["alerts", "turnAlerts", "queueAlerts"];
 let onPrefsSaved = null; // app.js: save the change to a signed-in account too
 function storePrefs() {
   try {

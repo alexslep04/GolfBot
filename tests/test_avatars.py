@@ -98,6 +98,14 @@ class AvatarSeatTests(unittest.TestCase):
 
 
 class PageAssetTests(unittest.TestCase):
+    def test_notifications_page_and_its_home_screen_guide(self):
+        with TestClient(create_app(Store(), google_client_id='')) as client:
+            # opened straight from a link, the page is the app (which draws it)
+            self.assertIn('static/app.js', client.get('/Golfgame/notifications').text)
+            for step in (1, 2, 3):
+                response = client.get(f'/Golfgame/static/assets/home-screen-{step}.png')
+                self.assertEqual((response.status_code, response.headers['content-type']), (200, 'image/png'))
+
     def test_every_script_and_stylesheet_is_versioned_and_served(self):
         with TestClient(create_app(Store(), google_client_id='')) as client:
             page = client.get('/Golfgame/').text

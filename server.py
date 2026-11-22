@@ -2539,6 +2539,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get("/leaderboard")
     @app.get("/spectate")
     @app.get("/patch-notes")
+    @app.get("/notifications")
     @app.get("/account")
     @app.get("/lobby/{room_id}")
     async def index(request: Request):
