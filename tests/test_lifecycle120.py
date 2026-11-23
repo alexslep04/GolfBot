@@ -68,7 +68,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotEqual(fresh['id'], room.id)
         self.assertEqual(fresh['streak']['current'], 0)
 
-    def test_explicit_forfeit_counts_once_and_only_current_game(self):
+    def test_explicit_forfeit_counts_once_the_game_in_play_and_the_series(self):
         other, room = self.rated()
         self.assertTrue(room.rated)
         first = room.game
@@ -83,8 +83,13 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(room.history[-1]['forfeit'])
         self.client.post(f'/api/lobbies/{room.id}/leave')
         self.assertEqual(len(room.history), 2)
-        rows = self.client.get('/api/leaderboards').json()['pvp']
-        self.assertEqual(sum(r['wins']+r['draws']+r['losses'] for r in rows),4)
+        # the series went to the player who stayed: one series each on the board,
+        # and two games each behind it (the one finished, and the one forfeited)
+        rows = self.store.progression.leaderboard(combine_guests=False)['pvp']
+        self.assertEqual(sum(r['wins']+r['draws']+r['losses'] for r in rows),2)
+        self.assertEqual(sum(sum(r['games'].values()) for r in rows),4)
+        self.assertEqual((room.history[-1]['series_winner'], room.history[-1]['series_forfeit']), (1, 0))
+        self.assertEqual(room.history[-1]['mmr'][1]['delta'], -room.history[-1]['mmr'][0]['delta'])
 
     def test_void_pauses_then_discards_only_current_game(self):
         other, room = self.rated()

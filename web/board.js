@@ -968,6 +968,11 @@ function nextUp() {
   const order = g.turn_order;
   return order[(order.indexOf(g.current) + 1) % order.length];
 }
+/** How many turns away a player's next turn is at a table of three or more (1 = up next), else null. */
+function turnsUntil(player) {
+  if (state.names.length < 3 || state.status !== "playing") return null;
+  return state.game.up_in?.[player] ?? null;
+}
 /**
  * Solo only: your win streak against Golfbot, a flame over a sticker number
  * like the points counter. Faded at zero; lit and glowing brighter as it grows.
@@ -1044,11 +1049,19 @@ function renderTags() {
     // comes in, never while it fades out
     // (a spectator's bottom seat is someone else's too)
     const theirs = (side === "opp" || state.spectator) && theirTurn(player);
-    const next = player === upNext && !theirs && !(side === "me" && turn);
+    // at a table of three or more, anyone further back in the order reads "Up in 3"
+    const wait = turnsUntil(player);
+    const next = (player === upNext || wait > 1) && !theirs && !(side === "me" && turn);
     scoreTag.classList.toggle("their-turn", theirs);
     scoreTag.classList.toggle("up-next", next);
     if (next || theirs || (side === "me" && turn))
-      scoreTag.querySelector("[data-turn-label]").textContent = next ? "Up next" : theirs ? "Their turn" : "Your turn";
+      scoreTag.querySelector("[data-turn-label]").textContent = next
+        ? player === upNext
+          ? "Up next"
+          : `Up in ${wait}`
+        : theirs
+          ? "Their turn"
+          : "Your turn";
     // the player's avatar, a big sticker tucked behind their score tag
     const avatarTag = board.el.querySelector(`[data-avatar-for='${side}']`);
     const avatarId = state.avatars?.[player];
@@ -1087,7 +1100,7 @@ function renderTags() {
     board.signatures[`seen-${side}`] = player;
     scoreTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${shown} points${chance === null ? "" : `, ${chance} chance to win`}${shown !== score ? " once this move is confirmed" : ""}${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? ", up next" : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
+      `${state.names[player]}: ${shown} points${chance === null ? "" : `, ${chance} chance to win`}${shown !== score ? " once this move is confirmed" : ""}${offline ? ", offline" : ""}${side === "me" && turn ? ", your turn" : ""}${theirs ? ", their turn" : ""}${next ? (player === upNext ? ", up next" : `, up in ${wait} turns`) : ""}${side === "opp" ? ". Open their stats." : ". Open your stats."}`,
     );
     // The bar under the score: how many modifiers this hand has in play, and
     // what they (and its matched columns) add to or take off the face value of
@@ -1474,8 +1487,8 @@ function playerEmote(player, onTile = false) {
 const CHART = { w: 300, h: 160, left: 24, right: 84, top: 12, bottom: 22 };
 /**
  * What the graph can show. Once a series has two or more games, a cycle button
- * steps through: this game turn by turn, each game's points, and the running
- * total through the series.
+ * steps through: this game turn by turn, each game's points (not in solo play),
+ * and the running total through the series.
  */
 const CHART_VIEWS = {
   game: "Points through the game",
@@ -1485,7 +1498,8 @@ const CHART_VIEWS = {
 function chartViews() {
   // a game ended before anyone moved has no turns to plot
   const views = (state.timeline || []).length >= 2 ? ["game"] : [];
-  if ((state.history || []).length >= 2) views.push("games", "series");
+  // (against Golfbot there is no game-by-game view: the run through the series says it)
+  if ((state.history || []).length >= 2) views.push(...(state.solo ? ["series"] : ["games", "series"]));
   return views;
 }
 function chartView() {
@@ -1709,8 +1723,11 @@ function renderSummary() {
   // a spectator has no seat: every result is told by name
   const viewer = state.spectator || state.local ? -1 : state.viewer;
   const result = state.history.at(-1);
-  const finished = state.status === "finished";
-  const closed = state.status === "closed";
+  // a series that was decided before someone left still shows its result: the table
+  // is closed, so the only thing gone is the rematch
+  const left = state.status === "closed" && !!state.series_complete && state.history.length > 0;
+  const finished = state.status === "finished" || left;
+  const closed = state.status === "closed" && !left;
   const title = closed
     ? "Table closed"
     : finished
@@ -1731,6 +1748,7 @@ function renderSummary() {
     board.summaryHidden,
     board.summaryEmotes,
     state.history.length,
+    (state.rematch_votes || []).join(),
     (state.timeline || []).length,
     chartView(),
     opponentEmotesMuted,
@@ -1739,7 +1757,7 @@ function renderSummary() {
     if (board.summaryHidden)
       return `<div class="summary mini"><button type="button" class="btn small c-p1" data-summary-toggle>${glyph("chevron.up", 16)} Results</button></div>`;
     if (closed)
-      return `<section class="summary panel c-p2" role="dialog" aria-label="Results"><h2>${e(title)}</h2><p style="margin:1rem 0;text-align:center">${e(state.message)}</p><div class="stack"><button type="button" class="btn c-p1" data-leave>${tilted("house.fill", 28)} Back to menu</button></div></section>`;
+      return `<section class="summary panel c-p2" role="dialog" aria-label="Results"><h2>${e(title)}</h2><p style="margin:1rem 0;text-align:center">${e(state.message)}</p><div class="stack">${state.tournament ? `<button type="button" class="btn c-p4" data-tournament-open="${e(state.tournament.id)}">${tilted("trophy.fill", 28)} Back to the bracket</button>` : `<button type="button" class="btn c-p1" data-leave>${tilted("house.fill", 28)} Back to menu</button>`}</div></section>`;
     const between = state.status === "round_over";
     const series = state.names.length > 2 || state.best_of !== 1;
     const verdict = finished ? state.champion : result.winner;
@@ -1769,7 +1787,10 @@ function renderSummary() {
     // the main move is a full button, filling the room between Quit and View
     const wide = (attrs, symbol, label, extra = "") =>
       `<button type="button" class="btn c-p1 summary-main" ${attrs}>${tilted(symbol, 30)}<span>${extra}${label}</span></button>`;
-    const main = state.spectator
+    // a tournament match is played once: when it is over, the way on is its bracket
+    const main = state.tournament && (finished || state.spectator)
+      ? wide(`data-tournament-open="${e(state.tournament.id)}"`, "trophy.fill", "Bracket", padTag("y"))
+      : state.spectator
       ? wide("disabled", "eye.fill", "Watching…")
       : state.local
       ? between
@@ -1779,9 +1800,17 @@ function renderSummary() {
       ? state.ready[viewer]
         ? wide("disabled", "hourglass", "Waiting…")
         : wide('data-action="next_round"', "checkmark.circle.fill", "Ready", padTag("y"))
-      : viewer === 0
-        ? wide('data-action="rematch"', "arrow.clockwise", "Play again", padTag("y"))
-        : wide('disabled title="The host can start a rematch."', "hourglass", "Host's call");
+      : left
+        ? // someone has left the table: there is nobody to play a rematch with
+          wide('disabled title="A player has left the table."', "arrow.clockwise", state.solo ? "Play again" : "Rematch")
+      : state.rated && (state.rematch_votes || []).includes(viewer)
+        ? // a Ranked rematch needs both players: this one has asked, and waits for the other
+          wide("disabled", "hourglass", "Waiting…")
+        : state.rated && (state.rematch_votes || []).length
+        ? // the other player has asked: two short lines and no icon, so the words fit the button
+          `<button type="button" class="btn c-p1 summary-main two-line" data-action="rematch" aria-label="Accept rematch"><span>${padTag("y")}Accept<br>rematch</span></button>`
+        : // between players the button is Rematch, and anyone at the table can start one
+          wide('data-action="rematch"', "arrow.clockwise", state.solo ? "Play again" : "Rematch", padTag("y"));
     const action = `<div class="summary-actions">${quit}${main}${look}</div>`;
     // spectators get the result told plainly: who won is the line under it
     const heading = state.spectator || state.local

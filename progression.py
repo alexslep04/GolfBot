@@ -7,9 +7,13 @@ winner 0 means the human won; 1 means the bot won; None means a draw.
 import json
 import time
 
+import glicko
 from patches import PATCH_VERSION as PATCH  # one release label for the whole server
 
 GUESTS_ID = 'guests'  # the single row every guest shares on a leaderboard
+# Everyone has two Glicko-2 ratings: one moved by each Ranked series (their MMR,
+# which the PVP leaderboard ranks) and one moved by each Ranked game.
+RATING_KINDS = ('series', 'game')
 
 
 class Progression:
@@ -32,6 +36,14 @@ class Progression:
             self.db.execute('''CREATE TABLE IF NOT EXISTS progression_migration_backup (
                 migration TEXT NOT NULL, match_id TEXT NOT NULL, payload TEXT NOT NULL,
                 backed_up_at REAL NOT NULL, PRIMARY KEY(migration, match_id))''')
+            # Glicko-2 ratings (1.4.0 on). Unlike the Elo before them, kept in
+            # progression_players for each patch, these carry on from patch to patch.
+            self.db.execute("""CREATE TABLE IF NOT EXISTS ratings (
+                id TEXT NOT NULL, kind TEXT NOT NULL, label TEXT NOT NULL,
+                rating REAL NOT NULL, rd REAL NOT NULL, volatility REAL NOT NULL,
+                wins INTEGER NOT NULL DEFAULT 0, draws INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0, played_at REAL, patch TEXT NOT NULL,
+                PRIMARY KEY(id, kind))""")
             columns = {row[1] for row in self.db.execute('PRAGMA table_info(progression_players)')}
             if 'solo_wins' not in columns:
                 for column in ('solo_wins', 'solo_draws', 'solo_losses'):
@@ -108,15 +120,6 @@ class Progression:
         return result
 
     @staticmethod
-    def _expected(elo, opponent):
-        # Clamping the exponent avoids overflow for very widely separated ratings.
-        return 1 / (1 + 10 ** max(-300, min(300, (opponent - elo) / 400)))
-
-    def _rating_delta(self, ratings, winner):
-        score = .5 if winner is None else int(winner == 0)
-        return round(32 * (score - self._expected(ratings[0], ratings[1])))
-
-    @staticmethod
     def _participants(participants):
         if len(participants) != 2 or participants[0]['id'] == participants[1]['id']:
             raise ValueError('Two distinct participants are required.')
@@ -126,45 +129,90 @@ class Progression:
         if winner is not None and (type(winner) is not int or winner not in (0, 1)):
             raise ValueError('Winner must be seat 0, seat 1, or None.')
 
-    def rate_game(self, event_id, participants, winner, patch=PATCH):
-        """Rate one game; retries return its original ratings without changing totals.
+    def _rating(self, player_id, kind, patch, now):
+        """One rating as it stands right now: less certain after a new patch (once) and
+        after time away. Someone never rated starts level, and as unsure as can be."""
+        row = self.db.execute("""SELECT label,rating,rd,volatility,wins,draws,losses,played_at,patch
+            FROM ratings WHERE id=? AND kind=?""", (player_id, kind)).fetchone()
+        if row is None:
+            return {'label': None, 'rating': glicko.START, 'rd': glicko.START_RD, 'volatility': glicko.START_VOL,
+                    'wins': 0, 'draws': 0, 'losses': 0, 'played_at': None, 'patch': patch}
+        entry = dict(zip(('label', 'rating', 'rd', 'volatility', 'wins', 'draws', 'losses', 'played_at', 'patch'), row))
+        if entry['patch'] != patch:
+            entry['rd'] = glicko.widen(entry['rd'])
+        if entry['played_at'] is not None:
+            entry['rd'] = glicko.idle(entry['rd'], entry['volatility'], now - entry['played_at'])
+        return entry
 
-        Each rating has id, label, before, after, delta, and elo (equal to after).
-        Elo uses K=32 and integer rounding with a zero-sum delta.
-        """
+    def _rate(self, kind, event_id, participants, winner, patch):
         self._participants(participants)
         self._winner(winner)
+        mode, now = 'glicko-' + kind, time.time()
         with self.lock, self.db:
-            previous = self._event(event_id, 'pvp', patch)
+            previous = self._event(event_id, mode, patch)
             if previous is not None:
                 return previous
-            players = [self._player(identity, patch) for identity in participants]
-            delta = self._rating_delta([p['elo'] for p in players], winner)
+            before = [self._rating(identity['id'], kind, patch, now) for identity in participants]
             result = []
-            for seat, player in enumerate(players):
-                change = delta if seat == 0 else -delta
-                after = player['elo'] + change
-                self.db.execute('''UPDATE progression_players SET elo=?, wins=wins+?,
-                    draws=draws+?, losses=losses+? WHERE patch=? AND id=?''',
-                    (after, int(winner == seat), int(winner is None),
-                     int(winner is not None and winner != seat), patch, player['id']))
-                result.append({'id': player['id'], 'label': player['label'],
-                               'before': player['elo'], 'after': after, 'delta': change, 'elo': after})
-            return self._record(event_id, 'pvp', patch, result)
+            for seat, identity in enumerate(participants):
+                mine, theirs = before[seat], before[1 - seat]
+                score = .5 if winner is None else float(winner == seat)
+                rating, rd, volatility = glicko.update((mine['rating'], mine['rd'], mine['volatility']),
+                                                       [((theirs['rating'], theirs['rd']), score)])
+                label = self._label(identity)
+                self.db.execute("""INSERT INTO ratings(id,kind,label,rating,rd,volatility,wins,draws,losses,played_at,patch)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id,kind) DO UPDATE SET label=excluded.label,
+                    rating=excluded.rating, rd=excluded.rd, volatility=excluded.volatility,
+                    wins=wins+excluded.wins, draws=draws+excluded.draws, losses=losses+excluded.losses,
+                    played_at=excluded.played_at, patch=excluded.patch""",
+                    (identity['id'], kind, label, rating, rd, volatility, int(winner == seat), int(winner is None),
+                     int(winner is not None and winner != seat), now, patch))
+                shown = round(mine['rating']), round(rating)
+                result.append({'id': identity['id'], 'label': label, 'before': shown[0], 'after': shown[1],
+                               'delta': shown[1] - shown[0], 'rd': round(rd)})
+            return self._record(event_id, mode, patch, result)
+
+    def rate_game(self, event_id, participants, winner, patch=PATCH):
+        """Rate one Ranked game (the game rating); a retry returns its first result unchanged.
+
+        Each rating has id, label, before, after, delta and rd, rounded as shown.
+        Both players are rated against the other's numbers going in.
+        """
+        return self._rate('game', event_id, participants, winner, patch)
+
+    def rate_series(self, event_id, participants, winner, patch=PATCH):
+        """Rate one decided Ranked series (the series rating, shown as MMR), once.
+
+        The winner is the seat that won it (by the match's own scoring, or because
+        the other player left), or None for a drawn series.
+        """
+        return self._rate('series', event_id, participants, winner, patch)
 
     def forfeit_loss(self, participants, seat, patch=PATCH):
-        """Predict the exact nonnegative Elo loss without recording or creating players."""
+        """The MMR leaving now would cost `seat` (never negative), without recording anything."""
         self._participants(participants)
         if type(seat) is not int or seat not in (0, 1):
             raise ValueError('Seat must be 0 or 1.')
+        now = time.time()
         with self.lock:
-            ratings = []
-            for identity in participants:
-                row = self.db.execute('SELECT elo FROM progression_players WHERE patch=? AND id=?',
-                                      (patch, identity['id'])).fetchone()
-                ratings.append(row[0] if row else 1000)
-        delta = self._rating_delta(ratings, 1 - seat)
-        return -delta if seat == 0 else delta
+            mine, theirs = (self._rating(participants[p]['id'], 'series', patch, now) for p in (seat, 1 - seat))
+        after = glicko.update((mine['rating'], mine['rd'], mine['volatility']), [((theirs['rating'], theirs['rd']), 0.0)])[0]
+        return max(0, round(mine['rating']) - round(after))
+
+    def ratings(self, player_id, patch=PATCH):
+        """Someone's two ratings as shown: {'series': {...}, 'game': {...}}, each with its
+        rating, rd, whether it is still settling, and its W-D-L."""
+        now = time.time()
+        with self.lock:
+            entries = {kind: self._rating(player_id, kind, patch, now) for kind in RATING_KINDS}
+        return {kind: {'rating': round(entry['rating']), 'rd': round(entry['rd']),
+                       'provisional': entry['rd'] > glicko.PROVISIONAL_RD,
+                       'wins': entry['wins'], 'draws': entry['draws'], 'losses': entry['losses']}
+                for kind, entry in entries.items()}
+
+    def mmr(self, identity, patch=PATCH):
+        """Someone's MMR: their series rating, as a whole number."""
+        return self.ratings(identity['id'], patch)['series']['rating']
 
     def practice_result(self, event_id, identity, winner, patch=PATCH):
         """Record a human/bot game; consecutive draw two and later reset current."""
@@ -235,7 +283,7 @@ class Progression:
     def _combine_guests(rows, solo):
         """Fold every guest on a board into one "Guest" row, re-ranked with the accounts.
 
-        Games are added together. Elo is the guests' average; the streaks are the
+        Results are added together. MMR is the guests' average; the streaks are the
         best any one guest holds.
         """
         guests = [row for row in rows if not row['id'].startswith('account:')]
@@ -251,8 +299,11 @@ class Progression:
                             current_streak=max(row['current_streak'] for row in guests))
             order = lambda row: (-row['best_streak'], row['best_at'] is None, row['best_at'] or 0, row['id'])
         else:
-            combined['elo'] = round(sum(row['elo'] for row in guests) / len(guests))
-            order = lambda row: (-row['elo'], row['id'])
+            for key in ('mmr', 'game_rating'):
+                combined[key] = round(sum(row[key] for row in guests) / len(guests))
+            combined['provisional'] = all(row['provisional'] for row in guests)
+            combined['games'] = {key: sum(row['games'][key] for row in guests) for key in ('wins', 'draws', 'losses')}
+            order = lambda row: (-row['mmr'], row['id'])
         return sorted([row for row in rows if row['id'].startswith('account:')] + [combined], key=order)
 
     def _all_time_solo(self, rows):
@@ -280,15 +331,25 @@ class Progression:
         return sorted(board, key=lambda row: (-row['best_streak'], row['best_at'] is None, row['best_at'] or 0, row['id']))
 
     def leaderboard(self, patch=PATCH, combine_guests=True):
-        """PVP is this patch's Elo; Solo is all time (a streak is not reset by an update)."""
+        """PVP ranks everyone who has finished a Ranked series by MMR (their series rating),
+        with their series W-D-L; Solo is all time (a streak is not reset by an update)."""
+        now = time.time()
         with self.lock:
-            pvp = self.db.execute('''SELECT id,label,elo,wins,draws,losses FROM progression_players
-                WHERE patch=? AND wins+draws+losses>0 ORDER BY elo DESC,id''', (patch,)).fetchall()
+            rated = [row[0] for row in self.db.execute("SELECT id FROM ratings WHERE kind='series' AND wins+draws+losses>0")]
+            entries = {player: {kind: self._rating(player, kind, patch, now) for kind in RATING_KINDS} for player in rated}
             solo = self.db.execute('''SELECT patch,id,label,best_streak,current_streak,best_at,solo_games,solo_wins,solo_draws,solo_losses
                 FROM progression_players''').fetchall()
-        boards = {'pvp': [dict(zip(('id', 'label', 'elo', 'wins', 'draws', 'losses', 'win_rate'),
-                                   (*r, r[3] / sum(r[3:6])))) for r in pvp],
-                  'solo': self._all_time_solo(solo)}
+        pvp = []
+        for player, entry in entries.items():
+            series, game = entry['series'], entry['game']
+            pvp.append({'id': player, 'label': series['label'], 'mmr': round(series['rating']), 'rd': round(series['rd']),
+                        'provisional': series['rd'] > glicko.PROVISIONAL_RD,
+                        'wins': series['wins'], 'draws': series['draws'], 'losses': series['losses'],
+                        'win_rate': series['wins'] / (series['wins'] + series['draws'] + series['losses']),
+                        'game_rating': round(game['rating']),
+                        'games': {key: game[key] for key in ('wins', 'draws', 'losses')}})
+        pvp.sort(key=lambda row: (-row['mmr'], row['id']))
+        boards = {'pvp': pvp, 'solo': self._all_time_solo(solo)}
         if combine_guests:
             boards = {'pvp': self._combine_guests(boards['pvp'], False),
                       'solo': self._combine_guests(boards['solo'], True)}

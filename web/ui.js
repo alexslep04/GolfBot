@@ -137,6 +137,7 @@ const prefs = {
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
   showOdds: true, // spectating: each player's chance of winning under their points
+  patchSeen: "", // the newest patch whose notes this player has been shown
 };
 // Each theme is a set of color tokens in style.css, under :root[data-theme].
 // "golf" is the original sticker look and needs no attribute.

@@ -20,7 +20,7 @@ let catalog = [],
   tableEpoch = 0,
   toastTimer;
 // Pages that can be read without leaving (or redrawing over) an open table.
-const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard", "cards", "spectate", "passplay"];
+const SIDE_PAGES = ["history", "stats", "account", "patches", "rules", "leaderboard", "cards", "spectate", "passplay", "tournament"];
 
 const starter = {
   host: "Host first",
@@ -834,8 +834,10 @@ function renderSocial() {
   const dialog = document.getElementById("social-dialog");
   // a match offer opens out of the Quickplay pill (see queuePillHtml), not here
   if (socialMode === "queue") closeSocial();
-  if (socialMode === "players" && state?.status !== "waiting") closeSocial();
-  const invitation = session.room_id
+  if (socialMode === "players" && state?.status !== "waiting" && !hostedLobby()) closeSocial();
+  // (shown away from a table, and to someone playing Golfbot, who can leave that for it)
+  const playingBot = state?.id === session.room_id && state.solo && !state.tournament;
+  const invitation = session.room_id && !playingBot
     ? null
     : presenceState.invitations.find((item) => !dismissedInvites.has(item.id));
   // an invitation drops in as its own pill (see renderInvitePill), not here
@@ -850,10 +852,10 @@ function renderSocial() {
   socialSignature = signature;
   dialog.innerHTML =
     socialMode === "players"
-      ? `<button type="button" class="dialog-x" data-social-close aria-label="Close">${icon("xmark.circle.fill", 26)}</button><h2>Invite a player</h2><p class="hint">Players online right now who aren't at a table.</p><div class="list invite-list">${presenceState.players.map((player) => {
+      ? `<button type="button" class="dialog-x" data-social-close aria-label="Close">${icon("xmark.circle.fill", 26)}</button><h2>Invite a player</h2><p class="hint">Players online right now who aren't at a table with someone or in a tournament.</p><div class="list invite-list">${presenceState.players.map((player) => {
           const invited = presenceState.invited.includes(player.id);
           // the player's card, and beside it the invite sticker over its label
-          return `<div class="invite-row"><div class="list-item c-p1 grow">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}</small></div></div><button type="button" class="close-btn c-p1" data-invite-player="${e(player.id)}" aria-label="${invited ? "Invited" : "Invite"} ${e(player.display_name)}" ${invited ? "disabled" : ""}>${icon(invited ? "checkmark.circle.fill" : "person.fill.badge.plus", 30)}<span>${invited ? "Invited" : "Invite"}</span></button></div>`;
+          return `<div class="invite-row"><div class="list-item c-p1 grow">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}${player.solo ? " · playing Golfbot" : ""}</small></div></div><button type="button" class="close-btn c-p1" data-invite-player="${e(player.id)}" aria-label="${invited ? "Invited" : "Invite"} ${e(player.display_name)}" ${invited ? "disabled" : ""}>${icon(invited ? "checkmark.circle.fill" : "person.fill.badge.plus", 30)}<span>${invited ? "Invited" : "Invite"}</span></button></div>`;
         }).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div>`
       : "";
   // (the invite list's x sits out on the dialog's corner)
@@ -891,12 +893,14 @@ function renderInvitePill(invitation) {
       }, () => {});
     return;
   }
-  const lobby = invitation.lobby || {};
-  const style = `${e(matchLength(lobby))}${lobby.house_rules ? " · House rules" : ""}`;
+  // (to a table, or to a tournament still gathering players)
+  const cup = invitation.tournament;
+  const lobby = cup || invitation.lobby || {};
+  const style = `${cup ? `${e(cup.format_name)} · ` : ""}${e(matchLength(lobby))}${cup?.ranked ? " · Ranked" : lobby.house_rules ? " · House rules" : ""}`;
   const sparkle = (mirror) => icon("sparkles", 24, { idle: false, sw: 3.4, cls: mirror ? "mirrored" : "" });
   const decline = `<button type="button" class="act side-act queue-leave queue-decline" data-invite-reply="decline" data-invitation="${e(invitation.id)}" aria-label="Decline the invitation"><span class="act-ico">${icon("xmark.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Decline</span></button>`;
   const accept = `<button type="button" class="btn c-p1 queue-accept" data-invite-reply="accept" data-invitation="${e(invitation.id)}">${sparkle(false)}<span>${padTag("y")}Accept</span>${sparkle(true)}</button>`;
-  banner.innerHTML = `<div class="queue-pill offer open invite-pill" role="dialog" aria-label="Table invitation"><div class="queue-offer-row"><span class="queue-text"><b>Table invite!</b><small>${e(invitation.host)} · ${e(lobby.name || "Table")}<br>${style}</small></span>${decline}</div>${accept}</div>`;
+  banner.innerHTML = `<div class="queue-pill offer open invite-pill" role="dialog" aria-label="${cup ? "Tournament" : "Table"} invitation"><div class="queue-offer-row"><span class="queue-text"><b>${cup ? "Tournament" : "Table"} invite!</b><small>${e(invitation.host)} · ${e(lobby.name || (cup ? "Tournament" : "Table"))}<br>${style}</small></span>${decline}</div>${accept}</div>`;
   banner.hidden = false;
   if (!motion) return;
   banner.getAnimations().forEach((animation) => animation.cancel());
@@ -914,6 +918,8 @@ async function pollPresence() {
     if (session.account && presenceState.username && presenceState.username !== session.username)
       saveName(presenceState.username);
     renderQueueBanner();
+    // a tournament match that is ready takes its players to their table
+    await followTournament();
     if (presenceState.queue?.notice) toast(presenceState.queue.notice);
     if (
       presenceState.queue?.status === "matched" &&
@@ -963,6 +969,55 @@ function markPatchSeen() {
   try {
     if (session?.patch) localStorage.setItem("golf-played-patch", session.patch);
   } catch {}
+  // a signed-in player is not shown the same notes again on their other devices
+  if (session?.patch && session.account && prefs.patchSeen !== session.patch) setPref("patchSeen", session.patch);
+}
+/** One patch's notes, as the Patch notes page and the new-patch popup both list them. */
+function patchNotesHtml(patch) {
+  const list = (title, items) =>
+    items?.length ? `<h3 style="margin-top:1.2rem">${title}</h3>${items.map((note) => `<p>• ${e(note)}</p>`).join("")}` : "";
+  // (a patch may sort its changes under headings of its own)
+  const sections = (patch.sections || []).map((section) => list(e(section.title), section.notes)).join("");
+  return `${list(patch.labels?.revisions || "Rule revisions", patch.rules?.revisions)}${list(patch.labels?.additions || "Rule additions", patch.rules?.additions)}${sections}${list(patch.labels?.changes || "Play and interface", patch.changes)}`;
+}
+/* The first time someone opens Golf on a new patch, its notes pop up over the
+   home screen, with an x on the corner and "Start golfing!" at the foot. A
+   first visit has nothing to catch up on, so it sees none. */
+let patchPopupDone = false;
+async function patchPopup() {
+  const current = session?.patch;
+  const seen = seenPatch();
+  if (patchPopupDone || !current || !seen || seen === current || prefs.patchSeen === current) return;
+  patchPopupDone = true;
+  let patch;
+  try {
+    patch = (await api("/api/patch-notes")).patches.find((item) => item.version === current);
+  } catch {}
+  if (!patch || page !== "home") {
+    patchPopupDone = false; // not shown: try again the next time the home screen is up
+    return;
+  }
+  let dialog = document.getElementById("patch-dialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "patch-dialog";
+    dialog.className = "social-dialog leave-dialog patch-dialog";
+    dialog.setAttribute("aria-labelledby", "patch-dialog-title");
+    dialog.addEventListener("close", () => {
+      markPatchSeen();
+      document.querySelector(".patch-chip")?.remove();
+    });
+    // a tap outside the card closes it too
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    document.body.append(dialog);
+  }
+  dialog.innerHTML = `<button type="button" class="dialog-x" data-patch-close aria-label="Close">${icon("xmark.circle.fill", 26)}</button><span class="pill">New update</span><h2 id="patch-dialog-title">Patch ${e(current)}</h2><div class="patch-notes">${patchNotesHtml(patch)}</div><div class="dialog-actions"><button type="button" class="btn c-p3 grow" data-patch-close>${tilted("figure.golf", 28)}<span>Start golfing!</span></button></div>`;
+  if (!dialog.open) dialog.showModal();
+}
+function closePatchPopup() {
+  document.getElementById("patch-dialog")?.close();
 }
 function patchChip() {
   const seen = seenPatch();
@@ -1033,6 +1088,7 @@ function home() {
   renderQueueBanner();
   pollPresence();
   signInTip();
+  patchPopup();
 }
 /** On/off and choice rows for the settings kept on this device. */
 function prefsHtml() {
@@ -1285,8 +1341,15 @@ const draft = {
   rules: {},
   first: "random",
   rulesOpen: false,
+  // Host a Tournament
+  tournamentName: "Golf Tournament",
+  format: "single",
+  seeding: "random",
+  fill: "byes",
+  ranked: "off",
 };
 const ENTRY_STYLE = {
+  tournament: { color: "c-p4", glyph: "trophy.fill" }, // Host a Tournament
   passplay: { color: "c-s7 c-passplay", glyph: "person.2.fill" }, // Pass & play (green; light green on Original)
   host: { color: "c-p1", glyph: "figure.2" }, // Play with Friends
   solo: { color: "c-p2", glyph: "dumbbell.fill" }, // Practice
@@ -1307,9 +1370,12 @@ function startSetup(mode) {
     rulesOpen: false,
     gameType: "1v1",
   });
+  // every match-up of a tournament is one game unless the host says otherwise
+  if (mode === "tournament") draft.length = 1;
   setupPage();
 }
 function styleHint() {
+  if (["wins", "points"].includes(draft.style) && draft.length === 1) return "One game. The lowest score wins.";
   if (draft.style === "wins")
     return `The first player to win ${Math.floor(draft.length / 2) + 1} games, is the overall winner.`;
   if (draft.style === "points")
@@ -1320,36 +1386,47 @@ function styleHint() {
 }
 function setupPage() {
   document.title = "Host · Golf";
+  const cup = draft.mode === "tournament";
+  const heading = cup ? "Host a Tournament" : "Host a Table";
+  // a Ranked tournament is always on House rules, so it has no rules to pick
+  const ranked = cup && draft.ranked === "on";
   if (draft.step === 0) {
     const fixed = ["wins", "points"].includes(draft.style);
+    // a tournament has no "Single game" style: one game is a length (and its tables never run on)
+    const styles = cup
+      ? [["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"]]
+      : [["single", "Single game", draft.style === "single"], ["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"], ["continuous", "Play until you leave", draft.style === "continuous"]];
+    const lengths = (cup ? [1, 3, 5, 9] : [3, 5, 9]).map((n) => [n, `${n} game${n === 1 ? "" : "s"}`, draft.length === n]);
     show(
       "setup",
-      `<div class="page">${subHeader("Host a Table", "friends")}<div class="stack wide">
+      `<div class="page${cup ? " scroll" : ""}">${subHeader(heading, "friends")}<div class="stack wide">
       ${profileChosen() ? "" : field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
+      ${cup ? `${field("Tournament Name", `<input data-draft="tournamentName" maxlength="48" value="${e(draft.tournamentName)}" aria-label="Tournament name">`)}${tournamentFormatField()}` : ""}
       ${
         draft.mode === "host"
-          ? `<div class="row">${field("Table Name", `<input data-draft="lobbyName" maxlength="48" value="${e(draft.lobbyName)}" aria-label="Table name">`, null, "grow")}${selectField("Players", `data-draft="gameType" aria-label="Game type"`, [["1v1", "1v1", draft.gameType === "1v1"], ["many", "3–30", draft.gameType === "many"]], null, "hug")}</div>`
+          ? `<div class="row">${field("Table Name", `<input data-draft="lobbyName" maxlength="48" value="${e(draft.lobbyName)}" aria-label="Table name">`, null, "grow")}${selectField("Players", `data-draft="gameType" aria-label="Game type"`, [["solo", "Solo", draft.gameType === "solo"], ["1v1", "1v1", draft.gameType === "1v1"], ["many", "3–30", draft.gameType === "many"]], null, "hug")}</div>${draft.gameType === "solo" ? `<p class="hint">Just you against Golfbot, with the match and rules you choose here.</p>` : ""}`
           : ""
       }
       <div class="stack"><div class="row">
-        ${selectField("Match Style", `data-draft="style" aria-label="Match style"`, [["single", "Single game", draft.style === "single"], ["wins", "Best of", draft.style === "wins"], ["points", "Total pts", draft.style === "points"], ["continuous", "Play until you leave", draft.style === "continuous"]], "pointer.arrow.rays", fixed ? "hug" : "")}
-        ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, [3, 5, 9].map((n) => [n, `${n} games`, draft.length === n]), null, "grow") : ""}
-      </div><p class="hint">${e(styleHint())}</p></div>
+        ${selectField("Match Style", `data-draft="style" aria-label="Match style"`, styles, "pointer.arrow.rays", fixed ? "hug" : "")}
+        ${fixed ? selectField("Length", `data-draft="length" aria-label="Match length"`, lengths, null, "grow") : ""}
+      </div><p class="hint">${e(cup ? `Every match-up: ${styleHint().replace(/^./, (letter) => letter.toLowerCase())}` : styleHint())}</p></div>
+      ${cup ? tournamentSetupFields() : ""}
       ${
-        draft.mode === "host"
+        (draft.mode === "host" && draft.gameType !== "solo") || cup
           ? `${infoField("preview", selectField("Score Preview", `data-draft="scorePreview" aria-label="Score preview"`, [["on", "Before Confirm", draft.scorePreview === "on"], ["off", "None", draft.scorePreview === "off"]], "eye.fill"), draft.scorePreview === "on" ? "Players see the score a swap or discard would leave them with before they confirm it." : "Scores change only once a move is confirmed.")}
             ${infoField("odds", selectField("Spectator Odds", `data-draft="showOdds" aria-label="Spectator odds"`, [["on", "Shown", draft.showOdds === "on"], ["off", "Hidden", draft.showOdds === "off"]], "dice.fill"), draft.showOdds === "on" ? "Spectators see each player's chance of winning." : "Spectators see no win chances.")}`
           : ""
       }
-    </div><div class="row">${entryButton("data-setup-next", "Continue")}</div></div>`,
+    </div><div class="row">${ranked && profileChosen() ? entryButton("data-setup-go", "Create Tournament") : entryButton("data-setup-next", "Continue")}</div></div>`,
     );
     return;
   }
-  const rules = `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
-  const go = `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
+  const rules = ranked ? `<p class="hint">A Ranked tournament is played on House rules.</p>` : `<div class="stack" data-rules-picker>${rulesPicker()}</div>`;
+  const go = cup ? "Create Tournament" : `<span style="white-space:nowrap">Let<span style="letter-spacing:-0.55em">’</span>s Play!</span>`;
   show(
     "setup",
-    `<div class="page">${pageHead("data-setup-back", "Host a Table")}<div class="stack wide">${profileChosen() ? "" : avatarPicker()}${rules}</div><div class="row">${entryButton("data-setup-go", go)}</div></div>`,
+    `<div class="page">${pageHead("data-setup-back", heading)}<div class="stack wide">${profileChosen() ? "" : avatarPicker()}${rules}</div><div class="row">${entryButton("data-setup-go", go)}</div></div>`,
   );
   centerAvatar(false);
 }
@@ -1544,7 +1621,7 @@ function rulesPicker() {
     <div class="collapse ${draft.rulesOpen ? "open" : ""}" data-rules-open><div ${closed ? "inert" : ""}><div class="rules-body">
       <div class="chips" style="justify-content:space-around">${presets.map(([key, label, symbol]) => `<button type="button" class="rule-row" style="flex-direction:column;gap:1.4rem;color:var(--fw-text)" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 52, { tilt: key === "house" ? 6 : -6, style: draft.preset === key ? "--fill:var(--p1b);--stroke:var(--p1)" : "" })}<span>${label}${key === "house" ? " Rules" : ""}</span></button>`).join("")}</div>
       ${group("In-Play", on)}${group("Popular", off.filter((rule) => POPULAR_RULES.includes(rule.key)))}${group("Others", off.filter((rule) => !POPULAR_RULES.includes(rule.key)))}
-      ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(starter).map(([key, label]) => [key, (draft.mode === "solo" && { host: "You first", guest: "Golfbot first" }[key]) || label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
+      ${selectField("Who goes first", `data-draft="first" aria-label="Who goes first?" ${locked ? "disabled" : ""}`, Object.entries(starter).filter(([key]) => draft.mode !== "tournament" || !["host", "guest"].includes(key)).map(([key, label]) => [key, ((draft.mode === "solo" || draft.gameType === "solo") && { host: "You first", guest: "Golfbot first" }[key]) || label, (locked ? "random" : draft.first) === key]), null, `compact${locked ? " locked" : ""}`)}
       ${locked ? `<p class="hint dark">${draft.gameType === "many" ? "Turn order is shuffled each game at big tables." : "House rules always pick a random first player."}</p>` : ""}
     </div></div></div></div>
     <div class="collapse ${closed ? "open" : ""}" data-rules-closed><div ${closed ? "" : "inert"}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-preset="${key}" aria-pressed="${draft.preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(rulesSummary(draft.rules))}</p></div></div></div>`;
@@ -1620,10 +1697,13 @@ async function spectatePage() {
   page = "spectate";
   document.title = "Spectate · Golf";
   history.replaceState({}, "", appPath("/spectate"));
-  const games = await api("/api/spectate");
+  stopTournament();
+  const [games, cups] = await Promise.all([api("/api/spectate"), loadTournaments()]);
   if (page !== "spectate") return;
   const others = games.filter((game) => !game.mine);
-  const kind = (game) => (game.solo ? "Solo" : game.game_type === "many" ? `${game.players} players` : "1v1");
+  const kind = (game) => (game.tournament ? `${game.tournament.name} · ${game.tournament.label}` : game.solo ? "Solo" : game.game_type === "many" ? `${game.players} players` : "1v1");
+  // tournaments running now are pinned above the games (finished ones are in Match history)
+  const tournaments = tournamentRows(cups.filter((cup) => cup.status === "live"));
   const list = others
     .map((game) => {
       // each player as their score tag reads at the table: name over sticker points, in their seat color
@@ -1631,14 +1711,19 @@ async function spectatePage() {
         .map((name, p) => `<span class="watch-player ${SEAT_COLORS[p % SEAT_COLORS.length]}"><span class="who">${e(name)}</span><span class="score">${scoreDigits(game.scores[p], `watch:${game.id}:${p}`)}</span></span>`)
         .join("");
       const watchers = game.watchers ? ` · ${glyph("eye.fill", 12)} ${game.watchers}` : "";
-      return `<button type="button" class="list-item c-s4" data-watch="${e(game.id)}" aria-label="Watch ${e(game.names.map((name, p) => `${name} ${game.scores[p]} points`).join(", "))}">${avatarBadge(game.avatars?.[0], "c-s4")}<div class="grow"><span class="watch-scores">${players}</span><small>${kind(game)} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${glyph("chevron.right", 20)}</button>`;
+      // against Golfbot: the player's win streak, the flame and number they see at the table
+      const run = game.streak;
+      const streak = run ? `<span class="watch-streak${run.current > 0 && run.draws !== 1 ? " hot" : ""}" style="--heat:${Math.min(run.current, 10)}" role="img" aria-label="Win streak against Golfbot: ${run.current}">${icon("flame.fill", 26, { idle: false })}${stickerText(String(run.current), { idle: false })}</span>` : "";
+      return `<button type="button" class="list-item c-s4" data-watch="${e(game.id)}" aria-label="Watch ${e(game.names.map((name, p) => `${name} ${game.scores[p]} points`).join(", "))}">${avatarBadge(game.avatars?.[0], "c-s4")}<div class="grow"><span class="watch-scores">${players}</span><small>${e(kind(game))} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${streak}${glyph("chevron.right", 20)}</button>`;
     })
     .join("");
   show(
     "spectate",
     // laid out like Play with Friends' open tables: the title and Refresh, then the list
     `<div class="page top">${pageHead(`data-nav="home"`, "Active Games", refreshButton("spectate"))}${
-      list ? `<div class="stack wide"><div class="list">${list}</div></div>` : emptyNote("Nobody is playing right now.", "Check back soon!")
+      list || tournaments
+        ? `<div class="stack wide">${tournaments ? `<div class="stack"><h2 class="section-title">Tournaments</h2><div class="list">${tournaments}</div></div>` : ""}${list ? `<div class="stack">${tournaments ? `<h2 class="section-title">Games</h2>` : ""}<div class="list">${list}</div></div>` : ""}</div>`
+        : emptyNote("Nobody is playing right now.", "Check back soon!")
     }</div>`,
   );
 }
@@ -1713,7 +1798,7 @@ function passPlayPage(step = passStep) {
       ${selectField("Players", `data-pass-count aria-label="Number of players"`, [2, 3, 4, 5, 6, 7, 8].map((n) => [n, `${n} players`, n === passPlayers.length]), "person.2.fill")}
       <div class="stack" data-rules-picker>${rulesPicker()}</div>
       <div class="row">${entryButton("data-pass-next", "Choose players")}</div>
-      <p class="hint dark">Take turns on this device: the table shows whoever is up. These games aren't saved and don't count toward stats, streaks or Elo.</p>
+      <p class="hint dark">Take turns on this device: the table shows whoever is up. These games aren't saved and don't count toward stats, streaks or MMR.</p>
       </div></div>`,
     );
     return;
@@ -1808,7 +1893,8 @@ function showPassCard(seat) {
 }
 async function submitSetup() {
   const epoch = tableEpoch;
-  const house = draft.preset === "house";
+  const cup = draft.mode === "tournament";
+  const house = draft.preset === "house" || (cup && draft.ranked === "on");
   const requested = {
     username: session.username,
     avatar: session.avatar,
@@ -1830,7 +1916,17 @@ async function submitSetup() {
     ),
   };
   if (!(await abandonExisting())) return;
-  const next = await api("/api/lobbies", "POST", requested);
+  if (cup) {
+    const view = await api("/api/tournaments", "POST", { ...requested, game_type: "1v1", ...tournamentSettings() });
+    if (epoch !== tableEpoch) return;
+    tournament = view;
+    return tournamentPage(view.id);
+  }
+  // Solo: a table of your own against Golfbot (not the Play Solo streak run)
+  const next =
+    draft.gameType === "solo"
+      ? await api("/api/solo", "POST", { ...requested, game_type: "1v1", practice: false })
+      : await api("/api/lobbies", "POST", requested);
   if (epoch !== tableEpoch) return;
   enterRoom(next);
 }
@@ -1868,10 +1964,14 @@ function leavePrompt(leaving) {
   const description = guestPractice
     ? "Save your streak by signing in, otherwise it will be lost."
     : leaving.rated && leaving.status === "playing"
-      ? `Leaving counts as a loss and costs you ${leaving.forfeit_elo_loss} Elo.`
-      : leaving.rated
-        ? "This ends the series early. Completed games and their Elo changes are kept."
-        : "Your game and streak will be saved to your account so you can resume later.";
+      ? `Leaving loses this game and the series, and costs you ${leaving.forfeit_mmr_loss} MMR.`
+      : leaving.rated && leaving.status === "round_over"
+        ? `Leaving loses the series and costs you ${leaving.forfeit_mmr_loss} MMR. Completed games are kept.`
+        : leaving.tournament
+          ? "Leaving gives this tournament match to your opponent."
+          : leaving.rated
+            ? "This ends the series early. Completed games and their ratings are kept."
+            : "Your game and streak will be saved to your account so you can resume later.";
   // Leave is always the small stacked sticker on the left; the wide button beside
   // it is Sign in (a guest leaving Practice) or Keep playing
   // (blue leaving Practice, where your streak is kept or can be; red leaving a real table)
@@ -1908,11 +2008,11 @@ async function abandonExisting({confirmed = false} = {}) {
   if (roomId) {
     const leaving = state?.id === roomId ? state : await api(`/api/lobbies/${roomId}/state`);
     // a signed-in player's Practice game is saved to their account, so it just leaves;
-    // a guest is offered sign-in first, and a rated table warns about the Elo cost
+    // a guest is offered sign-in first, and a rated table warns about the MMR cost
     const guestPractice = leaving.practice && !session.account;
-    // a rated table always warns mid-game (leaving costs Elo); between games, only
-    // a guest is told the series ends early, and a signed-in player just leaves
-    const ratedWarning = leaving.rated && (leaving.status === "playing" || (leaving.status === "round_over" && !session.account));
+    // a Ranked table (or a tournament match) always warns while its series is
+    // undecided: leaving loses the series, and the game being played
+    const ratedWarning = (leaving.rated || leaving.tournament) && ["playing", "round_over"].includes(leaving.status);
     if (!confirmed && (ratedWarning || guestPractice)) {
       const choice = await leavePrompt(leaving);
       if (choice === "signin") {
@@ -1931,13 +2031,18 @@ async function abandonExisting({confirmed = false} = {}) {
 }
 async function friendsPage() {
   document.title = "Play with Friends · Golf";
-  const lobbies = await api("/api/lobbies");
+  stopTournament();
+  // (coming from a tournament or table that is gone: its address goes too)
+  if (/\/(tournament|lobby)\//.test(location.pathname)) history.replaceState({}, "", appPath());
+  const [lobbies, cups] = await Promise.all([api("/api/lobbies"), loadTournaments()]);
+  // tournaments still gathering players sit above the tables
+  const joinable = tournamentRows(cups.filter((cup) => cup.status === "open" || (cup.mine && cup.status === "live")));
   const twin = [tilted("house.fill", 34), tilted("house.fill", 34, { mirror: true })];
   show(
     "friends",
     `<div class="page">${pageHead(`data-nav="home"`, "Open tables", refreshButton("friends"))}${
-      lobbies.length
-        ? `<div class="stack wide"><div class="stack"><div class="list">${lobbies
+      lobbies.length || joinable
+        ? `<div class="stack wide"><div class="stack"><div class="list">${joinable}${lobbies
         .map((lobby) => {
           const open = lobby.status === "waiting" && lobby.players < lobby.capacity;
           return `<button type="button" class="list-item ${open ? "c-p1" : "c-fw"}" data-lobby="${e(lobby.id)}">${avatarBadge(lobby.avatars?.[0], open ? "c-p1" : "c-fw")}<div class="grow"><strong>${e(lobby.name)}</strong><small>${e(lobby.names[0])} · ${lobby.players}/${lobby.capacity} players · ${e(matchLength(lobby))}${open ? "" : " · " + e(lobby.status.replace("_", " "))}</small></div>${glyph("chevron.right", 20)}</button>`;
@@ -1946,6 +2051,7 @@ async function friendsPage() {
         : emptyNote("No open tables yet.", "Host one and invite a friend!")
     }
     <div class="stack"><button type="button" class="btn c-p1" data-nav="host">${twin[0]}<span>${padTag("y")}Host a Table</span></button>
+    <button type="button" class="btn c-p4" data-nav="tournament">${tilted("trophy.fill", 33)}<span>Host a Tournament</span></button>
     <button type="button" class="btn c-s7 c-passplay" data-nav="passplay">${tilted("person.2.fill", 33)}<span>Pass &amp; Play</span></button></div></div>`,
   );
 }
@@ -2179,14 +2285,14 @@ function playerStatsSheet(player) {
   const target = id ? `data-stats-player="${e(id)}"` : `data-nav="stats"`;
   openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
     <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    ${id && !id.startsWith("bot:") ? `<div class="player-card" data-player-card="${e(id)}"><div class="loading">Loading…</div></div>` : ""}
+    ${id ? `<div class="player-card" data-player-card="${e(id)}"><div class="loading">Loading…</div></div>` : ""}
     ${seriesTally(player)}
     <div class="row" style="margin-top:1.2rem"><button type="button" class="btn small ${color} grow" ${target}>${tilted("medal", 22)} View stats</button></div>
   </section>`);
-  if (id && !id.startsWith("bot:")) loadPlayerCard(id);
+  if (id) loadPlayerCard(id);
 }
 /**
- * The popup's Elo and best 1v1 streak, drawn as rows of the PVP leaderboard,
+ * The popup's MMR and best 1v1 streak, drawn as rows of the PVP leaderboard,
  * and the records this player holds, drawn as the Records tab's cards.
  */
 async function loadPlayerCard(id) {
@@ -2201,14 +2307,17 @@ async function loadPlayerCard(id) {
   if (!card) return void (holder.innerHTML = `<p class="hint dark">Stats aren't available right now.</p>`);
   const row = (color, symbol, label, value) =>
     `<div class="list-item board-row ${color}"><span class="rank">${tilted(symbol, 30, { key: `card:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${value}</b></div>`;
-  const elo = card.elo === null ? "—" : `${statNumber(card.elo)}<small>Elo</small>`;
+  const mmr = card.mmr == null ? "—" : `${statNumber(card.mmr)}${card.provisional ? "?" : ""}<small>MMR</small>`;
   const streak = `${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(card.pvp_streak)}</span>`;
-  const held = recordCards(card.records).filter(({ record }) => record && record.id === id);
+  // (the server sends only the records linked to this player: theirs, or a game they played in)
+  const held = heldRecordCards(card.records);
   const [played, unit] = timeParts(card.seconds_played || 0);
   const time = `${statNumber(played)}<small>${unit}</small>`;
-  holder.innerHTML = `<div class="list leader-list">${row("c-p3", "crown.fill", "Elo", elo)}${row("c-s4", "flame.fill", "Best PvP win streak", streak)}${row("c-s2", "hourglass", "Time played", time)}</div>${
+  // Golfbot has no rating, streak or clock of its own: only its records
+  const rows = id.startsWith("bot:") ? "" : `<div class="list leader-list">${row("c-p3", "crown.fill", "MMR", mmr)}${row("c-s4", "flame.fill", "Best PvP win streak", streak)}${row("c-s2", "hourglass", "Time played", time)}</div>`;
+  holder.innerHTML = `${rows}${
     held.length
-      ? `<h3 class="player-card-head">Records held</h3><div class="records">${held.map(({ html }) => html).join("")}</div>`
+      ? `<h3 class="player-card-head">Records held</h3><div class="records">${held.join("")}</div>`
       : `<p class="hint dark">No records held yet.</p>`
   }`;
 }
@@ -2453,32 +2562,51 @@ async function loadPreviousNames() {
   }
 }
 
-/* ---------- match history ---------- */
+/* ---------- match history ----------
+   Split three ways: tables between players, games against Golfbot, and tournaments. */
+const LIST_TABS = [
+  ["pvp", "PVP", "figure.2"],
+  ["solo", "Solo", "dumbbell.fill"],
+  ["tournament", "Tournaments", "trophy.fill"],
+];
+let historyTab = "pvp";
+function listTabs(selected) {
+  return `<div class="chips list-tabs" role="group" aria-label="Show">${LIST_TABS.map(([key, label, symbol]) => `<button type="button" class="chip c-fw" data-list-tab="${key}" aria-pressed="${selected === key}">${tilted(symbol, 20)}<span>${label}</span></button>`).join("")}</div>`;
+}
 let historyEntries = [],
+  historyCups = [], // finished tournaments (the Tournaments list)
   historyOffset = null,
   historyRequest = 0;
 async function historyPage(more = false) {
   const request = ++historyRequest;
   document.title = "Match history · Golf";
   history.replaceState({}, "", appPath("/history"));
+  const tab = historyTab;
+  const tabs = listTabs(tab);
   if (!more) {
     historyEntries = [];
     show(
       "history",
-      `<div class="page scroll">${subHeader("Match history")}<div class="loading">Loading match history…</div></div>`,
+      `<div class="page scroll">${subHeader("Match history")}${tabs}<div class="loading">Loading match history…</div></div>`,
     );
   }
   try {
-    const result = await api(
-      "/api/history?offset=" + (more ? historyOffset : 0),
-    );
+    // (the Tournaments list opens with the finished tournaments themselves, then their matches)
+    const [result, cups] = await Promise.all([
+      api(`/api/history?kind=${tab}&offset=${more ? historyOffset : 0}`),
+      tab === "tournament" && !more ? loadTournamentHistory() : null,
+    ]);
     if (page !== "history" || request !== historyRequest) return;
+    if (cups) historyCups = cups;
+    const finished = tab === "tournament" ? tournamentRows(historyCups) : "";
+    const intro = { pvp: "Completed games between players, newest first.", solo: "Completed games against Golfbot, newest first.", tournament: "Finished tournaments, newest first. Tap one for its bracket." }[tab];
+    const none = { pvp: "No games between players yet.", solo: "No games against Golfbot yet. Finish one to see it here.", tournament: finished ? "" : "No tournament has finished yet." }[tab];
     historyEntries.push(...result.matches);
     historyOffset = result.next_offset;
     const scroll = window.scrollY;
     show(
       "history",
-      `<div class="page scroll">${subHeader("Match history")}<p class="hint dark">Everyone's completed games, newest first. ${session.room_id ? "Your table is still open — head back any time." : ""}</p><div class="stack wide">${
+      `<div class="page scroll">${subHeader("Match history")}${tabs}<p class="hint dark">${intro} ${session.room_id ? "Your table is still open — head back any time." : ""}</p><div class="stack wide">${finished ? `<div class="list">${finished}</div>${historyEntries.length ? `<h2 class="section-title">Tournament matches</h2>` : ""}` : ""}${
         historyEntries
           .map((saved) => {
             const match = {
@@ -2505,7 +2633,7 @@ async function historyPage(more = false) {
             return `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2><div class="meta"><span class="pill">${e(new Date(ended * 1000).toLocaleDateString())}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div><p style="margin-top:1rem">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })} Overall winner: ${e(winner)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col">${match.viewer === p ? youStar() : ""}${e(name)}</th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total pts</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope="row">Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
           })
           .join("") ||
-        `<p class="hint">No completed games yet. Finish a game against a player or Golfbot to see it here.</p>`
+        (none ? `<p class="hint">${none}</p>` : "")
       }${historyOffset !== null ? `<button type="button" class="btn small c-fw" data-history-more>Load older matches</button>` : ""}</div></div>`,
     );
     if (more) window.scrollTo(0, scroll);
@@ -2513,7 +2641,7 @@ async function historyPage(more = false) {
     if (page === "history" && request === historyRequest)
       show(
         "history",
-        `<div class="page scroll">${subHeader("Match history")}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-nav="history">Try again</button></div>`,
+        `<div class="page scroll">${subHeader("Match history")}${tabs}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-nav="history">Try again</button></div>`,
       );
   }
 }
@@ -2674,6 +2802,16 @@ function leaderboardHtml(result) {
     })
     .join("")}</div>`;
 }
+/** The record cards a player holds (given only theirs), as the Records tab draws them. */
+function heldRecordCards(records) {
+  return recordCards(records || {})
+    .filter(({ record }) => record)
+    .map(({ html }) => html);
+}
+function heldRecordsHtml(records) {
+  const held = heldRecordCards(records);
+  return `<div class="stack"><p class="hint dark">Records held</p>${held.length ? `<div class="records">${held.join("")}</div>` : `<p class="hint dark">None yet.</p>`}</div>`;
+}
 /** One player's record: the headline numbers, then the full tables. */
 function playerStatsHtml(result) {
   const entry = result.player,
@@ -2686,6 +2824,7 @@ function playerStatsHtml(result) {
       <p>game win rate${place >= 0 ? ` · ranked #${place + 1}` : ""}</p>
       <div class="stat-tiles">${tile(`${stats.round_wins}–${stats.round_losses}–${stats.round_draws}`, "W–L–D")}${tile(statNumber(stats.rounds), "games")}${tile(statNumber(stats.average_points), "avg points")}</div>
     </section>
+    ${heldRecordsHtml(entry.records)}
     ${selectField("Compare With", `data-stats-opponent aria-label="Compare with"`, [["", "Nobody: overall only", !statsSelection.opponent], ...others.map((player) => [player.id, player.label, player.id === statsSelection.opponent])], "person.2.fill")}
     ${statsTable([entry, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}
     ${result.comparison ? statsTable([entry, result.comparison], "head_to_head", "Head to head", "c-p1") : ""}
@@ -2698,7 +2837,19 @@ function ruleActivationsHtml(entry, scope) {
   return `<div><h3>${e(entry.profile.label)}</h3>${entry.profile.unique_name ? `<p>Display names: ${entry.profile.display_names.map(e).join(", ")}</p>` : ""}<p>Rule activations · ${stats.known_activation_games} recorded games</p><div class="table-wrap"><table><thead><tr><th>Rule</th><th>Games activated</th><th>Win rate</th></tr></thead><tbody>${stats.rule_activations.map((rule) => `<tr><th>${e(rule.name)}</th><td>${statPercent(rule.rate)} <small>(${rule.games})</small></td><td>${statPercent(rule.win_rate)}</td></tr>`).join("")}</tbody></table></div>${stats.unknown_activation_games ? `<p>${stats.unknown_activation_games} games have no activation records and are excluded.</p>` : ""}</div>`;
 }
 function statsTable(entries, scope, title, color) {
+  const rating = (entry, kind) => {
+    const shown = entry.ratings?.[kind];
+    return shown ? `${statNumber(shown.rating)}${shown.provisional ? "?" : ""} <small>±${statNumber(shown.rd)} · ${shown.wins}–${shown.losses}–${shown.draws}</small>` : "—";
+  };
+  const first = (wins, games, rate) => (games ? `${statPercent(rate)} <small>(${statNumber(wins)} of ${statNumber(games)})</small>` : "—");
   const metrics = [
+    // the two Ranked ratings belong to the player, not to the games selected below
+    ...(scope === "overall" && entries.some((entry) => entry.ratings)
+      ? [
+          ["MMR (series rating) · W–L–D", (s, entry) => rating(entry, "series")],
+          ["Game rating · W–L–D", (s, entry) => rating(entry, "game")],
+        ]
+      : []),
     ["Games played", (s) => statNumber(s.rounds)],
     [
       "Game record (W–L–D)",
@@ -2712,6 +2863,9 @@ function statsTable(entries, scope, title, color) {
     ],
     ["Average points per game", (s) => statNumber(s.average_points)],
     ["Average opponent points", (s) => statNumber(s.average_opponent_points)],
+    ["Went first", (s) => first(s.first_games, s.known_first_games, s.first_rate)],
+    ["Win rate going first", (s) => first(s.first_wins, s.first_games, s.first_win_rate)],
+    ["Win rate not going first", (s) => first(s.later_wins, s.later_games, s.later_win_rate)],
     ["Average turns per game", (s) => statNumber(s.average_turns ?? null)],
     ["Average time spent on move", (s) => statSeconds(s.average_move_seconds ?? null)],
     [
@@ -2729,7 +2883,7 @@ function statsTable(entries, scope, title, color) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope])}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details><summary>View rule activation</summary><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section>`;
+  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope], entry)}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details><summary>View rule activation</summary><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => (entry[scope].known_first_games ?? 0) < entry[scope].rounds) ? `<p>Who went first has been recorded since patch 1.4.0; earlier games are left out of those rows.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section>`;
 }
 async function statsPage(fromUrl = false) {
   if (fromUrl) {
@@ -2874,7 +3028,7 @@ function renderVoidOffer() {
   const signature = `${state.id}|${offer.by}|${offer.expires_at}`;
   if (dialog.dataset.offer !== signature) {
     dialog.dataset.offer = signature;
-    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO ELO CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own || state.spectator ? "" : `<div class="dialog-actions signin-actions"><button type="button" class="close-btn c-p2" data-void-reply="decline">${icon("xmark.circle.fill", 30)}<span>${padTag("x")}Decline</span></button><button type="button" class="btn c-p3 grow" data-void-reply="accept">${tilted("eject.fill", 26)}<span>${padTag("y")}Accept</span></button></div>`}`;
+    dialog.innerHTML = `<h2>Void game &amp; end series early?</h2><p>${own ? "Waiting for your opponent." : `${e(state.names[offer.by])} wants to void this game and end the series early.`}</p><p><strong>NO RATING CHANGE.</strong> This game will not count. Completed rounds are preserved.</p><p>Play is paused. Offer expires in <b data-void-seconds></b>s.</p>${own || state.spectator ? "" : `<div class="dialog-actions signin-actions"><button type="button" class="close-btn c-p2" data-void-reply="decline">${icon("xmark.circle.fill", 30)}<span>${padTag("x")}Decline</span></button><button type="button" class="btn c-p3 grow" data-void-reply="accept">${tilted("eject.fill", 26)}<span>${padTag("y")}Accept</span></button></div>`}`;
   }
   dialog.querySelector("[data-void-seconds]").textContent = Number.isFinite(seconds) ? seconds : 30;
   if (!dialog.open) dialog.showModal();
@@ -2908,37 +3062,40 @@ function leaderboardTabs(selected) {
   return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["records","Records"],["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
 }
 /**
- * Solo (Practice streaks) and PVP (Elo): the leader's card up top, then every
+ * Solo (Practice streaks) and PVP (MMR): the leader's card up top, then every
  * player in a green row, styled like the Advanced stats ranking.
  */
 function leaderboardBody(tab, result) {
   const solo = tab === "solo",
     rows = result[tab] || [];
   const mine = session.account ? "account:" + session.account.id : null;
-  const intro = `<p class="hint dark">${solo ? "Ranked by best solo streak against Golfbot · All time" : `Ranked by Elo from rated games · Patch ${e(result.patch)}`}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
+  const intro = `<p class="hint dark">${solo ? "Ranked by best solo streak against Golfbot · All time" : `Ranked by MMR, the rating from Ranked series${rows.some((row) => row.provisional) ? " (? = still settling)" : ""}`}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
   if (!rows.length)
-    return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>`;
-  const value = (row) => (solo ? row.best_streak : row.elo);
+    return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a Ranked series to get on the board."}</p></section>`;
+  const value = (row) => (solo ? row.best_streak : row.mmr);
   const record = (row) => `${statNumber(row.wins)}–${statNumber(row.draws)}–${statNumber(row.losses)}`;
+  // PVP: W–D–L counts series; the games inside them are counted apart
+  const gameRecord = (row) => (row.games ? `${statNumber(row.games.wins)}–${statNumber(row.games.draws)}–${statNumber(row.games.losses)}` : "—");
+  const settling = (row) => (!solo && row.provisional ? "?" : "");
   const rate = (row) => (row.win_rate === null || row.win_rate === undefined ? "—" : statPercent(row.win_rate));
   const who = (row) => `${row.id === mine ? youStar() : ""}${e(row.label)}`;
   const leader = rows[0];
   const tile = (text, label) => `<div><b>${text}</b><span>${label}</span></div>`;
   const hero = `<section class="panel c-p3 stat-hero leader-hero">
       <span class="leader-trophy">${tilted("trophy.fill", 48, { key: "leader-trophy" })}</span>
-      <div class="stat-rate${solo ? " streak-rate" : ""}">${solo ? icon("flame.fill", 44, { key: "leader-flame" }) : ""}${stickerText(String(value(leader)), { split: true, key: "leader-value" })}${solo ? "" : stickerText("Elo", { cls: "pts", key: "leader-elo" })}</div>
+      <div class="stat-rate${solo ? " streak-rate" : ""}">${solo ? icon("flame.fill", 44, { key: "leader-flame" }) : ""}${stickerText(String(value(leader)), { split: true, key: "leader-value" })}${solo ? "" : stickerText("MMR", { cls: "pts", key: "leader-elo" })}</div>
       <p><strong>${who(leader)}</strong> ${solo ? "· best streak" : "is on top"}</p>
-      <div class="stat-tiles">${tile(record(leader), "W–D–L")}${tile(rate(leader), "win rate")}${tile(statNumber(leader.wins + leader.draws + leader.losses), "games")}</div>
+      <div class="stat-tiles">${tile(record(leader), solo ? "W–D–L" : "series W–D–L")}${tile(rate(leader), "win rate")}${solo ? tile(statNumber(leader.wins + leader.draws + leader.losses), "games") : tile(gameRecord(leader), "games W–D–L")}</div>
     </section>`;
   const list = rows
     .map((row, i) => {
       const opens = row.id?.startsWith("account:");
       const tag = opens ? "button" : "div";
       const attrs = opens ? ` type="button" data-stats-player="${e(row.id)}"` : "";
-      return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} Elo`}, ${record(row)}, ${rate(row)} win rate">
+      return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} MMR`}, ${solo ? "" : "series "}${record(row)}, ${rate(row)} win rate${solo ? "" : `, games ${gameRecord(row)}`}">
         <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "lb-first" }) : stickerText(String(i + 1), { key: `lb-rank:${i}` })}</span>
-        <div class="grow"><strong>${who(row)}</strong><small>${record(row)} · ${rate(row)} win rate</small></div>
-        <b class="rate">${solo ? `<small class="streak-now">currently ${statNumber(row.current_streak ?? 0)}</small>${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}<small>Elo</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
+        <div class="grow"><strong>${who(row)}</strong><small>${solo ? "" : "Series "}${record(row)} · ${rate(row)} win rate${solo ? "" : ` · Games ${gameRecord(row)}`}</small></div>
+        <b class="rate">${solo ? `<small class="streak-now">currently ${statNumber(row.current_streak ?? 0)}</small>${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}${settling(row)}<small>MMR</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
       </${tag}>`;
     })
     .join("");
@@ -2973,16 +3130,20 @@ function recordCards(records = {}) {
         ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
         : `<p class="hint dark">${empty}</p>`
     }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
-  const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, most_time: hours, yapper, longest_pvp: marathon, bogey, lowest, party } = records;
+  const days = (at) => Math.max(0, Math.floor((Date.now() / 1000 - at) / 86400));
+  const { ai_vs_players: ai, luck, gospel, spectacle, recruit, upset } = records;
+  // lowest total wins, so whoever has fewer points is ahead
+  const aiLead = ai ? ai.player_points - ai.bot_points : 0;
+  const { highest_mmr: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, most_time: hours, yapper, longest_pvp: marathon, bogey, lowest, party } = records;
   const [played, playedUnit] = timeParts(hours?.seconds);
   const cards = [
-    card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
+    card(0, "c-p3", "crown.fill", "Highest MMR", elo, elo?.mmr, "MMR", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No Ranked series finished yet. MMR started with patch 1.4.0."),
     card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet."),
     card(2, "c-p2", "arrow.up.right", "Biggest comeback", comeback, comeback?.points, "pts", comeback && `<strong>${who(comeback)}</strong> was ${comeback.points} pts behind${comeback.opponents?.length ? ` ${e(comeback.opponents.length === 1 ? comeback.opponents[0] : `${comeback.opponents.length} players`)}` : ""} and won${comeback.scores ? ` ${e(comeback.scores.join("–"))}` : ""}${comeback.at ? ` · ${when(comeback.at)}` : ""}`, "No comebacks yet. The winner has to have been behind at some point."),
     card(3, "c-s7", "clock.arrow.circlepath", "Most games today", today, today?.games, today?.games === 1 ? "game" : "games", today && `<strong>${who(today)}</strong> has finished the most games since midnight`, "No games finished today yet."),
     card(4, "c-p1", "star.fill", "Most common modifier", most, most && statNumber(most.activations), most?.activations === 1 ? "time" : "times", most && `<strong>${e(most.name)}</strong> has come into play ${statNumber(most.activations)} time${most.activations === 1 ? "" : "s"}, the most of any modifier`, "No modifiers have come into play yet.", `Leaves out ${e([...(records.always_in_play || []), ...(records.never_most || [])].join(" and "))}.`),
     card(5, "c-p4", "wand.and.stars", "Least common modifier", least, least && statPercent(least.rate), "", least && `<strong>${e(least.name)}</strong> came into play in ${statNumber(least.active)} of ${games(least.games)} it was on`, "Not enough games with modifiers yet."),
-    card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet."),
+    card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet.", records.always_in_play?.length ? `Leaves out ${e(records.always_in_play.join(" and "))}.` : ""),
     card(7, "c-s6", "sparkles", "Most modifiers in a game", stacked, stacked?.count, "", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with modifiers yet."),
     card(8, "c-p2", "text.bubble.fill", "Biggest yapper", yapper, yapper && statNumber(yapper.emotes), yapper?.emotes === 1 ? "emote" : "emotes", yapper && `<strong>${who(yapper)}</strong> has sent the most emotes at the table`, "No emotes counted yet. Counting started with this update."),
     card(9, "c-s7", "clock.arrow.circlepath", "Longest 1v1 game", marathon, marathon && statNumber(marathon.turns), marathon?.turns === 1 ? "turn" : "turns", marathon && `<strong>${e((marathon.players || []).join(" vs "))}</strong>${marathon.scores ? ` finished ${e(marathon.scores.join(" to "))}` : ""} after ${statNumber(marathon.turns)} turns${marathon.at ? ` · ${when(marathon.at)}` : ""}`, "No 1v1 games between players yet."),
@@ -2991,7 +3152,15 @@ function recordCards(records = {}) {
     card(12, "c-s4", "person.3.fill", "It's a party", party, party?.count, "signed in", party && `<strong>${e((party.players || []).join(", "))}</strong> all played in one game${party.seats > party.count ? ` of ${party.seats}` : ""}${party.at ? ` · ${when(party.at)}` : ""}`, "No game with two signed-in players yet."),
   ];
   cards.push(card(13, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet."));
-  const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, lowest, party, hours];
+  cards.push(
+    card(14, "c-s6", "cpu.fill", "AI vs. all players", ai, ai && statNumber(Math.abs(aiLead)), "pts", ai && `<strong>${who(ai)}</strong> ${aiLead > 0 ? "is ahead of" : aiLead < 0 ? "is behind" : "is level with"} everyone put together: ${statNumber(ai.bot_points)} pts to the players' ${statNumber(ai.player_points)} over ${games(ai.games)} of solo play (lowest wins)`, "No solo games against Golfbot yet."),
+    card(15, "c-p1", "dice.fill", "Luck of the draw", luck, luck && statPercent(luck.rate), "", luck && `<strong>${who(luck)}</strong> gets to go first ${statPercent(luck.rate)} of the time (${statNumber(luck.first)} of ${games(luck.games)})… because of course they do!`, "Nobody has played 20 games with a random first turn yet. Counting started with patch 1.4.0."),
+    card(16, "c-s7", "link", "Spreading the gospel", gospel, gospel?.count, gospel?.count === 1 ? "player" : "players", gospel && `<strong>${who(gospel)}</strong> has brought the most people to the table through invite links`, "Nobody has joined through an invite link yet. Counting started with patch 1.4.0."),
+    card(17, "c-p4", "eye.fill", "Quite the spectacle", spectacle, spectacle?.count, spectacle?.count === 1 ? "spectator" : "spectators", spectacle && `<strong>${e((spectacle.players || []).join(" vs "))}</strong>${spectacle.scores ? ` finished ${e(spectacle.scores.join(" to "))}` : ""} in front of the biggest crowd${spectacle.at ? ` · ${when(spectacle.at)}` : ""}`, "No game has had a spectator yet. Counting started with patch 1.4.0."),
+    card(18, "c-s5", "leaf.fill", "Newest recruit", recruit, recruit && (recruit.at ? (days(recruit.at) === 0 ? "Today" : days(recruit.at)) : "New"), recruit?.at && days(recruit.at) > 0 ? (days(recruit.at) === 1 ? "day ago" : "days ago") : "", recruit && `<strong>${who(recruit)}</strong> is the newest Golf account${recruit.at ? ` · joined ${when(recruit.at)}` : ""}`, "No accounts yet."),
+    card(19, "c-p2", "arrow.up.right.circle.fill", "David vs. Goliath", upset, upset && statNumber(upset.gap), "pts apart", upset && `<strong>${who(upset)}</strong> (${statNumber(upset.ratings[0])}) won a series against ${e(upset.opponent)} (${statNumber(upset.ratings[1])})${upset.points ? `, ${e([upset.points[upset.winner], upset.points[1 - upset.winner]].join(" to "))}` : ""}: the biggest upset by rating${upset.at ? ` · ${when(upset.at)}` : ""}`, "No rated series has gone to the lower-rated player yet."),
+  );
+  const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, lowest, party, hours, ai, luck, gospel, spectacle, recruit, upset];
   return cards.map((html, i) => ({ html, record: held[i] }));
 }
 /**
@@ -3066,13 +3235,10 @@ async function patchesPage() {
     show(
       "patches",
       `<div class="page scroll">${subHeader("Patch notes")}<div class="stack wide">${notes.patches
-        .map((patch) => {
-          const list = (title, items) =>
-            items.length
-              ? `<h3 style="margin-top:1.2rem">${title}</h3>${items.map((note) => `<p>• ${e(note)}</p>`).join("")}`
-              : "";
-          return `<article class="panel ${patch.version === notes.current ? "c-p4" : "c-fw"}"><span class="pill">${patch.version === notes.current ? "Latest update" : "Previous update"}</span><h2 style="margin-top:.8rem">Patch ${e(patch.version)}</h2>${list(patch.labels?.revisions || "Rule revisions", patch.rules.revisions)}${list(patch.labels?.additions || "Rule additions", patch.rules.additions)}${list(patch.labels?.changes || "Play and interface", patch.changes)}</article>`;
-        })
+        .map(
+          (patch) =>
+            `<article class="panel ${patch.version === notes.current ? "c-p4" : "c-fw"}"><span class="pill">${patch.version === notes.current ? "Latest update" : "Previous update"}</span><h2 style="margin-top:.8rem">Patch ${e(patch.version)}</h2>${patchNotesHtml(patch)}</article>`,
+        )
         .join("")}</div></div>`,
     );
   } catch (error) {
@@ -3117,7 +3283,7 @@ async function navigate(target) {
     return resume();
   }
   if (target === "solo") return playSolo();
-  if (target === "host") {
+  if (target === "host" || target === "tournament") {
     if (document.getElementById("username")) saveName(name());
     return startSetup(target);
   }
@@ -3143,6 +3309,7 @@ document.addEventListener("click", async (event) => {
   const data = button.dataset;
   try {
     if (data.leaveChoice) return resolveLeavePrompt(data.leaveChoice);
+    if (await tournamentClick(button, data)) return;
     if (button.classList.contains("slot")) {
       // pointer taps are handled by the board; this is keyboard activation.
       // (A tap on the haptic switch also clicks with no detail: not a key press.)
@@ -3151,6 +3318,11 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (data.leaderTab) return data.leaderTab === "advanced" ? statsPage() : leaderboardPage(data.leaderTab);
+    if (data.listTab) {
+      // Match history: PVP, Solo or Tournaments
+      historyTab = data.listTab;
+      return historyPage();
+    }
     if (data.info) {
       event.preventDefault();
       const open = !openInfo.delete(data.info);
@@ -3283,15 +3455,24 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if ("socialClose" in data) return closeSocial();
+    if ("patchClose" in data) return closePatchPopup();
     if (data.invitePlayer || data.inviteReply) {
       button.disabled = true;
       try {
         if (data.invitePlayer) {
-          await api(`/api/lobbies/${state.id}/invite`, "POST", {
+          const cup = hostedLobby();
+          await api(cup ? `/api/tournaments/${cup.id}/invite` : `/api/lobbies/${state.id}/invite`, "POST", {
             player_id: data.invitePlayer,
           });
           await pollPresence();
         } else {
+          const invited = presenceState.invitations.find((item) => item.id === data.invitation);
+          const epoch = tableEpoch;
+          // accepting from a game against Golfbot leaves that table first (and may ask, as leaving it does)
+          if (data.inviteReply === "accept" && session.room_id && !(await abandonExisting())) {
+            button.disabled = false;
+            return;
+          }
           const next = await api(
             `/api/invitations/${data.invitation}/respond`,
             "POST",
@@ -3303,7 +3484,14 @@ document.addEventListener("click", async (event) => {
           );
           dismissedInvites.add(data.invitation);
           closeSocial();
-          if (data.inviteReply === "accept") enterRoom(next);
+          if (data.inviteReply === "accept" && epoch === tableEpoch) {
+            if (invited?.tournament) {
+              // into the tournament's lobby, to wait for the start with everyone else
+              tournament = next;
+              tournamentBack = "friends";
+              await tournamentPage(next.id);
+            } else enterRoom(next);
+          }
           await pollPresence();
         }
       } catch (error) {
@@ -3404,6 +3592,8 @@ document.addEventListener("click", async (event) => {
       const next = await api(`/api/lobbies/${data.join}/join`, "POST", {
         username: session.username,
         avatar: session.avatar,
+        // opened from the table's invite link (it counts for the host's record)
+        ...(linkedLobby === data.join ? { via: "link" } : {}),
       });
       if (epoch === tableEpoch) enterRoom(next);
       return;
@@ -3543,7 +3733,7 @@ root.addEventListener("change", async (event) => {
   if (target.dataset.draft) {
     const key = target.dataset.draft;
     draft[key] = key === "length" ? Number(target.value) : target.value;
-    if (key === "style" || key === "length" || key === "scorePreview" || key === "showOdds") {
+    if (["style", "length", "scorePreview", "showOdds", "gameType", "format", "seeding", "fill", "ranked"].includes(key) && draft.step === 0) {
       saveName(name());
       setupPage();
     }
@@ -3604,6 +3794,8 @@ document.addEventListener("keydown", (event) => {
   }
 });
 window.addEventListener("resize", () => centerAvatar(false));
+/** The table this page was opened at by its address (an invite link), if any. */
+let linkedLobby = null;
 function route() {
   const path = currentPath();
   if (path === "/patch-notes") return patchesPage();
@@ -3613,7 +3805,15 @@ function route() {
   if (path === "/history") return historyPage();
   if (path === "/spectate") return spectatePage();
   const id = path.match(/^\/lobby\/([^/]+)$/)?.[1];
-  if (id) return publicLobby(id);
+  if (id) {
+    linkedLobby = id; // arrived by its address: an invite link
+    return publicLobby(id);
+  }
+  const cup = path.match(/^\/tournament\/([^/]+)$/)?.[1];
+  if (cup) {
+    tournamentLinked = cup;
+    return tournamentPage(cup);
+  }
   return home();
 }
 window.addEventListener("popstate", () => {
@@ -3670,7 +3870,8 @@ function bootData() {
     // while in the queue the server is asked far more often, so a match shows at once
     let lastPoll = performance.now();
     setInterval(() => {
-      const queued = ["waiting", "offer"].includes(presenceState.queue?.status);
+      // (and in a tournament, so the next match takes its players without a wait)
+      const queued = ["waiting", "offer"].includes(presenceState.queue?.status) || !!presenceState.tournament;
       if (performance.now() - lastPoll < (queued ? 1500 : 5000) - 50) return;
       lastPoll = performance.now();
       pollPresence();

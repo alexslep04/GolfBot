@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from accounts import ACCOUNT_COOKIE
 from match_settings import HOUSE_VERSION
-from records import build_records
+from records import build_records, held_records
 from server import Store, create_app
 
 
@@ -128,7 +128,17 @@ class NewRecordTests(unittest.TestCase):
         # the fewest points: Bob's 2 (the forfeit's 0 and Golfbot's games don't count)
         self.assertEqual((records['lowest']['label'], records['lowest']['points']), ('Bob', 2))
         self.assertIsNone(records['yapper'])
-        self.assertEqual(records['party'], {'count': 3, 'players': ['Ann', 'Bob', 'Di'], 'seats': 4, 'at': 60})
+        self.assertEqual(records['party'], {'count': 3, 'players': ['Ann', 'Bob', 'Di'],
+                                            'ids': ['account:1', 'account:2', 'account:4'], 'seats': 4, 'at': 60})
+        # a record about a game belongs to everyone who played it: the longest 1v1 game is
+        # on both players' cards (Ann lost it), and the party on everyone signed in at it
+        self.assertEqual(records['longest_pvp']['ids'], ['player:Ann', 'player:Bob'])
+        held = lambda player: set(held_records(records, player))
+        self.assertIn('longest_pvp', held('player:Ann'))
+        self.assertIn('longest_pvp', held('player:Bob'))
+        self.assertTrue('party' in held('account:1') and 'party' in held('account:2'))
+        self.assertEqual(held('account:4') & {'longest_pvp', 'party'}, {'party'})
+        self.assertEqual(held('account:9'), set())
 
 
 if __name__ == '__main__':

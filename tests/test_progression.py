@@ -27,7 +27,7 @@ class ProgressionTests(unittest.TestCase):
         for event, winner in [('w1',0),('d1',None),('l1',1),('w2',0)]:
             self.service.practice_result(event, A, winner)
         self.service.practice_result('w1', A, 0)
-        self.service.rate_game('rated', [A,B],1)
+        self.service.rate_series('rated', [A,B],1)
         row = self.service.leaderboard()['solo'][0]
         self.assertEqual((row['wins'],row['draws'],row['losses'],row['win_rate']), (2,1,1,.5))
         self.assertEqual(self.service.leaderboard()['pvp'][0]['wins'],1)
@@ -75,24 +75,54 @@ class ProgressionTests(unittest.TestCase):
             'draws_in_row': 0, 'best_at': None})
         self.assertNotIn('private-', json.dumps(self.service.leaderboard(PATCH)))
 
-    def test_ratings_wdl_expected_score_and_idempotency(self):
+    def test_game_and_series_ratings_are_glicko_separate_and_idempotent(self):
+        # two unrated players start at 1000 with the widest deviation: a first win moves a lot
         first = self.service.rate_game('g1', [A, B], 0)
-        self.assertEqual([r['elo'] for r in first], [1016, 984])
+        self.assertEqual([(r['before'], r['after'], r['delta']) for r in first], [(1000, 1162, 162), (1000, 838, -162)])
+        self.assertLess(first[0]['rd'], 350)
         self.service.rate_game('g2', [A, B], None)
-        self.assertEqual(self.service.rate_game('g1', [A, B], 0), first)
-        profile = self.service.profile(A)
-        self.assertEqual((profile['elo'], profile['wins'], profile['draws'], profile['losses']), (1015, 1, 1, 0))
-        row = self.service.leaderboard(PATCH)['pvp'][0]
-        self.assertEqual(row['win_rate'], .5)
-        self.assertEqual(set(row), {'id', 'label', 'elo', 'wins', 'draws', 'losses', 'win_rate'})
-        self.assertEqual(self.service.profile(B)['losses'], 1)
+        self.assertEqual(self.service.rate_game('g1', [A, B], 1), first)  # a retry changes nothing
+        ratings = self.service.ratings(A['id'])
+        self.assertEqual((ratings['game']['wins'], ratings['game']['draws'], ratings['game']['losses']), (1, 1, 0))
+        # the series rating (MMR) has not moved: games do not touch it
+        self.assertEqual(ratings['series'], {'rating': 1000, 'rd': 350, 'provisional': True, 'wins': 0, 'draws': 0, 'losses': 0})
+        self.assertEqual(self.service.leaderboard(PATCH)['pvp'], [])  # nobody is ranked before a series
+        series = self.service.rate_series('m:series', [A, B], 1)
+        self.assertEqual(self.service.rate_series('m:series', [A, B], 0), series)
+        rows = self.service.leaderboard(PATCH, combine_guests=False)['pvp']
+        self.assertEqual([(row['id'], row['mmr'], row['wins'], row['losses'], row['win_rate']) for row in rows],
+                         [(B['id'], 1162, 1, 0, 1.0), (A['id'], 838, 0, 1, 0.0)])
+        self.assertEqual(rows[1]['games'], {'wins': 1, 'draws': 1, 'losses': 0})
+        self.assertEqual(set(rows[0]), {'id', 'label', 'mmr', 'rd', 'provisional', 'wins', 'draws', 'losses', 'win_rate',
+                                        'game_rating', 'games'})
+        self.assertEqual(self.service.mmr(B), 1162)
+
+    def test_a_rating_settles_with_play_and_loosens_with_time_and_a_new_patch(self):
+        with patch('progression.time.time', return_value=1000.0):
+            for game in range(12):
+                self.service.rate_series(f's{game}', [A, B], game % 2)
+            settled = self.service.ratings(A['id'])['series']['rd']
+        self.assertLess(settled, 200)
+        with patch('progression.time.time', return_value=1000.0 + 90 * 86400):
+            away = self.service.ratings(A['id'])['series']
+        self.assertGreater(away['rd'], settled)  # three months away: less sure
+        with patch('progression.time.time', return_value=1000.0):
+            later = self.service.ratings(A['id'], 'next-patch')['series']
+            self.assertGreater(later['rd'], settled)  # a new patch: less sure, once
+            self.assertEqual(later['rating'], self.service.ratings(A['id'])['series']['rating'])  # but it carries over
+            self.service.rate_series('new', [A, B], 0, 'next-patch')
+            again = self.service.ratings(A['id'], 'next-patch')['series']['rd']
+            self.assertLess(again, later['rd'])
 
     def test_forfeit_is_positive_prediction_without_mutation(self):
-        self.assertEqual(self.service.forfeit_loss([A, B], 0), 16)
-        self.service.rate_game('g', [A, B], 0)
-        self.assertEqual(self.service.forfeit_loss([A, B], 0), 17)
-        self.assertEqual(self.service.forfeit_loss([A, B], 1), 15)
-        self.assertEqual(self.service.profile(A)['wins'], 1)
+        predicted = self.service.forfeit_loss([A, B], 0)
+        self.assertEqual(predicted, 162)
+        self.assertEqual(self.service.ratings(A['id'])['series']['losses'], 0)  # nothing was recorded
+        series = self.service.rate_series('s', [A, B], 1)
+        self.assertEqual(-series[0]['delta'], predicted)
+        # the lower-rated player now has less to lose, and neither prediction is negative
+        self.assertGreater(self.service.forfeit_loss([A, B], 1), self.service.forfeit_loss([A, B], 0))
+        self.assertGreaterEqual(self.service.forfeit_loss([A, B], 0), 0)
 
     def test_streak_draws_losses_reset_and_event_replay(self):
         self.assertEqual(self.service.practice_result('w1', B, 0, PATCH), {'current': 1, 'best': 1, 'draws': 0})
@@ -114,14 +144,16 @@ class ProgressionTests(unittest.TestCase):
         with patch('progression.time.time', return_value=10):
             self.service.practice_result('b', B, 0, PATCH)
         self.assertEqual([r['id'] for r in self.service.leaderboard(PATCH, combine_guests=False)['solo']], [B['id'], A['id']])
-        self.service.rate_game('same', [A, B], 0, 'old')
-        self.service.rate_game('same', [A, B], 1, PATCH)
+        # the same event id under another patch is another event
+        self.service.rate_series('same', [A, B], 0, 'old')
+        self.service.rate_series('same', [A, B], 1, PATCH)
         self.service.practice_result('a', A, 0, 'old')
-        self.assertEqual(self.service.profile(A)['elo'], 984)
-        self.assertEqual(self.service.leaderboard('old')['pvp'][0]['elo'], 1016)
-        # Elo belongs to its patch; the Solo board is all time whichever patch is asked for
+        # MMR carries on from patch to patch, and the Solo board is all time: both
+        # read the same whichever patch is asked for
         empty = self.service.leaderboard('empty', combine_guests=False)
-        self.assertEqual((empty['pvp'], empty['patch']), ([], 'empty'))
+        self.assertEqual(empty['patch'], 'empty')
+        self.assertEqual(sorted((row['id'], row['wins'], row['losses']) for row in empty['pvp']),
+                         sorted([(A['id'], 1, 1), (B['id'], 1, 1)]))
         self.assertEqual([(r['id'], r['best_streak'], r['wins']) for r in empty['solo']], [(B['id'], 1, 1), (A['id'], 1, 2)])
         self.assertEqual(self.service.profile(A)['best_at'], 20)
 
@@ -136,8 +168,8 @@ class ProgressionTests(unittest.TestCase):
         self.history.close()
         self.history = MatchHistory(self.path)
         self.service = Progression(self.history)
-        self.assertEqual(self.service.profile(A)['wins'], 1)
-        self.assertEqual(self.service.profile(B)['elo'], 984)
+        self.assertEqual(self.service.ratings(A['id'])['game']['wins'], 1)
+        self.assertEqual(self.service.ratings(B['id'])['game']['rating'], 838)
         self.assertEqual(self.service.load_practice('one')['phase'], 'play')
         self.service.delete_practice('one')
         self.service.delete_practice('one')
@@ -200,15 +232,16 @@ class ProgressionAtomicityTests(unittest.TestCase):
     def test_rating_failure_rolls_back_both_players_and_event(self):
         import sqlite3
         with self.history.connection:
-            self.history.connection.execute("""CREATE TRIGGER reject_rating BEFORE UPDATE ON progression_players
+            self.history.connection.execute("""CREATE TRIGGER reject_rating BEFORE INSERT ON ratings
                 WHEN NEW.id='guest:browser-hash' BEGIN SELECT RAISE(ABORT,'test failure'); END""")
         with self.assertRaises(sqlite3.IntegrityError):
             self.service.rate_game('retry', [A, B], 0)
-        self.assertEqual(self.service.profile(A)['elo'], 1000)
-        self.assertEqual(self.service.profile(A)['wins'], 0)
+        # the first player's rating was written before the second failed: both are undone
+        self.assertEqual(self.service.ratings(A['id'])['game'], {'rating': 1000, 'rd': 350, 'provisional': True,
+                                                                 'wins': 0, 'draws': 0, 'losses': 0})
         with self.history.connection:
             self.history.connection.execute('DROP TRIGGER reject_rating')
-        self.assertEqual(self.service.rate_game('retry', [A, B], 0)[0]['elo'], 1016)
+        self.assertEqual(self.service.rate_game('retry', [A, B], 0)[0]['after'], 1162)
 
     def test_best_date_survives_equal_best_draw_and_reset(self):
         with patch('progression.time.time', return_value=10):
@@ -224,8 +257,8 @@ class ProgressionAtomicityTests(unittest.TestCase):
     def test_same_label_guests_are_separate_and_private_fields_not_saved(self):
         other = {**B, 'id': 'guest:another-browser-hash', 'token': 'private-token'}
         self.service.rate_game('guests', [B, other], 1)
-        self.assertEqual(self.service.profile(B)['losses'], 1)
-        self.assertEqual(self.service.profile(other)['wins'], 1)
+        self.assertEqual(self.service.ratings(B['id'])['game']['losses'], 1)
+        self.assertEqual(self.service.ratings(other['id'])['game']['wins'], 1)
         self.assertNotIn('private-token', '\n'.join(self.history.connection.iterdump()))
 
     def test_invalid_game_does_not_change_ratings(self):
@@ -266,11 +299,10 @@ class ProgressionPatchAndLegacyTests(unittest.TestCase):
     def test_new_patch_carries_only_current_and_draws_from_latest_older(self):
         self.service.practice_result('old-win', A, 0, '1.2.0')
         self.service.practice_result('old-draw', A, None, '1.2.0')
-        self.service.rate_game('rated', [A, B], 0, '1.2.0')
         self.service.profile(A, '1.10.0')  # A future row must not seed an older patch.
         new = self.service.profile(A, '1.3.0')
         self.assertEqual((new['current_streak'], new['draws_in_row']), (1, 1))
-        self.assertEqual((new['elo'], new['wins'], new['draws'], new['losses'], new['best_streak'], new['best_at']), (1000, 0, 0, 0, 0, None))
+        self.assertEqual((new['best_streak'], new['best_at']), (0, None))
         board = self.service.leaderboard('1.3.0')
         self.assertEqual((board['patch'], board['pvp']), ('1.3.0', []))
         # the Solo board is all time: the 1.2.0 best is still shown, with the streak still running
@@ -323,23 +355,20 @@ class ProgressionPatchAndLegacyTests(unittest.TestCase):
         self.assertEqual(self.service.merge_stay(), 0)
         self.assertEqual(self.history.connection.execute('SELECT count(*) FROM progression_migration_backup').fetchone()[0], 4)
 
-    def test_forfeit_prediction_matches_zero_sum_rounding_and_zero_loss(self):
-        # These complementary expected scores straddle a floating-point half boundary.
-        def expected(elo, opponent):
-            return .5156250000000001 if elo > opponent else .484375
-        self.service.profile(A)
-        self.service.profile(B)
+    def test_forfeit_prediction_matches_the_series_it_predicts_however_far_apart(self):
+        for game in range(8):
+            self.service.rate_series(f'warm{game}', [A, B], 0)
+        for seat in (0, 1):
+            predicted = self.service.forfeit_loss([A, B], seat)
+            self.assertGreaterEqual(predicted, 0)
+        predicted = self.service.forfeit_loss([A, B], 1)
+        self.assertEqual(-self.service.rate_series('next', [A, B], 0)[1]['delta'], predicted)
+        # a lost cause costs next to nothing: the far lower-rated player was expected to lose
         with self.history.connection:
-            self.history.connection.execute('UPDATE progression_players SET elo=1001 WHERE id=?', (A['id'],))
-        with patch.object(Progression, '_expected', side_effect=expected):
-            predicted = self.service.forfeit_loss([A, B], 1)
-            ratings = self.service.rate_game('boundary', [A, B], 0)
-        self.assertEqual(predicted, -ratings[1]['delta'])
-        with self.history.connection:
-            self.history.connection.execute('UPDATE progression_players SET elo=10000 WHERE id=?', (A['id'],))
-            self.history.connection.execute('UPDATE progression_players SET elo=1000 WHERE id=?', (B['id'],))
+            self.history.connection.execute("UPDATE ratings SET rating=9000, rd=30 WHERE id=? AND kind='series'", (A['id'],))
+            self.history.connection.execute("UPDATE ratings SET rating=1000, rd=30 WHERE id=? AND kind='series'", (B['id'],))
         self.assertEqual(self.service.forfeit_loss([A, B], 1), 0)
-        self.assertEqual(self.service.rate_game('zero', [A, B], 0)[1]['delta'], 0)
+        self.assertEqual(self.service.rate_series('zero', [A, B], 0)[1]['delta'], 0)
 
 
 if __name__ == '__main__':

@@ -194,18 +194,18 @@ class GuestBoardTests(unittest.TestCase):
         self.account = {'id': 'account:one', 'kind': 'account', 'unique_name': 'one', 'display_name': 'One'}
         self.guests = [{'id': f'browser:{name}', 'kind': 'guest', 'display_name': name} for name in ('ann', 'bob')]
 
-    def test_pvp_shows_one_guest_with_the_average_elo_and_summed_record(self):
+    def test_pvp_shows_one_guest_with_the_average_mmr_and_summed_record(self):
         ann, bob = self.guests
-        self.service.rate_game('g1', [self.account, ann], 1)   # ann beats the account
-        self.service.rate_game('g2', [ann, bob], 0)            # ann beats bob
+        self.service.rate_series('g1', [self.account, ann], 1)   # ann beats the account
+        self.service.rate_series('g2', [ann, bob], 0)            # ann beats bob
         raw = {row['id']: row for row in self.service.leaderboard(combine_guests=False)['pvp']}
         board = self.service.leaderboard()['pvp']
         self.assertEqual(sorted(row['id'] for row in board), sorted(['account:one', BOARD_GUESTS]))
         guest = next(row for row in board if row['id'] == BOARD_GUESTS)
-        self.assertEqual(guest['elo'], round((raw['browser:ann']['elo'] + raw['browser:bob']['elo']) / 2))
+        self.assertEqual(guest['mmr'], round((raw['browser:ann']['mmr'] + raw['browser:bob']['mmr']) / 2))
         self.assertEqual((guest['label'], guest['guests'], guest['wins'], guest['losses'], guest['draws']), ('Guest', 2, 2, 1, 0))
         self.assertEqual(guest['win_rate'], 2 / 3)
-        self.assertEqual([row['id'] for row in board], [BOARD_GUESTS, 'account:one'])  # ranked by Elo with everyone else
+        self.assertEqual([row['id'] for row in board], [BOARD_GUESTS, 'account:one'])  # ranked by MMR with everyone else
 
     def test_solo_shows_the_best_guest_streak_and_a_board_without_guests_is_unchanged(self):
         ann, bob = self.guests

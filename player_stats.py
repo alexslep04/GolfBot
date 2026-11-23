@@ -113,6 +113,8 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
     known_activations = 0
     turns, modifier_counts = [], []
     move_seconds, move_turns = 0.0, 0
+    # who had the first turn (recorded from 1.4.0): games started, and wins either way
+    first_games = first_wins = later_games = later_wins = 0
     for match in matches:
         seats = identities(match)
         if player_id not in seats:
@@ -146,6 +148,13 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
                 opponent_points += other
                 if type(result.get('turns')) is int:
                     turns.append(result['turns'])
+                if type(result.get('first')) is int and 0 <= result['first'] < len(seats) and not result.get('forfeit'):
+                    if result['first'] == seat:
+                        first_games += 1
+                        first_wins += own < comparison
+                    else:
+                        later_games += 1
+                        later_wins += own < comparison
                 timed = recorded_move_time(result, seat, len(seats))
                 if timed:
                     move_seconds += timed[0]
@@ -188,6 +197,13 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
         'average_advantage': (total_points - opponent_points) / count if count else None,
         'average_turns': sum(turns) / len(turns) if turns else None,
         'known_turn_games': len(turns),
+        # the first turn: how often it was theirs, and how they did with and without it
+        'known_first_games': first_games + later_games,
+        'first_games': first_games,
+        'first_rate': first_games / (first_games + later_games) if first_games + later_games else None,
+        'first_wins': first_wins, 'first_win_rate': first_wins / first_games if first_games else None,
+        'later_games': later_games, 'later_wins': later_wins,
+        'later_win_rate': later_wins / later_games if later_games else None,
         # seconds per turn, over the turns the player was at the table for
         'average_move_seconds': move_seconds / move_turns if move_turns else None,
         'timed_turns': move_turns,

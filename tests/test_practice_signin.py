@@ -86,8 +86,10 @@ class PracticeSigninTests(unittest.TestCase):
             self.store.progression.practice_result(f'guest-{index}', guest, 0)
         self.assertEqual(self.login().status_code, 200)
         profile = self.store.progression.profile(room.progression_players[0])
-        self.assertEqual((profile['current_streak'], profile['best_streak'], profile['elo'], profile['wins']), (3, 3, 1000, 0))
-        self.assertEqual(self.store.progression.profile(guest)['wins'], 1)
+        self.assertEqual((profile['current_streak'], profile['best_streak']), (3, 3))
+        # the guest's Ranked record stays with the guest: only the solo streak moves
+        self.assertEqual(self.store.progression.ratings(room.progression_players[0]['id'])['game']['wins'], 0)
+        self.assertEqual(self.store.progression.ratings(guest['id'])['game']['wins'], 1)
 
     def test_csrf_and_invalid_proof_do_not_adopt(self):
         room = self.practice()
