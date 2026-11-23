@@ -285,6 +285,25 @@ class GolfGame:
         return self.final_player if self.final_player is not None else self.next_player(self.current)
 
     @property
+    def up_in(self):
+        """For each seat, how many turns away its next turn is (1 = up next), or None if it
+        is playing now or will not play again this game."""
+        waits = [None] * self.player_count
+        if self.phase in ("setup", "over"):
+            return waits
+        if self.finisher is not None and self.final_turn_queue is not None:
+            upcoming = list(self.final_turn_queue)
+        elif self.is_final_turn:
+            upcoming = []
+        elif self.final_player is not None:
+            upcoming = [self.final_player]
+        else:
+            upcoming = self.players_from(self.next_player(self.current))[:-1]
+        for wait, player in enumerate(upcoming, 1):
+            waits[player] = wait
+        return waits
+
+    @property
     def decision_player(self):
         if self.phase in ("guess", "guess_trade"):
             return self.guess_pending["player"]

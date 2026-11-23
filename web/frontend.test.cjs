@@ -28,9 +28,9 @@ function harness({debug=false}={}) {
     location:{pathname:'/golf/',search:'',origin:'https://example.test'},
     history:{replaceState(){},pushState(){}},localStorage:{getItem(){return null;},setItem(){}},
     setTimeout(){return 1;},clearTimeout(){},setInterval(){},clearInterval(){},confirm:()=>true,
-    fetch:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({pvp:[{label:'Alice <admin>',elo:1210,wins:3,draws:1,losses:2,win_rate:.5}],solo:[],patch:'1.2.0'})};}
+    fetch:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({pvp:[{label:'Alice <admin>',mmr:1210,provisional:true,wins:3,draws:1,losses:2,win_rate:.5,games:{wins:11,draws:2,losses:9}}],solo:[],patch:'1.2.0'})};}
   });
-  for(const file of ['icons.js','ui.js','board.js','gamepad.js','app.js']) {
+  for(const file of ['icons.js','ui.js','board.js','gamepad.js','tournament.js','app.js']) {
     // debug: a debug server's page, as far as ui.js's theme list goes (app.js's
     // debug tools need more of a browser than this harness has)
     if(debug && file==='ui.js') context.document.documentElement.dataset.debug='';
@@ -50,9 +50,10 @@ test('leaderboard defaults PVP, escapes names, formats fractional win rate',asyn
   const h=harness();await h.run('leaderboardPage()');
   const html=leaderHtml(h);
   assert.match(html,/data-leader-tab="pvp" aria-pressed="true"/);
-  // the leader's card and a ranked row for each player, with Elo and W–D–L
+  // the leader's card and a ranked row for each player, with MMR (still settling: "?") and the series W–D–L
   assert.match(html,/class="panel c-p3 stat-hero leader-hero"/);assert.match(html,/class="list-item board-row c-p3"/);
-  assert.match(html,/1,210<small>Elo<\/small>/);assert.match(html,/3–1–2/);assert.match(html,/W–D–L/);
+  assert.match(html,/1,210\?<small>MMR<\/small>/);assert.match(html,/Series 3–1–2/);assert.match(html,/series W–D–L/);
+  assert.match(html,/Games 11–2–9/);assert.match(html,/\? = still settling/);assert.doesNotMatch(html,/Elo/);
   assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
   assert.equal(h.requests[0].url,'/golf/api/leaderboards');
   await h.run('leaderboardPage("solo")');assert.match(leaderHtml(h),/No solo streaks yet/);assert.doesNotMatch(leaderHtml(h),/Best reached/);
@@ -75,12 +76,15 @@ test('advanced defaults account vs bot and all time even without history',async(
   assert.equal(query.get('patch'),null); // no patch filter: every patch counts
 });
 
-test('PVP is this patch; Solo is all time',()=>{
+test('PVP ranks by MMR from series, with games counted apart; Solo is all time',()=>{
   const h=harness();
-  const pvp=h.run('leaderboardBody("pvp",{patch:"1.3.0",pvp:[{id:"account:1",label:"Ann",elo:1040,wins:7,draws:1,losses:4,win_rate:.58}]})');
-  assert.match(pvp,/7–1–4/);assert.doesNotMatch(pvp,/Series/i);assert.match(pvp,/Patch 1\.3\.0/);
+  const pvp=h.run('leaderboardBody("pvp",{patch:"1.4.0",pvp:[{id:"account:1",label:"Ann",mmr:1040,provisional:false,wins:7,draws:1,losses:4,win_rate:.58,game_rating:1090,games:{wins:30,draws:2,losses:21}}]})');
+  assert.match(pvp,/Series 7–1–4/);assert.match(pvp,/Games 30–2–21/);assert.match(pvp,/1,040<small>MMR<\/small>/);
+  // the game rating is not on the board (it is in Advanced stats), and MMR is not tied to a patch
+  assert.doesNotMatch(pvp,/1,090/);assert.doesNotMatch(pvp,/Patch 1\.4\.0/);assert.doesNotMatch(pvp,/still settling/);
+  assert.match(h.run('leaderboardBody("pvp",{pvp:[]})'),/Finish a Ranked series to get on the board/);
   const solo=h.run('leaderboardBody("solo",{patch:"1.3.0",solo:[{id:"account:1",label:"Ann",best_streak:9,current_streak:2,wins:20,draws:1,losses:5,win_rate:.77}]})');
-  assert.match(solo,/All time/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);
+  assert.match(solo,/All time/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);assert.doesNotMatch(solo,/MMR/);
 });
 
 test('records show the biggest yapper, the longest 1v1 game, the bogey monster and the party',()=>{
@@ -118,33 +122,40 @@ test('void offer blocks actions and shows timed reply UI',async()=>{
   assert.equal(h.nodes.get('void-dialog').open,true);
   assert.match(h.nodes.get('void-dialog').innerHTML,/data-void-reply="accept"/);
   assert.match(h.nodes.get('void-dialog').innerHTML,/Completed rounds are preserved/);
-  assert.match(h.nodes.get('void-dialog').innerHTML,/NO ELO CHANGE/);
+  assert.match(h.nodes.get('void-dialog').innerHTML,/NO RATING CHANGE/);
   assert.equal(h.run('actionAllowed("draw")'),false);assert.equal(await h.run('move("draw")'),false);
   assert.equal(h.requests.length,0);
   h.run('state.void_offer=null;renderVoidOffer()');assert.equal(h.nodes.get('void-dialog').open,false);
 });
 
-test('rated exit uses an in-game dialog with the server Elo loss',async()=>{
+test('rated exit uses an in-game dialog with the MMR the server says it costs',async()=>{
   const h=harness();h.context.confirm=()=>{throw Error('Native popup used');};
-  h.run('session.room_id="room";state={id:"room",rated:true,status:"playing",forfeit_elo_loss:37}');
+  h.run('session.room_id="room";state={id:"room",rated:true,status:"playing",forfeit_mmr_loss:37}');
   const leaving=h.run('abandonExisting()');
   assert.equal(h.nodes.get('leave-dialog').open,true);
-  assert.match(h.nodes.get('leave-dialog').innerHTML,/37 Elo/);
+  assert.match(h.nodes.get('leave-dialog').innerHTML,/Leaving loses this game and the series, and costs you 37 MMR/);
   assert.equal(h.requests.length,0);
   h.run('resolveLeavePrompt("stay")');
   assert.equal(await leaving,false);
   assert.equal(h.requests.length,0);
 });
 
-test('between ranked games a signed-in player leaves without a popup; a guest is still told',async()=>{
-  const h=harness();h.context.confirm=()=>{throw Error('Native popup used');};
-  h.run('session.account={id:1,unique_name:"me"};session.room_id="room";state={id:"room",rated:true,status:"round_over",game:{phase:"over"}}');
-  assert.equal(await h.run('abandonExisting()'),true);
-  assert.equal(h.nodes.get('leave-dialog')?.open,undefined);
-  assert.equal(h.requests.at(-1).url,'/golf/api/lobbies/room/leave');
-  h.run('session.account=null;session.room_id="room"');
+test('between ranked games everyone is told that leaving loses the series, and what it costs',async()=>{
+  for (const account of ['{id:1,unique_name:"me"}','null']) {
+    const h=harness();h.context.confirm=()=>{throw Error('Native popup used');};
+    h.run(`session.account=${account};session.room_id="room";state={id:"room",rated:true,status:"round_over",forfeit_mmr_loss:8,game:{phase:"over"}}`);
+    const leaving=h.run('abandonExisting()');
+    assert.match(h.nodes.get('leave-dialog').innerHTML,/Leaving loses the series and costs you 8 MMR\. Completed games are kept/);
+    assert.equal(h.requests.length,0);
+    h.run('resolveLeavePrompt("stay")');assert.equal(await leaving,false);
+  }
+});
+
+test('leaving a tournament match warns that the opponent gets it',async()=>{
+  const h=harness();
+  h.run('session.room_id="room";state={id:"room",rated:false,tournament:{id:"t",match:"m"},status:"playing",game:{phase:"choose"}}');
   const leaving=h.run('abandonExisting()');
-  assert.match(h.nodes.get('leave-dialog').innerHTML,/This ends the series early/);
+  assert.match(h.nodes.get('leave-dialog').innerHTML,/Leaving gives this tournament match to your opponent/);
   h.run('resolveLeavePrompt("stay")');assert.equal(await leaving,false);
 });
 
@@ -184,7 +195,7 @@ test('every selectable rule has examples, hidden by default, with only necessary
 });
 
 
-test('rated labels use Elo, modifier totals come from each player, Practice alone shows flame',()=>{
+test('rated labels show MMR, modifier totals come from each player, Practice alone shows flame',()=>{
   const h=harness();h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],rated:true,ratings:[1234,1100],practice:false,connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[8,10],scores:[8,10],effects:[[],[]],players:[[],[]],turn_order:[0,1],modifier_counts:[2,4],draw_count:20}};renderTags();`);
   assert.match(h.run(`board.el.querySelector("[data-score-for='me']").firstElementChild.innerHTML`),/Alice \(1234\)/);
   assert.match(h.run(`board.el.querySelector("[data-rules-for='opp']").querySelector(".txt").innerHTML`),/4 Rules/);
@@ -589,4 +600,256 @@ test('settings offer the Original, Poker, Night Golf and (debug only) Focus them
   // every theme the settings offer has its tokens in the stylesheet
   const css=fs.readFileSync(path.join(__dirname,'style.css'),'utf8');
   for(const [key] of JSON.parse(h.run('JSON.stringify(THEMES)')).slice(1)) assert.match(css,new RegExp(`:root\\[data-theme="${key}"\\] \\{`));
+});
+
+/* ---------- patch 1.4.0 ---------- */
+test('at a table of three or more, a tag counts down to its turn: Up in 3, Up in 2, Up next',()=>{
+  const h=harness();
+  const game=(current,next,waits)=>`{phase:"choose",current:${current},decision_player:${current},next_up:${next},up_in:${JSON.stringify(waits)},legal:{flip:[]},effect_totals:[8,10,3,4],scores:[8,10,3,4],effects:[[],[],[],[]],players:[[],[],[],[]],turn_order:[0,1,2,3],modifier_counts:[0,0,0,0],draw_count:20}`;
+  const label=side=>h.run(`board.el.querySelector("[data-score-for='${side}']").querySelector("[data-turn-label]").textContent`);
+  const aria=side=>h.run(`board.el.querySelector("[data-score-for='${side}']").attributes["aria-label"]`);
+  h.run(`board.el=document.createElement("div");board.view={opp:2};state={viewer:0,status:"playing",names:["Alice","Bob","Cy","Di"],connected:[true,true,true,true],rules:{},game:${game(1,2,[3,null,1,2])}};renderTags();`);
+  assert.equal(label('me'),'Up in 3');assert.match(aria('me'),/Alice: 8 points, up in 3 turns/);
+  assert.equal(label('opp'),'Up next');
+  h.run(`state.game=${game(2,3,[2,3,null,1])};renderTags();`);
+  assert.equal(label('me'),'Up in 2');
+  h.run(`state.game=${game(3,0,[1,2,3,null])};renderTags();`);
+  assert.equal(label('me'),'Up next');
+  // a two-player table never counts down
+  h.run(`board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bob"],connected:[true,true],rules:{},game:{phase:"choose",current:1,decision_player:1,up_in:[1,null],legal:{flip:[]},effect_totals:[8,10],scores:[8,10],effects:[[],[]],players:[[],[]],turn_order:[0,1],modifier_counts:[0,0],draw_count:20}};`);
+  assert.equal(h.run('turnsUntil(0)'),null);
+});
+
+test('solo results have two graphs, a table between people keeps all three',()=>{
+  const h=harness();
+  h.run('state={solo:true,timeline:[{},{},{}],history:[{scores:[1,2]},{scores:[3,4]}]}');
+  assert.deepEqual([...h.run('chartViews()')],['game','series']);
+  h.run('state.solo=false');
+  assert.deepEqual([...h.run('chartViews()')],['game','games','series']);
+});
+
+test('the records added in 1.4.0 each have a card',()=>{
+  const h=harness();
+  const html=h.run(`recordsBody({always_in_play:["Poisoned Card"],comeback_modifier:{name:"V2",wins:9},
+    ai_vs_players:{id:"bot:golfbot",label:"Golfbot",bot_points:25673,player_points:24846,games:2173},
+    luck:{id:"account:1",label:"Ann",first:14,games:21,rate:2/3},
+    gospel:{id:"account:2",label:"bob",count:5},
+    spectacle:{count:4,players:["Ann","Bob <b>"],scores:[14,6],label:"Bob"},
+    recruit:{id:"account:3",label:"Lily",at:Date.now()/1000-3*86400},
+    upset:{id:"account:2",label:"Bob",opponent:"Ann",gap:230,ratings:[950,1180],points:[14,6],winner:1}})`);
+  assert.match(html,/AI vs\. all players/);assert.match(html,/Golfbot<\/strong> is behind everyone put together: 25,673 pts to the players' 24,846 over 2,173 games/);
+  assert.match(html,/Luck of the draw/);assert.match(html,/Ann<\/strong> gets to go first 66\.7% of the time \(14 of 21 games\)… because of course they do!/);
+  assert.match(html,/Spreading the gospel/);assert.match(html,/through invite links/);
+  assert.match(html,/Quite the spectacle/);assert.match(html,/Ann vs Bob &lt;b&gt;<\/strong> finished 14 to 6/);
+  assert.match(html,/Newest recruit/);assert.match(html,/Lily<\/strong> is the newest Golf account/);assert.match(html,/days ago/);
+  assert.match(html,/David vs\. Goliath/);assert.match(html,/Bob<\/strong> \(950\) won a series against Ann \(1,180\), 6 to 14/);
+  // the comeback modifier says what it leaves out
+  assert.match(html,/in the most comeback wins<\/p><p class="record-note">Leaves out Poisoned Card\./);
+  assert.match(html,/Highest MMR/);assert.doesNotMatch(html,/Elo/);
+  // Golfbot's own card lists the record it holds
+  assert.equal(h.run(`recordCards({ai_vs_players:{id:"bot:golfbot",label:"Golfbot",bot_points:1,player_points:2,games:1}}).filter(({record})=>record&&record.id==="bot:golfbot").length`),1);
+});
+
+test('advanced stats show both ratings and the first-turn rows',()=>{
+  const h=harness();
+  const stats='{rounds:10,round_wins:6,round_losses:3,round_draws:1,round_win_rate:.6,match_wins:1,match_losses:0,match_draws:0,match_win_rate:1,average_points:5,average_opponent_points:7,average_advantage:-2,total_points:50,best_round:-2,worst_round:20,known_turn_games:10,known_first_games:8,first_games:5,first_rate:.625,first_wins:4,first_win_rate:.8,later_games:3,later_wins:1,later_win_rate:1/3,rule_activations:[]}';
+  const html=h.run(`statsTable([{profile:{label:"@ann"},ratings:{series:{rating:1162,rd:290,provisional:true,wins:1,draws:0,losses:0},game:{rating:1081,rd:240,provisional:true,wins:3,draws:0,losses:2}},overall:${stats}}],"overall","Overall","c-p3")`);
+  assert.match(html,/MMR \(series rating\)/);assert.match(html,/1,162\? <small>±290 · 1–0–0<\/small>/);
+  assert.match(html,/Game rating/);assert.match(html,/1,081\?/);
+  assert.match(html,/Went first<\/th><td>62\.5% <small>\(5 of 8\)<\/small>/);
+  assert.match(html,/Win rate going first<\/th><td>80% <small>\(4 of 5\)/);
+  assert.match(html,/Win rate not going first<\/th><td>33\.3% <small>\(1 of 3\)/);
+  assert.match(html,/recorded since patch 1\.4\.0/);
+  // head to head has no ratings rows: they belong to the player, not the pairing
+  assert.doesNotMatch(h.run(`statsTable([{profile:{label:"@ann"},ratings:{series:{rating:1,rd:1,wins:0,draws:0,losses:0},game:{rating:1,rd:1,wins:0,draws:0,losses:0}},head_to_head:${stats}}],"head_to_head","Head to head","c-p1")`),/MMR/);
+});
+
+test('Host a Table offers Solo, which starts a custom match against Golfbot',async()=>{
+  const h=harness();h.run('enterRoom = next => { globalThis.entered = next; }; saveAvatar("frog"); startSetup("host")');
+  assert.match(h.nodes.get('app').innerHTML,/<option value="solo"[^>]*>Solo<\/option>/);
+  h.run('draft.gameType="solo";draft.style="points";draft.length=3;setupPage()');
+  const page=h.nodes.get('app').innerHTML;
+  assert.match(page,/Just you against Golfbot/);assert.doesNotMatch(page,/Spectator Odds/);
+  await h.run('submitSetup()');
+  const sent=h.requests.at(-1);
+  assert.equal(sent.url,'/golf/api/solo');
+  const body=JSON.parse(sent.options.body);
+  assert.equal(body.practice,false);assert.equal(body.game_type,'1v1');assert.equal(body.best_of,3);assert.equal(body.series_mode,'points');
+});
+
+test('Spectate shows everything: running tournaments above every game, with the streak of a player against Golfbot',async()=>{
+  const h=harness();
+  h.context.fetch=async(url)=>({ok:true,json:async()=>url.includes('/api/tournaments')
+    ?[{id:'t1',name:'Friday Cup',status:'live',format_name:'Single elimination',ranked:true,entrants:4,live:2,host:'Ann',champion:null,mine:false},
+      {id:'t2',name:'Open one',status:'open',format_name:'Round robin',ranked:false,entrants:1,live:0,host:'Bob',champion:null,mine:false}]
+    :[{id:'g1',names:['Ann','Golfbot'],scores:[3,9],avatars:[],solo:true,round:2,best_of:null,house_rules:true,streak:{current:5,draws:0}},
+      {id:'g2',names:['Cy','Di'],scores:[1,2],avatars:[],solo:false,game_type:'1v1',round:1,best_of:1,streak:null,tournament:{id:'t1',name:'Friday Cup',label:'Semifinal'}},
+      {id:'g3',names:['Eve <i>','Flo'],scores:[4,4],avatars:[],solo:false,game_type:'1v1',round:1,best_of:3,streak:null}]});
+  await h.run('spectatePage()');
+  const html=h.nodes.get('app').innerHTML;
+  // one page, with no PVP / Solo / Tournaments pills: those are Match history's
+  assert.doesNotMatch(html,/data-list-tab|list-tabs/);
+  assert.match(html,/data-watch="g1"/);assert.match(html,/data-watch="g2"/);assert.match(html,/data-watch="g3"/);assert.match(html,/Eve &lt;i&gt;/);
+  assert.match(html,/class="watch-streak hot" style="--heat:5" role="img" aria-label="Win streak against Golfbot: 5"/);
+  assert.equal(html.match(/watch-streak/g).length,1);
+  assert.match(html,/Tournaments<\/h2>/);assert.match(html,/data-tournament-open="t1"/);assert.match(html,/Single elimination · Ranked · 4 players · 2 matches in play/);
+  assert.doesNotMatch(html,/Open one/);  // a tournament still gathering players is under Play with Friends
+  assert.match(html,/Friday Cup · Semifinal · Game 1/);
+});
+
+test('Match history has the same three lists, with finished tournaments under Tournaments',async()=>{
+  const h=harness();
+  const saved=(id,name,extra={})=>({id,lobby_name:name,names:['Ann','Bob'],solo:false,best_of:1,series_mode:'wins',status:'finished',winner:0,wins:[1,0],points:[3,9],
+    rounds:[{round:1,scores:[3,9],winner:0,ended_at:1700000000}],viewer:null,patch:'1.4.0',...extra});
+  h.context.fetch=async(url)=>{h.requests.push({url});return {ok:true,json:async()=>url.includes('/api/tournament-history')
+    ?[{id:'t9',name:'Old Cup',status:'finished',format_name:'Round robin',ranked:false,entrants:3,live:0,host:'Ann',champion:'Bob <b>',finished_at:1700000000,mine:true}]
+    :{matches:[saved('m1',url.includes('kind=tournament')?'Old Cup: Final':url.includes('kind=solo')?'Solo table':'Friendly Golf')],next_offset:null}};};
+  h.run('page="history"');await h.run('historyPage()');
+  let html=h.nodes.get('app').innerHTML;
+  assert.equal(h.requests.at(-1).url,'/golf/api/history?kind=pvp&offset=0');
+  assert.match(html,/data-list-tab="pvp" aria-pressed="true"/);assert.match(html,/Friendly Golf/);assert.match(html,/games between players/);
+  assert.doesNotMatch(html,/data-tournament-open/);
+  h.run('historyTab="solo"');await h.run('historyPage()');
+  assert.match(h.nodes.get('app').innerHTML,/Solo table/);assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=solo&offset=0')));
+  h.run('historyTab="tournament"');await h.run('historyPage()');
+  html=h.nodes.get('app').innerHTML;
+  assert.ok(h.requests.some(r=>r.url.endsWith('/api/tournament-history')));
+  assert.match(html,/data-tournament-open="t9"/);assert.match(html,/Round robin · 3 players · [^<]* · Bob &lt;b&gt; won/);
+  assert.match(html,/Tournament matches<\/h2>/);assert.match(html,/Old Cup: Final/);
+});
+
+test('the notes of a new patch pop up once, with an x and Start golfing!',async()=>{
+  const h=harness();
+  const stored={'golf-played-patch':'1.3.0'};
+  h.context.localStorage.getItem=key=>stored[key]??null;h.context.localStorage.setItem=(key,value)=>{stored[key]=value;};
+  h.context.fetch=async()=>({ok:true,json:async()=>({current:'1.4.0',patches:[{version:'1.4.0',labels:{changes:"What's new"},rules:{revisions:[],additions:[]},changes:['Tournaments! <b>']},{version:'1.3.0',rules:{revisions:[],additions:[]},changes:['Old news']}]})});
+  h.run('session.patch="1.4.0";session.account=null;page="home"');
+  await h.run('patchPopup()');
+  const dialog=h.nodes.get('patch-dialog');
+  assert.equal(dialog.open,true);
+  assert.match(dialog.innerHTML,/class="dialog-x" data-patch-close aria-label="Close"/);
+  assert.match(dialog.innerHTML,/Patch 1\.4\.0/);assert.match(dialog.innerHTML,/Tournaments! &lt;b&gt;/);assert.doesNotMatch(dialog.innerHTML,/Old news/);
+  assert.match(dialog.innerHTML,/data-patch-close>.*Start golfing!/);
+  h.run('closePatchPopup()');assert.equal(dialog.open,false);
+  // seen on this patch: it does not come back
+  h.run('markPatchSeen();patchPopupDone=false');
+  await h.run('patchPopup()');assert.equal(dialog.open,false);
+  // and a first visit has nothing to catch up on
+  const fresh=harness();fresh.run('session.patch="1.4.0";page="home"');await fresh.run('patchPopup()');
+  assert.equal(fresh.nodes.get('patch-dialog'),undefined);
+});
+
+test('a patch can sort its notes under headings of its own',()=>{
+  const h=harness();
+  const html=h.run(`patchNotesHtml(${JSON.stringify({version:'1.4.0',rules:{revisions:[],additions:[]},changes:[],
+    sections:[{title:'Tournaments',notes:['Host one <b>','Invite players']},{title:'Ranked & more',notes:['Glicko-2']},{title:'Empty',notes:[]}]})})`);
+  assert.match(html,/<h3[^>]*>Tournaments<\/h3><p>• Host one &lt;b&gt;<\/p><p>• Invite players<\/p><h3[^>]*>Ranked &amp; more<\/h3><p>• Glicko-2<\/p>/);
+  assert.doesNotMatch(html,/Empty|Play and interface/);
+  // older patches, with one list, read as before
+  assert.match(h.run(`patchNotesHtml({rules:{revisions:[],additions:[]},changes:['Old news']})`),/Play and interface<\/h3><p>• Old news/);
+});
+
+test('Host a Tournament sends the format, seeding, fill and ranked choices with the match settings',async()=>{
+  const h=harness();h.run('saveAvatar("frog");tournamentPage = id => { globalThis.opened = id; }; startSetup("tournament")');
+  let page=h.nodes.get('app').innerHTML;
+  assert.match(page,/Host a Tournament/);assert.match(page,/Lose once and you(&#39;|')re eliminated\./);
+  assert.match(page,/Single elimination/);assert.match(page,/Double elimination/);assert.match(page,/Round robin/);
+  assert.match(page,/Score Preview/);assert.match(page,/Spectator Odds/);
+  assert.doesNotMatch(page,/Play until you leave/);  // every match-up needs an end
+  // one game is a length, not a style; and Match Style sits right under Format
+  assert.doesNotMatch(page,/Single game/);assert.match(page,/<option value="1" selected>1 game<\/option>/);
+  assert.match(page,/Every match-up: one game\./);
+  assert.ok(page.indexOf('Tournament format')<page.indexOf('Match style')&&page.indexOf('Match style')<page.indexOf('aria-label="Seeding"'));
+  assert.equal(h.run('draft.style'),'wins');assert.equal(h.run('draft.length'),1);
+  h.run('draft.format="round_robin";draft.fill="ai";draft.seeding="mmr";draft.ranked="on";draft.tournamentName="Friday Cup";draft.style="wins";draft.length=3;setupPage()');
+  page=h.nodes.get('app').innerHTML;
+  assert.match(page,/Everyone plays everyone once\./);assert.match(page,/an AI opponent joins so nobody sits out/);
+  assert.match(page,/count toward MMR, and are played on House rules/);
+  h.context.fetch=async(url,options)=>{h.requests.push({url,options});return {ok:true,json:async()=>({id:'cup1',name:'Friday Cup'})};};
+  await h.run('submitSetup()');
+  const sent=h.requests.at(-1);
+  assert.equal(sent.url,'/golf/api/tournaments');
+  const body=JSON.parse(sent.options.body);
+  assert.deepEqual([body.name,body.format,body.seeding,body.fill,body.ranked,body.best_of,body.series_mode,body.house_rules],['Friday Cup','round_robin','mmr','ai',true,3,'wins',true]);
+  assert.equal(h.run('globalThis.opened'),'cup1');
+});
+
+test('the tournament page is a lobby before the start and a bracket with standings after',()=>{
+  const h=harness();h.run('centerAvatar=()=>{}');  // the avatar wheel needs a real page to scroll
+  const entrants=[{id:'e1',name:'Ann',avatar:'a',ai:false,seed:1,rating:1100,withdrawn:false,out:false},{id:'e2',name:'Bob <b>',avatar:'a',ai:false,seed:2,rating:1000,withdrawn:false,out:false},
+    {id:'e3',name:'Golfbot',avatar:'a',ai:true,seed:3,rating:1000,withdrawn:false,out:true},{id:'e4',name:'Cy',avatar:'a',ai:false,seed:4,rating:900,withdrawn:false,out:false}];
+  const base={id:'cup1',name:'Friday Cup',format:'single',format_name:'Single elimination',seeding:'mmr',fill:'ai',ranked:true,capacity:32,host:'e1',champion:null,
+    settings:{best_of:1,series_mode:'wins',house_rules:true,rules:{}},sitting_out:{},standings:[]};
+  h.run(`page="tournament";tournament=${JSON.stringify({...base,status:'open',can_start:true,entrants:entrants.slice(0,3),matches:[],you:{entrant:'e1',host:true,match:null,room_id:null}})};renderTournament()`);
+  let html=h.nodes.get('app').innerHTML;
+  assert.match(html,/Friday Cup/);assert.match(html,/Single elimination/);assert.match(html,/Seeded by MMR/);assert.match(html,/Ranked/);
+  assert.match(html,/data-tournament-start/);assert.match(html,/data-tournament-remove="e3"/);
+  // the host's buttons are a table host's: Invite a Player above Start, and Back closes the tournament
+  assert.ok(html.indexOf('data-invite-open')>0&&html.indexOf('data-invite-open')<html.indexOf('data-tournament-start'));
+  assert.match(html,/back-btn" data-tournament-leave/);assert.doesNotMatch(html,/data-tournament-ai|Add AI|Cancel/);
+  assert.match(html,/Bob &lt;b&gt;/);assert.match(html,/AI opponent/);assert.match(html,/tournament\/cup1/);
+  // someone who has not joined sees Join, and no host controls
+  h.run(`tournament.you={entrant:null,host:false,match:null,room_id:null};renderTournament()`);
+  html=h.nodes.get('app').innerHTML;
+  assert.match(html,/data-tournament-join/);assert.doesNotMatch(html,/data-tournament-start|data-tournament-remove|data-invite-open/);
+  assert.match(html,/back-btn" data-nav="friends"/);
+  const matches=[{id:'W1-1',bracket:'W',round:1,index:1,label:'Semifinal',players:['e1','e4'],status:'live',winner:null,score:null,note:null,room_id:'r1',live:{game:1,wins:[0,0],points:[0,0],scores:[3,7],watchers:2}},
+    {id:'W1-2',bracket:'W',round:1,index:2,label:'Semifinal',players:['e2','e3'],status:'done',winner:0,score:[1,0],note:null,room_id:'r2'},
+    {id:'W2-1',bracket:'W',round:2,index:1,label:'Final',players:[null,'e2'],status:'pending',winner:null,score:null,note:null,room_id:null}];
+  const standings=[{id:'e2',wins:1,draws:0,losses:0,points:4},{id:'e1',wins:0,draws:0,losses:0,points:0},{id:'e4',wins:0,draws:0,losses:0,points:0},{id:'e3',wins:0,draws:0,losses:1,points:9}];
+  h.run(`tournament=${JSON.stringify({...base,status:'live',can_start:false,entrants,matches,standings,you:{entrant:'e4',host:false,match:'W1-1',room_id:'r1'}})};renderTournament()`);
+  html=h.nodes.get('app').innerHTML;
+  assert.match(html,/Your match is on/);assert.match(html,/data-tournament-play="r1"/);
+  assert.match(html,/Matches in play/);assert.match(html,/this game 3 to 7/);
+  assert.match(html,/class="bracket-round"><h4>Semifinal<\/h4>/);assert.match(html,/class="bracket-round"><h4>Final<\/h4>/);
+  assert.match(html,/To be decided/);assert.match(html,/bracket-player won/);
+  assert.match(html,/Standings/);assert.match(html,/<td>Out<\/td>/);
+  assert.doesNotMatch(html,/Host tools/);  // only the host can award a match
+  // a spectator of the same tournament can watch the live match
+  h.run(`tournament.you={entrant:null,host:false,match:null,room_id:null};renderTournament()`);
+  assert.match(h.nodes.get('app').innerHTML,/data-watch="r1">.*Watch · 2/);
+  // finished: the champion is named
+  h.run(`tournament.status="finished";tournament.champion="e2";tournament.matches.forEach(m=>{m.status="done";m.winner=m.winner??1;delete m.live;});renderTournament()`);
+  assert.match(h.nodes.get('app').innerHTML,/Bob &lt;b&gt;<\/strong> wins the tournament!/);
+});
+
+test('a tournament host invites players as a table host does, and the invitation says what it is to',async()=>{
+  const h=harness();
+  h.run('page="tournament";tournament={id:"cup1",status:"open",you:{host:true}}');
+  assert.equal(h.run('hostedLobby().id'),'cup1');
+  h.context.fetch=async(url,options)=>{h.requests.push({url,options});return {ok:true,json:async()=>({sent:true,players:[],invitations:[],invited:[]})};};
+  await h.listeners.click.at(-1)({target:{closest:()=>({dataset:{invitePlayer:'p7'},disabled:false,matches:()=>false,classList:{contains:()=>false}})},preventDefault(){}});
+  assert.ok(h.requests.some(r=>r.url==='/golf/api/tournaments/cup1/invite'&&JSON.parse(r.options.body).player_id==='p7'));
+  h.run('tournament.status="live"');assert.equal(h.run('hostedLobby()'),null);
+  h.nodes.set('invite-banner',h.context.document.createElement());h.run('globalThis.reducedMotion={matches:true}');
+  h.run('renderInvitePill({id:"i1",host:"Ann",tournament:{id:"cup1",name:"Friday Cup",format_name:"Double elimination",ranked:true,best_of:3,series_mode:"wins",house_rules:true}})');
+  const pill=h.nodes.get('invite-banner').innerHTML;
+  assert.match(pill,/Tournament invite!/);assert.match(pill,/Ann · Friday Cup/);assert.match(pill,/Double elimination · /);assert.match(pill,/Ranked/);
+  // (and home no longer has a pill for the tournament you are in)
+  assert.equal(h.run('typeof tournamentChip'),'undefined');
+});
+
+test('Advanced stats lists the records a player holds, and a player card every record they are part of',async()=>{
+  const h=harness();
+  const stats={rounds:4,round_wins:3,round_losses:1,round_draws:0,round_win_rate:.75,average_points:5};
+  const entry={profile:{id:'account:7',label:'@ann'},overall:stats,
+    records:{longest_pvp:{turns:41,players:['Ann','Bob'],ids:['account:7','account:8'],id:'account:8',label:'Bob',scores:[9,4],at:1700000000}}};
+  h.run('statsTable=()=>""');
+  let html=h.run(`playerStatsHtml(${JSON.stringify({player:entry,comparison:null,leaderboard:[],players:[]})})`);
+  assert.match(html,/<p class="hint dark">Records held<\/p>/);assert.match(html,/Longest 1v1 game/);assert.doesNotMatch(html,/Highest MMR/);
+  assert.ok(html.indexOf('Records held')<html.indexOf('Compare With')&&html.indexOf('stat-hero')<html.indexOf('Records held'));
+  html=h.run(`playerStatsHtml(${JSON.stringify({player:{...entry,records:{}},comparison:null,leaderboard:[],players:[]})})`);
+  assert.match(html,/Records held<\/p><p class="hint dark">None yet\./);
+  // the name-tag popup: Ann did not win the longest game, but she played it, so it is on her card
+  const holder=Object.assign(h.context.document.createElement(),{dataset:{playerCard:'account:7'}});
+  h.context.document.querySelectorAll=()=>[holder];
+  h.context.fetch=async()=>({ok:true,json:async()=>({id:'account:7',mmr:null,pvp_streak:2,seconds_played:60,records:entry.records})});
+  await h.run('loadPlayerCard("account:7")');
+  assert.match(holder.innerHTML,/Records held/);assert.match(holder.innerHTML,/Longest 1v1 game/);assert.match(holder.innerHTML,/Best PvP win streak/);
+  // Golfbot's card has only its records
+  const bot=Object.assign(h.context.document.createElement(),{dataset:{playerCard:'bot:golfbot'}});
+  h.context.document.querySelectorAll=()=>[bot];
+  h.context.fetch=async()=>({ok:true,json:async()=>({id:'bot:golfbot',mmr:null,pvp_streak:0,seconds_played:0,records:{ai_vs_players:{id:'bot:golfbot',label:'Golfbot',bot_points:10,player_points:20,games:3}}})});
+  await h.run('loadPlayerCard("bot:golfbot")');
+  assert.match(bot.innerHTML,/AI vs\. all players/);assert.doesNotMatch(bot.innerHTML,/Best PvP win streak/);
 });

@@ -2020,6 +2020,22 @@ button.tag-rules:active > .tag-in {
   gap: 0.4rem 1.6rem;
   margin-bottom: 0.4rem;
 }
+/* a solo player's streak against Golfbot, at the end of their row: gray at zero, lit once it is running */
+.watch-streak {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: none;
+  --fill: var(--gray);
+  --stroke: var(--paper);
+  opacity: 0.5;
+  font: 800 2.2rem/1 var(--round);
+}
+.watch-streak.hot {
+  --fill: var(--flame);
+  --stroke: var(--flame-edge);
+  opacity: 1;
+}
 .watch-player {
   display: flex;
   flex-direction: column;
@@ -3516,6 +3532,23 @@ button.tag-rules:active > .tag-in {
   position: relative;
   overflow: visible;
 }
+/* the notes of a new patch, the first time it is opened: they scroll inside the card */
+.patch-dialog {
+  width: min(92vw, 56rem);
+  text-align: left;
+}
+.patch-dialog h2 {
+  margin-top: 0.8rem;
+}
+.patch-dialog .patch-notes {
+  max-height: 52dvh;
+  overflow-y: auto;
+  margin: 0.4rem -0.6rem 1.2rem 0;
+  padding-right: 0.6rem;
+}
+.patch-dialog .patch-notes p {
+  margin: 0.5rem 0;
+}
 .dialog-x {
   position: absolute;
   top: -1.5rem;
@@ -3551,6 +3584,13 @@ button.tag-rules:active > .tag-in {
   min-width: 0;
   justify-content: center;
   white-space: nowrap;
+}
+/* a longer label ("Accept rematch"): smaller, on two lines, inside the button */
+.summary-actions .summary-main.two-line {
+  padding-block: 0.6rem;
+  font-size: 1.7rem;
+  line-height: 1.1;
+  text-align: center;
 }
 .summary-actions .summary-main:disabled {
   opacity: 0.6;
@@ -5407,4 +5447,182 @@ button:disabled > .haptic-switch {
 :root[data-theme="focus"] .face.front > .corner {
   width: auto;
   transform: scale(1.6);
+}
+
+/* ---------- tournaments ----------
+   The dashboard: matches in play, the bracket (a column a round, scrolling
+   sideways when it is wide), and the standings. */
+.section-title {
+  font: 800 2rem/1.2 var(--round);
+  margin: 0.6rem 0 0;
+}
+.tournament-page .meta {
+  justify-content: flex-start;
+}
+/* (its trophy hangs on the banner's own corner, clear of the Back button above) */
+.tournament-hero {
+  position: relative;
+  margin-top: 1.2rem;
+}
+.tournament-hero p {
+  font-size: 2rem;
+}
+.tournament-you {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: center;
+}
+.list-item .versus {
+  margin: 0 0.5rem;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.bracket-section h3 {
+  margin: 0.8rem 0 0.6rem;
+  font: 800 1.7rem/1.2 var(--round);
+}
+.bracket-section h3 small {
+  font: 700 1.3rem/1.2 var(--text);
+  opacity: 0.7;
+}
+.bracket {
+  display: flex;
+  gap: 1.4rem;
+  overflow-x: auto;
+  padding: 0.4rem 0.4rem 1.2rem;
+  margin-inline: -0.4rem;
+}
+/* a round robin has no shape to keep: its matches simply wrap */
+.bracket.robin {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+.bracket-round {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 1rem;
+  flex: 0 0 auto;
+}
+.bracket-round h4 {
+  margin: 0;
+  font: 800 1.3rem/1.2 var(--round);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
+}
+.bracket-match {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 21rem;
+  padding: 0.7rem;
+  /* in the colors of its c-* class, like a list row: green, or blue while it is being played */
+  border: 0.3rem solid var(--c);
+  border-radius: 1.6rem;
+  background: var(--c2);
+  color: var(--ct);
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+.bracket-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font: 700 1.15rem/1.2 var(--text);
+  opacity: 0.75;
+}
+.bracket-meta .live {
+  font-weight: 800;
+}
+.bracket-player {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 0.35);
+  font: 700 1.5rem/1.3 var(--text);
+}
+.bracket-player .seed {
+  flex: none;
+  width: 1.8rem;
+  font-size: 1.15rem;
+  opacity: 0.55;
+  text-align: center;
+}
+.bracket-player .who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bracket-player .who small {
+  margin-left: 0.5rem;
+  font-size: 1.05rem;
+  opacity: 0.6;
+}
+.bracket-player b {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+.bracket-player.won {
+  background: rgb(255 255 255 / 0.75);
+}
+.bracket-player.lost {
+  opacity: 0.55;
+}
+.bracket-player.tbd {
+  background: none;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.bracket-player.mine {
+  outline: 0.2rem solid currentColor;
+  outline-offset: -0.2rem;
+}
+.bracket-match > .btn {
+  align-self: stretch;
+  margin-top: 0.3rem;
+}
+.tournament-page tr.mine {
+  font-weight: 800;
+}
+.tournament-host {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.tournament-host summary {
+  cursor: pointer;
+  font: 800 1.6rem/1.4 var(--round);
+}
+.tournament-host .row {
+  margin-top: 0.8rem;
+}
+/* a button that has asked "Sure?" */
+.armed {
+  filter: saturate(1.4) brightness(0.95);
+  outline: 0.3rem solid var(--p2);
+  outline-offset: 0.2rem;
+}
+.close-btn.small-x {
+  flex: none;
+}
+/* Match history: the PVP / Solo / Tournaments pills under the title */
+.list-tabs {
+  margin-bottom: 1.6rem;
+  flex-wrap: wrap;
+}
+.list-tabs .chip {
+  /* as wide as its words need: "Tournaments" takes more of the row than "PVP" */
+  flex: 1 1 auto;
+  min-height: 5.2rem;
+  padding: 0.8rem 1rem;
+  gap: 0.5rem;
+  font-size: 1.4rem;
+  white-space: nowrap;
 }

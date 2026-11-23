@@ -27,7 +27,7 @@ from match_history import MatchHistory
 from progression import Progression
 import practice_save
 from player_stats import build_stats
-from records import build_records, personal_records, player_card
+from records import build_records, held_records, personal_records, player_card
 from scoring import (active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data,
                      scoring_rule_keys, ANGEL_RANKS)
 from bot import fallback_action, legal_actions, play_action, public_position
@@ -37,6 +37,7 @@ from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_g
 from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
 from avatars import AVATARS, BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
+from tournament import FORMAT_NAMES, MAX_ENTRANTS, Tournament
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -108,9 +109,30 @@ class SoloSettings(Settings):
     first: Literal["host", "guest", "alternate", "random", "winner", "loser"] = "host"
 
 
+class TournamentSettings(Settings):
+    """A tournament: the match every pairing plays (as for a table), and how the bracket is made."""
+    name: str = Field(default="Golf Tournament", min_length=1, max_length=48)
+    best_of: StrictInt = Field(default=1, ge=1, le=9)  # every match-up needs an end: no open-ended series
+    format: Literal["single", "double", "round_robin"] = "single"
+    seeding: Literal["random", "mmr"] = "random"
+    # places nobody takes: AI opponents, or byes (whoever meets one goes straight through)
+    fill: Literal["ai", "byes"] = "byes"
+    ranked: bool = False
+
+
+class TournamentAward(BaseModel):
+    winner: Literal[0, 1]
+
+
+class TournamentEntrant(BaseModel):
+    entrant: str = Field(min_length=1, max_length=16)
+
+
 class Join(BaseModel):
     username: str = Field(min_length=1, max_length=32)
     avatar: str | None = Field(default=None, max_length=32)
+    # "link": the player arrived by opening the table's invite link
+    via: Literal["link"] | None = None
 
 
 class Presence(Join):
@@ -189,6 +211,8 @@ class Session:
     # spectating: the table being watched, and its players (to follow them to their next table)
     watching: str | None = None
     watch_tokens: list = field(default_factory=list)
+    # the tournament this player has entered, if any
+    tournament_id: str | None = None
 
 
 @dataclass
@@ -262,6 +286,8 @@ class Room:
     local: bool = False
     # when the game in play was dealt (saved with its result, for time played)
     round_started_at: float | None = None
+    # everyone who has watched the game in play (saved with its result as a count)
+    watched_by: set = field(default_factory=set)
 
     practice: bool = False
     rated: bool = False
@@ -272,6 +298,16 @@ class Room:
     void_offered: list = field(default_factory=lambda: [False, False])
     disconnected: list = field(default_factory=lambda: [None, None])
     resume_notice: str | None = None
+    # a tournament match: {"id": tournament, "match": match}. Its series must
+    # produce a winner when must_decide is set (extra games break a level total).
+    tournament: dict | None = None
+    must_decide: bool = False
+    # both seats are played by Golfbot (a tournament match between two AIs)
+    ai_match: bool = False
+    # the seat that gave the match up by leaving or staying away, if any
+    forfeited: int | None = None
+    # a Ranked rematch needs both players: the seats that have asked for one
+    rematch_votes: set = field(default_factory=set)
 
     @property
     def counts_streak(self):
@@ -400,6 +436,7 @@ class Room:
 
     def start_round(self):
         self.round_started_at = time.time()
+        self.watched_by = {token for token, sockets in self.watchers.items() if sockets}
         self.resize_seats()
         if self.practice and self.house_rules:
             # A saved Play solo run outlives updates, so each new deal is played with
@@ -411,7 +448,7 @@ class Room:
                 self.rules, self.house_version = current, HOUSE_VERSION
         self.void_offer = None
         self.void_offered = [False, False]
-        if self.rated:
+        if self.rated or self.tournament:
             self.disconnected = [None if self.clients.get(token) else time.time() for token in self.seats]
         round_index = len(self.history)
         first = (0 if self.first == "host" else 1 if self.first == "guest" else
@@ -462,6 +499,10 @@ class Room:
                              "house_rules": self.house_rules, "house_version": self.house_version,
                              "patch": self.patch,
                              "turns": self.game.turns,
+                             # who had the first turn, and whether that was left to chance
+                             "first": self.game.first_player,
+                             "first_random": self.first == "random" or self.game_type == "many",
+                             "spectators": len(self.watched_by),
                              "started_at": self.round_started_at,
                              # the scores showing after each turn (for the comeback record)
                              "timeline": [point["scores"] for point in self.timeline if not point["final"]],
@@ -487,8 +528,11 @@ class Room:
         if self.series_mode == 'points' and self.best_of is not None and len(self.history) >= self.best_of:
             leaders = [p for p, points in enumerate(self.points) if points == min(self.points)]
             self.champion = leaders[0] if len(leaders) == 1 else None
-            self.status = 'finished'
-            self.series_complete = True
+            if self.champion is None and self.must_decide:
+                self.status = 'round_over'  # level on points: another game breaks the tie
+            else:
+                self.status = 'finished'
+                self.series_complete = True
         elif self.target is not None and max(self.wins) >= self.target:
             self.champion = self.wins.index(max(self.wins))
             self.status = "finished"
@@ -503,7 +547,12 @@ class Room:
             elif self.progression:
                 event_id = self.match_id + ':' + str(len(self.history))
                 if self.rated:
-                    self.history[-1]['elo'] = self.progression.rate_game(event_id, self.progression_players, winner, self.patch)
+                    # every Ranked game moves the game rating; the series it decides moves MMR
+                    self.history[-1]['game_rating'] = self.progression.rate_game(event_id, self.progression_players, winner, self.patch)
+                    if self.series_complete:
+                        self.history[-1]['mmr'] = self.progression.rate_series(
+                            self.match_id + ':series', self.progression_players, self.champion, self.patch)
+                        self.history[-1]['series_winner'] = self.champion
                 if self.counts_streak:
                     self.progression.practice_result(event_id, self.progression_players[0], winner, self.patch)
             if self.history_store and not self.debug_edited:
@@ -522,6 +571,7 @@ class Store:
         self.progression = Progression(self.history)
         self.progression.merge_stay()
         self.invitations = {}
+        self.tournaments = {}
         self.queue = {}
         self.queue_offers = {}
         self.queue_results = {}
@@ -659,7 +709,9 @@ def public_room(room):
             "house_rules": room.house_rules, "house_version": room.house_version,
             "series_mode": room.series_mode, "game_type": room.game_type, "capacity": room.capacity,
             "score_preview": room.score_preview or room.solo, "show_odds": room.show_odds or room.solo,
-            "patch": room.patch, "avatars": room.avatars, "practice": room.practice, "rated": room.rated}
+            "patch": room.patch, "avatars": room.avatars, "practice": room.practice, "rated": room.rated,
+            "rematch_votes": sorted(room.rematch_votes),
+            "tournament": room.tournament, "ai_match": room.ai_match}
 
 
 def message(room, viewer):
@@ -667,6 +719,8 @@ def message(room, viewer):
     if room.void_offer:
         return "Gameplay paused: an offer to void this game is pending."
     if room.status == "closed":
+        if room.tournament:
+            return "This match is over. The bracket has the result, and your next match if there is one."
         return "The other player left. Return to the menu to find a new table."
     if game is None:
         return "The host starts with at least three players." if room.game_type == 'many' else "Waiting for a second player. The game starts when they join."
@@ -742,12 +796,14 @@ def snapshot(room, token, watch=False):
              "emotes": public_emotes(room),
              "ready": room.ready, "wins": room.wins, "target": room.target,
              "history": room.history, "champion": room.champion,
+             # (a table that closed after its series was decided still shows that result)
+             "series_complete": room.series_complete,
              "points": room.points, "timeline": room.timeline,
              # who is in each seat, for opening their stats from the table
              "player_ids": [(profile or {}).get("id") for profile in room.participants],
-             "streak": room.streak if room.solo and not room.practice else None,
+             "streak": room.streak if room.solo and not room.practice and not room.tournament else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
-             "connected": [p in room.bot_seats or room.local or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
+             "connected": [p in room.bot_seats or room.local or room.ai_match or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
              "local": room.local,
              # the debug 8-bot table, where the debug tools work as in Practice
              "debug_table": bool(room.bot_seats),
@@ -755,9 +811,9 @@ def snapshot(room, token, watch=False):
              "message": message(room, viewer), "game": None}
     if room.progression:
         if room.rated:
-            state['ratings'] = [room.progression.profile(identity)['elo'] for identity in room.progression_players]
+            state['ratings'] = [room.progression.mmr(identity) for identity in room.progression_players]
             if not watch:
-                state['forfeit_elo_loss'] = room.progression.forfeit_loss(room.progression_players, viewer)
+                state['forfeit_mmr_loss'] = room.progression.forfeit_loss(room.progression_players, viewer)
         if room.counts_streak:
             profile = room.progression.profile(room.progression_players[0])
             state['streak'] = {'current': profile['current_streak'], 'best': profile['best_streak'], 'draws': profile['draws_in_row']}
@@ -784,7 +840,8 @@ def snapshot(room, token, watch=False):
                     if active and game.phase == "arrange" else [],
         "keep_layout": active and game.phase == "arrange",
         # solo: the rules can change until you flip your first card (House rules too)
-        "set_rules": not watch and room.solo and viewer == 0 and game.phase == "setup" and game.visible_count(0) == 0,
+        "set_rules": (not watch and room.solo and not room.tournament and viewer == 0
+                      and game.phase == "setup" and game.visible_count(0) == 0),
     }
     last_move = game.last_move
     actor = re.match(r'^Player (\d+) ', last_move)
@@ -799,6 +856,8 @@ def snapshot(room, token, watch=False):
         "first_player": game.first_player, "final_turn": game.is_final_turn, "ending": game.finisher is not None,
         "turn_order": game.turn_order, "turns": game.turns, "deck_count": game.deck_count,
         "next_up": game.next_up,
+        # how many turns away each seat's next turn is (big tables: "Up in 3")
+        "up_in": game.up_in,
         "players": [[{"visible": slot.visible,
                       "card": card_view(slot.card) if slot.visible else None} for slot in layout] for layout in game.players],
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),
@@ -834,8 +893,8 @@ def apply_move(room, token, move):
     room.expire_offer()
     if room.void_offer:
         raise HTTPException(409, "Respond to the pending offer before continuing play.")
-    if room.rated and move.action == "rematch":
-        raise HTTPException(409, "Join Ranked again to start another rated series.")
+    if room.tournament and move.action == "rematch":
+        raise HTTPException(409, "A tournament match is played once.")
     if move.version != room.version:
         raise HTTPException(409, "The table changed. Please try your action again.")
     if token not in room.seats:
@@ -862,8 +921,25 @@ def apply_move(room, token, move):
         if all(room.ready):
             room.start_round()
     elif move.action == "rematch":
-        if seat != 0 or room.status not in ("finished", "round_over"):
-            raise HTTPException(409, "Only the host can start a rematch after a game.")
+        # once a series is over, anyone at the table may start the next one;
+        # a series still being played is only the host's to start over
+        if room.status not in ("finished", "round_over"):
+            raise HTTPException(409, "A rematch can start once the series is over.")
+        if seat != 0 and room.status != "finished":
+            raise HTTPException(409, "Only the host can restart a series in progress.")
+        if room.rated:
+            # another Ranked series counts for MMR, so it starts only once both players
+            # have asked for it: nobody is pulled into a rated series they did not want
+            if room.status != "finished":
+                raise HTTPException(409, "A rematch can start once the series is over.")
+            room.rematch_votes.add(seat)
+            if len(room.rematch_votes) < len(room.seats):
+                # (the table still changed: the other player is shown that this one asked)
+                room.version += 1
+                room.touched = time.time()
+                return
+        room.rematch_votes = set()
+        room.forfeited = None
         room.wins, room.history, room.champion, room.last_winner = [0] * len(room.seats), [], None, None
         room.series_complete = False
         room.match_id, room.started_at = secrets.token_urlsafe(12), time.time()
@@ -877,7 +953,7 @@ def apply_move(room, token, move):
         if move.action == "flip" and game.phase == "setup":
             game.opening_reveal(seat, move.index)
         elif move.action in ("set_rule", "set_rules"):
-            if not room.solo or seat != 0 or game.phase != "setup":
+            if not room.solo or room.tournament or seat != 0 or game.phase != "setup":
                 raise HTTPException(403, "Lobby rules stay fixed during a match.")
             if game.visible_count(seat):
                 raise HTTPException(409, "Rules can only change before you flip a card.")
@@ -1224,6 +1300,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             loop.run_in_executor(None, send_push, token, subscription, payload)
 
     def kick_bot(room):
+        if room.ai_match:
+            return  # a match between two AIs runs itself (ai_match_loop)
         if room.bot_seats and (room.bot_task is None or room.bot_task.done()):
             room.bot_task = asyncio.create_task(debug_bot_loop(room))
             return
@@ -1645,8 +1723,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return {'current': PATCH_VERSION, 'patches': PATCH_NOTES}
 
     @app.get("/api/history")
-    async def match_history(request: Request, offset: int = Query(default=0, ge=0)):
-        matches = store.history.for_browser(session_for(request).token, limit=51, offset=offset)
+    async def match_history(request: Request, offset: int = Query(default=0, ge=0),
+                            kind: Literal["pvp", "solo", "tournament"] | None = Query(default=None)):
+        """Saved matches, newest first. `kind` keeps one sort: games against Golfbot,
+        tournament matches, or everything else (tables between players)."""
+        matches = store.history.for_browser(session_for(request).token, limit=51, offset=offset, kind=kind)
         return {"matches": matches[:50], "next_offset": offset + 50 if len(matches) > 50 else None}
 
     @app.get("/api/stats")
@@ -1668,8 +1749,19 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             selected = player if player is not None else viewer_profile['id']
             compared = (opponent or None) if opponent is not None else 'bot:golfbot'
             # every guest is one "Guest" here, as on the leaderboards
-            return await asyncio.to_thread(lambda: build_stats(store.history.stats_results(), selected, compared, enabled, disabled, house_rules, patch,
-                                                               profiles=profiles, merge_guests=True))
+            results = await asyncio.to_thread(store.history.stats_results)
+            stats = await asyncio.to_thread(lambda: build_stats(results, selected, compared, enabled, disabled, house_rules, patch,
+                                                                profiles=profiles, merge_guests=True))
+            # a signed-in player's two ratings: MMR (by series) and their game rating
+            for entry in (stats['player'], stats['comparison']):
+                if entry and entry['profile']['id'].startswith('account:'):
+                    entry['ratings'] = store.progression.ratings(entry['profile']['id'])
+            if stats['player']:
+                # the records this player holds (all time: the filters above do not apply to them)
+                ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
+                records = await asyncio.to_thread(build_records, results, ratings, record_extras())
+                stats['player']['records'] = held_records(records, stats['player']['profile']['id'])
+            return stats
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
@@ -1680,25 +1772,29 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         boards = store.progression.leaderboard(PATCH_VERSION)
         ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
-        boards['records'] = await asyncio.to_thread(build_records, results, ratings)
+        boards['records'] = await asyncio.to_thread(build_records, results, ratings, record_extras())
         # the viewer's own best at each, shown under its card
         me = 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
         boards['personal'] = await asyncio.to_thread(personal_records, results, ratings, me)
         return boards
 
+    def record_extras():
+        """What the records need that saved games cannot say."""
+        return {'invites': store.accounts.invite_counts(), 'newest': store.accounts.newest()}
+
     @app.get('/api/player-card')
     async def player_card_view(request: Request, player: str = Query(max_length=64)):
-        """A player's Elo, best 1v1 streak and held records, for their name-tag popup."""
+        """A player's MMR, best 1v1 streak and held records, for their name-tag popup."""
         session_for(request)
         ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
-        return await asyncio.to_thread(player_card, results, ratings, player)
+        return await asyncio.to_thread(player_card, results, ratings, player, record_extras())
 
     @app.get("/api/lobbies")
     async def lobbies():
         store.cleanup()
         return [public_room(room) for room in store.rooms.values()
-                if not room.solo and not room.local and room.status != "closed"]
+                if not room.solo and not room.local and not room.tournament and room.status != "closed"]
 
     def at_table(session):
         room = store.rooms.get(session.room_id)
@@ -1878,16 +1974,32 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     def prune_invites():
         for key, invitation in list(store.invitations.items()):
-            room = store.rooms.get(invitation['room'])
             target = store.sessions.get(invitation['target'])
-            if (invitation['expires'] <= time.time() or not room or room.status != 'waiting'
-                    or not room.has_open_seat or not target or at_table(target)):
+            if invitation.get('tournament'):
+                # to a tournament still gathering players
+                cup = store.tournaments.get(invitation['tournament'])
+                closed = (cup is None or cup.status != 'open' or len(cup.entrants) >= MAX_ENTRANTS
+                          or bool(target and in_tournament(target)))
+            else:
+                room = store.rooms.get(invitation['room'])
+                closed = not room or room.status != 'waiting' or not room.has_open_seat
+            if invitation['expires'] <= time.time() or closed or not target or with_others(target):
                 del store.invitations[key]
+
+    def playing_golfbot(session):
+        """At a table of their own against Golfbot (not a tournament match): free to be invited away."""
+        room = store.rooms.get(session.room_id)
+        return bool(at_table(session) and room.solo and not room.tournament)
+
+    def with_others(session):
+        """Sitting at a table with other people, so not someone to invite elsewhere."""
+        return at_table(session) and not playing_golfbot(session)
 
     def available_players(session):
         players = {}
         for other in store.sessions.values():
-            if (other.token == session.token or other.online_until <= time.time() or at_table(other)
+            if (other.token == session.token or other.online_until <= time.time() or with_others(other)
+                    or in_tournament(other)
                     or session.account and other.account and session.account['id'] == other.account['id']):
                 continue
             identity = ('account', other.account['id']) if other.account else ('guest', other.public_id)
@@ -1906,10 +2018,29 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             raise HTTPException(422, str(error)) from error
         return {'saved': True}
 
+    async def rename_seat(session):
+        """A new display name shows at once at the table the player is sitting at
+        (a solo run is one long series, so it would otherwise never catch up)."""
+        room = store.rooms.get(session.room_id)
+        if room is None or session.token not in room.seats:
+            return
+        async with room.lock:
+            seat = room.seats.index(session.token)
+            if room.departed[seat] or room.names[seat] == session.username:
+                return
+            room.names[seat] = session.username
+            for profiles in (room.participants, room.progression_players):
+                if seat < len(profiles) and isinstance(profiles[seat], dict):
+                    profiles[seat] = {**profiles[seat], 'display_name': session.username}
+            room.version += 1
+            room.save_practice()
+            await broadcast(room)
+
     @app.post('/api/name')
     async def rename(body: Join, request: Request):
         session = session_for(request)
         set_name(session, body.username)
+        await rename_seat(session)
         return session_view(session)
 
     @app.post('/api/presence')
@@ -1927,7 +2058,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         prune_queue()
         invitations = []
         for key, item in store.invitations.items():
-            if item['target'] == session.token:
+            if item['target'] != session.token:
+                continue
+            if item.get('tournament'):
+                cup = store.tournaments[item['tournament']]
+                host = cup.entrants.get(cup.host)
+                invitations.append({'id': key, 'host': host.name if host else 'Host',
+                                    'tournament': {'id': cup.id, 'name': cup.name, 'format_name': FORMAT_NAMES[cup.format],
+                                                   'ranked': cup.ranked, 'best_of': cup.settings['best_of'],
+                                                   'series_mode': cup.settings['series_mode'],
+                                                   'house_rules': cup.settings['house_rules']}})
+            else:
                 room = store.rooms[item['room']]
                 invitations.append({'id': key, 'lobby': public_room(room), 'host': room.names[0]})
         return {
@@ -1937,12 +2078,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             'spectatable_games': sum(in_play(room) and session.token not in room.seats
                                      for room in store.rooms.values()),
             'players': [{'id': other.public_id, 'display_name': other.username, 'avatar': other.avatar,
-                         'unique_name': (other.account or {}).get('unique_name')}
+                         'unique_name': (other.account or {}).get('unique_name'),
+                         # (in a game against Golfbot: they can still be invited, and leave it to accept)
+                         'solo': playing_golfbot(other)}
                         for other in available_players(session)],
             'invitations': invitations,
             'invited': [store.sessions[item['target']].public_id for item in store.invitations.values()
                         if item['host'] == session.token and item['target'] in store.sessions],
             'queue': queue_view(session),
+            # the tournament this player is in, and their match when it is time to play
+            'tournament': tournament_presence(session),
             'queue_size': len(store.queue),
             'username': session.username,
         }
@@ -1953,19 +2098,23 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room = find_room(room_id)
         if room.solo or room.seats[0] != session.token or not room.has_open_seat:
             raise HTTPException(403, 'Only the host of an open lobby can invite players.')
-        target = next((other for other in available_players(session) if other.public_id == body.player_id), None)
+        return send_invitation(session, body.player_id, 'room', room.id)
+
+    def send_invitation(session, player_id, where, where_id):
+        """Invite someone online to a table ('room') or to a tournament still gathering players."""
+        target = next((other for other in available_players(session) if other.public_id == player_id), None)
         if not target:
             raise HTTPException(409, 'That player is no longer available.')
         prune_invites()
         for invitation in store.invitations.values():
-            if invitation['room'] == room.id and invitation['target'] == target.token:
+            if invitation.get(where) == where_id and invitation['target'] == target.token:
                 return {'sent': True}
         session.invite_times = [stamp for stamp in session.invite_times if stamp > time.time() - 60]
         if len(session.invite_times) >= 10:
             raise HTTPException(429, 'Please wait before sending more invitations.')
         session.invite_times.append(time.time())
         store.invitations[secrets.token_urlsafe(12)] = {
-            'host': session.token, 'target': target.token, 'room': room.id, 'expires': time.time() + 90,
+            'host': session.token, 'target': target.token, where: where_id, 'expires': time.time() + 90,
         }
         return {'sent': True}
 
@@ -1979,7 +2128,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if not body.accept:
             del store.invitations[invitation_id]
             return {'declined': True}
-        result = await take_seat(find_room(invitation['room']), session, body.username, body.avatar)
+        if invitation.get('tournament'):
+            result = seat_in_tournament(find_tournament(invitation['tournament']), session, body.username, body.avatar)
+        else:
+            result = await take_seat(find_room(invitation['room']), session, body.username, body.avatar)
         prune_invites()
         return result
 
@@ -2112,7 +2264,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room.version += 1
         room.touched = time.time()
         session.room_id = room.id
-        session.username = room.names[0]
+        if session.account.get('display_name'):
+            # the saved run goes by the name the player has now
+            room.names[0] = session.username
+            for profiles in (room.participants, room.progression_players):
+                if profiles and isinstance(profiles[0], dict):
+                    profiles[0] = {**profiles[0], 'display_name': session.username}
+        else:
+            session.username = room.names[0]
         return snapshot(room, session.token)
 
     @app.get("/api/lobbies/{room_id}")
@@ -2123,9 +2282,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def join_lobby(room_id: str, body: Join, request: Request):
         session = session_for(request)
         room = find_room(room_id)
-        return await take_seat(room, session, body.username, body.avatar)
+        return await take_seat(room, session, body.username, body.avatar, body.via)
 
-    async def take_seat(room, session, username, avatar=None):
+    def credit_invite(host, guest):
+        """A join through an invite link counts for the host (the Spreading the gospel record)."""
+        try:
+            if isinstance(host, dict) and isinstance(guest, dict):
+                store.accounts.record_invite(host.get('id'), guest.get('id'), host.get('unique_name') or host.get('display_name') or 'Player')
+        except Exception:
+            log.exception("Could not record an invite link join")
+
+    async def take_seat(room, session, username, avatar=None, via=None):
         async with room.lock:
             if session.token in room.seats:
                 return snapshot(room, session.token)
@@ -2146,6 +2313,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             room.seats[seat], room.names[seat] = session.token, session.username
             room.avatars[seat] = seat_avatar
             room.participants[seat] = profile
+            if via == 'link':
+                credit_invite(room.participants[0], profile)
             session.room_id = room.id
             cancel_queue(session.token)
             room.ready[seat] = True
@@ -2233,7 +2402,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return [{**public_room(room), "round": len(room.history) + (0 if room.round_recorded else 1),
                  "turns": room.game.turns, "scores": showing_scores(room.game),
                  "watchers": sum(bool(sockets) for sockets in room.watchers.values()),
+                 "streak": solo_streak(room),
                  "mine": session.token in room.seats} for room in rooms]
+
+    def solo_streak(room):
+        """A solo player's win streak against Golfbot, as their own table shows it (None elsewhere)."""
+        if not room.solo or room.tournament:
+            return None
+        if room.counts_streak and room.progression and room.progression_players:
+            profile = room.progression.profile(room.progression_players[0])
+            return {'current': profile['current_streak'], 'draws': profile['draws_in_row']}
+        return {'current': room.streak, 'draws': 0}
 
     def start_watching(session, room):
         session.watching = room.id
@@ -2277,6 +2456,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def watch_socket(ws, room, token):
         await ws.accept()
         room.watchers.setdefault(token, set()).add(ws)
+        room.watched_by.add(token)
         if token not in room.watch_slots:
             taken = set(room.watch_slots.values())
             room.watch_slots[token] = next(slot for slot in range(len(taken) + 1) if slot not in taken)
@@ -2341,7 +2521,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         room.save_practice()
                     elif room.counts_streak and not room.round_recorded:
                         store.progression.reset_streak(room.progression_players[0], room.patch)
-                    if room.rated:
+                    if room.rated or room.tournament:
                         forfeit(room, seat)
                 except Exception:
                     log.exception("Could not record the departure from table %s", room.id)
@@ -2364,26 +2544,37 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             return {"left": True}
 
     def forfeit(room, seat):
+        """`seat` gives up the match by leaving (or staying away too long).
+
+        At a Ranked table the game in play is lost, and so is the series: the player
+        who stayed wins it. Games never dealt count for nothing. A tournament match
+        that is not Ranked simply ends, with the seat noted for the bracket.
+        """
         if room.status not in ('playing', 'round_over') or room.series_complete:
             return
         room.void_offer = None
-        if not room.round_recorded:
-            scores = [0, 0]
-            scores[seat] = 1
-            winner = 1 - seat
-            room.history.append({'round': len(room.history) + 1, 'scores': scores,
-                                 'winner': winner, 'forfeit': True, 'rules': asdict(room.rules),
-                                 'house_rules': room.house_rules, 'house_version': room.house_version,
-                                 'patch': room.patch, 'ended_at': time.time(), 'turns': room.game.turns})
-            room.wins[winner] += 1
-            room.round_recorded = True
-            event_id = room.match_id + ':' + str(len(room.history))
-            room.history[-1]['elo'] = store.progression.rate_game(event_id, room.progression_players, winner, room.patch)
+        room.forfeited = seat
+        winner = 1 - seat
+        if room.rated:
+            if not room.round_recorded:
+                scores = [0, 0]
+                scores[seat] = 1
+                room.history.append({'round': len(room.history) + 1, 'scores': scores,
+                                     'winner': winner, 'forfeit': True, 'rules': asdict(room.rules),
+                                     'house_rules': room.house_rules, 'house_version': room.house_version,
+                                     'patch': room.patch, 'ended_at': time.time(), 'turns': room.game.turns})
+                room.wins[winner] += 1
+                room.round_recorded = True
+                event_id = room.match_id + ':' + str(len(room.history))
+                room.history[-1]['game_rating'] = store.progression.rate_game(event_id, room.progression_players, winner, room.patch)
+            series = store.progression.rate_series(room.match_id + ':series', room.progression_players, winner, room.patch)
+            room.history[-1].update(mmr=series, series_winner=winner, series_forfeit=seat)
         # A forfeit ends early; never award a full series victory from synthetic points.
         room.champion = None
         room.series_complete = False
         room.status = 'closed'
-        store.history.save(room, abandoned=True)
+        if room.history_store:
+            room.history_store.save(room, abandoned=True)
 
     async def monitor_tables():
         while True:
@@ -2396,15 +2587,23 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     # Leaving the site and coming back keeps your seat. Only a rated
                     # player gone for longer than RATED_GRACE forfeits (so nobody can
                     # stall an opponent); a practice table simply waits for you.
-                    if room.rated and room.status in ('playing', 'round_over'):
+                    if (room.rated or room.tournament) and not room.ai_match and room.status in ('playing', 'round_over'):
                         for seat, since in enumerate(room.disconnected):
+                            if room.solo and seat == 1:
+                                continue  # Golfbot is always there
                             if since is not None and time.time() - since >= RATED_GRACE and not room.clients.get(room.seats[seat]):
                                 forfeit(room, seat)
+                                if room.tournament:
+                                    absent_from_tournament(room, seat)
                                 room.version += 1
                                 changed = True
                                 break
                     if changed:
                         await broadcast(room)
+            try:
+                await advance_tournaments()
+            except Exception:
+                log.exception("Could not advance the tournaments")
 
     @app.post('/api/lobbies/{room_id}/void-offer')
     async def offer_void(room_id: str, request: Request):
@@ -2415,6 +2614,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 raise HTTPException(403, 'You are not at this table.')
             seat = room.seats.index(session.token)
             room.expire_offer()
+            if room.tournament:
+                raise HTTPException(409, 'A tournament match cannot be voided.')
             if not room.rated or room.status != 'playing' or room.round_recorded or room.void_offer or room.void_offered[seat]:
                 raise HTTPException(409, 'You may offer once during each Ranked game.')
             room.void_offered[seat] = True
@@ -2445,6 +2646,459 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             room.version += 1
             await broadcast(room)
             return snapshot(room, session.token)
+
+    # ---------- tournaments ----------
+    # A tournament is a bracket (tournament.py) whose match-ups are played at
+    # ordinary 1v1 tables. Once a second (monitor_tables) each running tournament
+    # reads the results of its tables into the bracket and seats whoever plays next.
+    TOURNAMENT_NEXT_GAME = 45  # seconds a finished game waits for "Next game" before it is dealt anyway
+    AI_MATCH_PACE = 0.55       # two AIs play briskly, so the bracket is not kept waiting
+    AI_MATCH_BREAK = 4         # ...with a pause on each result for whoever is watching
+
+    def find_tournament(tournament_id):
+        tournament = store.tournaments.get(tournament_id)
+        if tournament is None or tournament.status == 'cancelled':
+            raise HTTPException(404, "That tournament is no longer available.")
+        return tournament
+
+    def in_tournament(session):
+        """The running or open tournament this player is still part of, if any."""
+        tournament = store.tournaments.get(session.tournament_id)
+        entrant = tournament.by_token(session.token) if tournament else None
+        if entrant is None or entrant.withdrawn or tournament.status not in ('open', 'live'):
+            return None
+        return tournament
+
+    def tournament_presence(session):
+        tournament = in_tournament(session)
+        if tournament is None:
+            return None
+        entrant = tournament.by_token(session.token)
+        match = next((match for match in tournament.live() if entrant.id in match.players), None)
+        return {'id': tournament.id, 'name': tournament.name, 'status': tournament.status,
+                'room_id': match.room_id if match else None}
+
+    def by_place(room, values):
+        """A table's per-seat values in the order of the bracket's two places."""
+        slots = room.tournament['slots']
+        return [values[slots.index(place)] for place in (0, 1)]
+
+    def tournament_view(tournament, session):
+        view = tournament.view()
+        for row in view['matches']:
+            room = store.rooms.get(row['room_id']) if row['room_id'] else None
+            if room is not None and room.tournament and row['status'] == 'live':
+                # the match as it stands, for the dashboard
+                row['live'] = {'game': len(room.history) + (0 if room.round_recorded else 1),
+                               'wins': by_place(room, room.wins), 'points': by_place(room, room.points),
+                               'scores': by_place(room, showing_scores(room.game)) if room.game and room.status == 'playing' else None,
+                               'watchers': sum(bool(sockets) for sockets in room.watchers.values())}
+        entrant = tournament.by_token(session.token)
+        match = next((match for match in tournament.live() if entrant and entrant.id in match.players), None)
+        view['you'] = {'entrant': entrant.id if entrant else None,
+                       'host': bool(entrant and entrant.id == tournament.host),
+                       'match': match.id if match else None, 'room_id': match.room_id if match else None}
+        return view
+
+    def enter_tournament(tournament, session):
+        profile = profile_for(session)
+        if any(other.profile and other.profile.get('id') == profile['id'] for other in tournament.entrants.values()):
+            raise HTTPException(409, "You are already in this tournament on another device.")
+        try:
+            entrant = tournament.add(session.username, session.token, session.avatar, profile,
+                                     store.progression.mmr(progression_profile(session)))
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        session.tournament_id = tournament.id
+        return entrant
+
+    @app.get('/api/tournaments')
+    async def tournaments(request: Request):
+        """Tournaments to join or follow: open ones and running ones. (Finished ones are in Match history.)"""
+        session = session_for(request)
+        rows = []
+        for tournament in store.tournaments.values():
+            if tournament.status not in ('open', 'live'):
+                continue
+            host, champion = tournament.entrants.get(tournament.host), tournament.entrants.get(tournament.champion)
+            rows.append({'id': tournament.id, 'name': tournament.name, 'status': tournament.status,
+                         'format': tournament.format, 'format_name': FORMAT_NAMES[tournament.format],
+                         'ranked': tournament.ranked, 'entrants': len(tournament.entrants),
+                         'host': host.name if host else '', 'champion': champion.name if champion else None,
+                         'live': len(tournament.live()), 'settings': tournament.settings,
+                         'mine': tournament.by_token(session.token) is not None, 'created_at': tournament.created_at})
+        return sorted(rows, key=lambda row: (('live', 'open').index(row['status']), -row['created_at']))
+
+    @app.get('/api/tournament-history')
+    async def tournament_history(request: Request):
+        """Finished tournaments, newest first, for Match history."""
+        viewer = profile_for(session_for(request))['id']
+        rows = []
+        for saved in store.history.tournaments():
+            entrants = {entrant['id']: entrant for entrant in saved.get('entrants') or []}
+            host, champion = entrants.get(saved.get('host')), entrants.get(saved.get('champion'))
+            rows.append({'id': saved['id'], 'name': saved.get('name'), 'status': 'finished',
+                         'format': saved.get('format'), 'format_name': saved.get('format_name'),
+                         'ranked': bool(saved.get('ranked')), 'entrants': len(entrants),
+                         'host': host['name'] if host else '', 'champion': champion['name'] if champion else None,
+                         'live': 0, 'settings': saved.get('settings'), 'finished_at': saved.get('finished_at'),
+                         'mine': any(entrant.get('player_id') == viewer for entrant in entrants.values())})
+        return rows
+
+    @app.post('/api/tournaments')
+    async def host_tournament(settings: TournamentSettings, request: Request):
+        session = session_for(request)
+        leave_old(session)
+        if in_tournament(session):
+            raise HTTPException(409, "Leave your current tournament before hosting another.")
+        if len(store.tournaments) >= 30:
+            raise HTTPException(503, "The server has too many tournaments. Try again later.")
+        set_name(session, settings.username)
+        choose_avatar(session, settings.avatar)
+        cancel_queue(session.token)
+        # a Ranked tournament is always played on House rules, so MMR measures one game
+        house = settings.house_rules or settings.ranked
+        rules = parse_rules(house_rules() if house else settings.rules)
+        tournament = Tournament(secrets.token_urlsafe(9), clean_name(settings.name), None, settings.format,
+                                settings.seeding, settings.fill, settings.ranked, settings={
+                                    'best_of': settings.best_of, 'series_mode': settings.series_mode,
+                                    'first': 'random' if house else settings.first, 'house_rules': house,
+                                    'house_version': HOUSE_VERSION if house else None, 'rules': asdict(rules),
+                                    'score_preview': settings.score_preview, 'show_odds': settings.show_odds})
+        tournament.host = enter_tournament(tournament, session).id
+        store.tournaments[tournament.id] = tournament
+        return tournament_view(tournament, session)
+
+    @app.get('/api/tournaments/{tournament_id}')
+    async def tournament_state(tournament_id: str, request: Request):
+        session = session_for(request)
+        if tournament_id not in store.tournaments:
+            # one that finished a while ago: its saved bracket, to look at
+            saved = store.history.tournament(tournament_id)
+            if saved:
+                viewer = profile_for(session)['id']
+                mine = next((entrant['id'] for entrant in saved.get('entrants') or [] if entrant.get('player_id') == viewer), None)
+                return {**saved, 'can_start': False, 'you': {'entrant': mine, 'host': False, 'match': None, 'room_id': None}}
+        return tournament_view(find_tournament(tournament_id), session)
+
+    def seat_in_tournament(tournament, session, username, avatar, via=None):
+        """Enter a tournament still gathering players (from its page, its link, or an invitation)."""
+        if tournament.by_token(session.token):
+            return tournament_view(tournament, session)
+        if tournament.status != 'open':
+            raise HTTPException(409, "This tournament has already started.")
+        leave_old(session)
+        if in_tournament(session):
+            raise HTTPException(409, "Leave your current tournament before joining another.")
+        set_name(session, username)
+        choose_avatar(session, avatar)
+        cancel_queue(session.token)
+        entrant = enter_tournament(tournament, session)
+        host = tournament.entrants.get(tournament.host)
+        if via == 'link' and host:
+            credit_invite(host.profile, entrant.profile)
+        return tournament_view(tournament, session)
+
+    @app.post('/api/tournaments/{tournament_id}/join')
+    async def join_tournament(tournament_id: str, body: Join, request: Request):
+        return seat_in_tournament(find_tournament(tournament_id), session_for(request), body.username, body.avatar, body.via)
+
+    @app.post('/api/tournaments/{tournament_id}/invite')
+    async def invite_to_tournament(tournament_id: str, body: InvitePlayer, request: Request):
+        """The host asks someone online to join, as the host of a table can."""
+        session = session_for(request)
+        tournament = find_tournament(tournament_id)
+        tournament_host(tournament, session)
+        if tournament.status != 'open' or len(tournament.entrants) >= MAX_ENTRANTS:
+            raise HTTPException(409, 'This tournament is not taking players.')
+        return send_invitation(session, body.player_id, 'tournament', tournament.id)
+
+    @app.post('/api/tournaments/{tournament_id}/leave')
+    async def leave_tournament(tournament_id: str, request: Request):
+        session = session_for(request)
+        tournament = find_tournament(tournament_id)
+        entrant = tournament.by_token(session.token)
+        if entrant is not None:
+            if tournament.status == 'open':
+                if entrant.id == tournament.host:
+                    # the host leaving the lobby closes it, as a host leaving closes a table:
+                    # nothing of it is kept, and everyone who had joined is free again
+                    tournament.status = 'cancelled'
+                    store.tournaments.pop(tournament.id, None)
+                    for other in tournament.entrants.values():
+                        joined = store.sessions.get(other.token)
+                        if joined and joined.tournament_id == tournament.id:
+                            joined.tournament_id = None
+                    prune_invites()
+                else:
+                    tournament.remove(entrant.id)
+            elif tournament.status == 'live':
+                # the match being played is given up first, then every one still to come
+                match = next((match for match in tournament.live() if entrant.id in match.players), None)
+                room = store.rooms.get(match.room_id) if match else None
+                if room is not None and session.token in room.seats and not room.departed[room.seats.index(session.token)]:
+                    await leave_table(room, session)
+                tournament.withdraw(entrant.id)
+                await advance_tournament(tournament)
+        if session.tournament_id == tournament.id:
+            session.tournament_id = None
+        return {'left': True}
+
+    def tournament_host(tournament, session):
+        entrant = tournament.by_token(session.token)
+        if entrant is None or entrant.id != tournament.host:
+            raise HTTPException(403, "Only the host can do that.")
+        return entrant
+
+    @app.post('/api/tournaments/{tournament_id}/remove')
+    async def remove_tournament_entrant(tournament_id: str, body: TournamentEntrant, request: Request):
+        """The host takes a player out of the lobby before the start."""
+        session = session_for(request)
+        tournament = find_tournament(tournament_id)
+        host = tournament_host(tournament, session)
+        entrant = tournament.entrants.get(body.entrant)
+        if tournament.status != 'open' or entrant is None or entrant.id == host.id:
+            raise HTTPException(409, "That entrant cannot be removed.")
+        tournament.remove(entrant.id)
+        removed = store.sessions.get(entrant.token)
+        if removed and removed.tournament_id == tournament.id:
+            removed.tournament_id = None
+        return tournament_view(tournament, session)
+
+    @app.post('/api/tournaments/{tournament_id}/start')
+    async def start_tournament(tournament_id: str, request: Request):
+        session = session_for(request)
+        tournament = find_tournament(tournament_id)
+        tournament_host(tournament, session)
+        if not tournament.can_start:
+            raise HTTPException(409, "A tournament needs at least two players.")
+        for entrant in tournament.entrants.values():
+            # seeded on the MMR each player has now, not when they joined
+            player = store.sessions.get(entrant.token)
+            if player is not None:
+                entrant.rating = store.progression.mmr(progression_profile(player))
+                entrant.name = player.username
+        tournament.start(ai_avatar=BOT_AVATAR)
+        await advance_tournament(tournament)
+        return tournament_view(tournament, session)
+
+    @app.post('/api/tournaments/{tournament_id}/matches/{match_id}/award')
+    async def award_tournament_match(tournament_id: str, match_id: str, body: TournamentAward, request: Request):
+        """The host settles a match that cannot finish by itself (someone stuck or gone)."""
+        session = session_for(request)
+        tournament = find_tournament(tournament_id)
+        tournament_host(tournament, session)
+        match = tournament.matches.get(match_id)
+        if tournament.status != 'live' or match is None or match.status == 'done' or None in match.players:
+            raise HTTPException(409, "That match cannot be awarded.")
+        room = store.rooms.get(match.room_id) if match.room_id else None
+        if room is not None and room.status != 'closed':
+            async with room.lock:
+                room.forfeited = room.tournament['slots'].index(1 - body.winner)
+                room.void_offer = None
+                room.status = 'closed'
+                room.version += 1
+                if room.bot_task:
+                    room.bot_task.cancel()
+                if room.history_store:
+                    room.history_store.save(room, abandoned=True)
+                await broadcast(room)
+        tournament.report(match.id, body.winner, note='awarded')
+        await advance_tournament(tournament)
+        return tournament_view(tournament, session)
+
+    def absent_from_tournament(room, seat):
+        """Someone who never came back to their match is out of the tournament, so the
+        opponents they were still to meet are not each kept waiting for them in turn."""
+        tournament = store.tournaments.get(room.tournament['id'])
+        match = tournament.matches.get(room.tournament['match']) if tournament else None
+        if match is not None:
+            tournament.withdraw(match.players[room.tournament['slots'][seat]])
+
+    def match_outcome(room):
+        """How a tournament table ended, as (winning place, score, points, note); None while it plays on."""
+        if room is None:
+            return 0, None, None, 'forfeit'  # the table is gone: the upper place goes through
+        if room.series_complete:
+            winner = None if room.champion is None else room.tournament['slots'][room.champion]
+            return winner, by_place(room, room.wins if room.series_mode == 'wins' else room.points), by_place(room, room.points), None
+        if room.status == 'closed':
+            seat = room.forfeited if room.forfeited is not None else next((seat for seat, gone in enumerate(room.departed) if gone), 0)
+            score = by_place(room, room.wins if room.series_mode == 'wins' else room.points) if room.history else None
+            return room.tournament['slots'][1 - seat], score, by_place(room, room.points) if room.history else None, 'forfeit'
+        return None
+
+    async def vacate(session):
+        """Stand a player up from wherever they are sitting, ready for their match."""
+        cancel_queue(session.token)
+        old = store.rooms.get(session.room_id)
+        if old is not None and at_table(session):
+            await leave_table(old, session)
+
+    async def start_match(tournament, match):
+        first, second = (tournament.entrants[player] for player in match.players)
+        for entrant in (first, second):
+            # someone whose session has gone cannot be seated: they are out of the tournament
+            if not entrant.ai and entrant.token not in store.sessions:
+                tournament.withdraw(entrant.id)
+        if match.status != 'pending':
+            return
+        settings = tournament.settings
+        common = dict(house_rules=settings['house_rules'], house_version=settings['house_version'],
+                      series_mode=settings['series_mode'], score_preview=settings['score_preview'],
+                      show_odds=settings['show_odds'], must_decide=tournament.format != 'round_robin')
+        name = f'{tournament.name}: {tournament.label(match)}'
+        rules, best_of, order = parse_rules(dict(settings['rules'])), settings['best_of'], settings['first']
+        bot = lambda entrant: {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': entrant.name}
+        if first.ai and second.ai:
+            # two AIs: Golfbot plays both hands at a table of its own, which anyone can watch
+            room = Room(secrets.token_urlsafe(9), name, rules, best_of, order, True, [f'ai:{secrets.token_hex(6)}', None],
+                        [first.name, second.name], history_store=None, ai_match=True, **common)
+            room.participants, slots = [bot(first), bot(second)], [0, 1]
+            room.avatars = [first.avatar or BOT_AVATAR, second.avatar or BOT_AVATAR]
+        elif first.ai or second.ai:
+            # a player against an AI: a solo table, with the player in its first seat
+            human, ai = (second, first) if first.ai else (first, second)
+            slots = [1, 0] if first.ai else [0, 1]
+            if first.ai:
+                order = {'host': 'guest', 'guest': 'host'}.get(order, order)
+            session = store.sessions[human.token]
+            await vacate(session)
+            human.name = session.username
+            room = Room(secrets.token_urlsafe(9), name, rules, best_of, order, True, [session.token, None],
+                        [session.username, ai.name], history_store=store.history, **common)
+            room.participants = [profile_for(session), bot(ai)]
+            room.avatars = [session.avatar, ai.avatar or BOT_AVATAR]
+            session.room_id = room.id
+        else:
+            sessions = [store.sessions[entrant.token] for entrant in (first, second)]
+            for session in sessions:
+                await vacate(session)
+            ranked = tournament.ranked
+            room = Room(secrets.token_urlsafe(9), name, rules, best_of, order, False, [session.token for session in sessions],
+                        [session.username for session in sessions], history_store=store.history,
+                        participants=[profile_for(session) for session in sessions],
+                        avatars=[session.avatar for session in sessions], rated=ranked,
+                        progression=store.progression if ranked else None,
+                        progression_players=[progression_profile(session) for session in sessions] if ranked else [], **common)
+            slots = [0, 1]
+            for entrant, session in zip((first, second), sessions):
+                entrant.name = session.username
+                session.room_id = room.id
+        room.tournament = {'id': tournament.id, 'match': match.id, 'slots': slots,
+                           'name': tournament.name, 'label': tournament.label(match)}
+        store.rooms[room.id] = room
+        room.start_round()
+        room.version += 1
+        match.status, match.room_id, match.started_at = 'live', room.id, time.time()
+        if room.ai_match:
+            room.bot_task = asyncio.create_task(ai_match_loop(room))
+
+    async def advance_tournament(tournament):
+        """Read finished tables into the bracket, then seat everyone who can play next."""
+        for _ in range(64):  # a result can free players for another match straight away
+            for match in tournament.live():
+                room = store.rooms.get(match.room_id)
+                outcome = match_outcome(room)
+                if outcome is not None:
+                    winner, score, points, note = outcome
+                    tournament.report(match.id, winner, score, points, note)
+                else:
+                    await nudge_match(room)
+            ready = tournament.ready() if tournament.status == 'live' else []
+            if not ready:
+                break
+            for match in ready:
+                await start_match(tournament, match)
+        if tournament.status == 'finished' and not getattr(tournament, 'saved', False):
+            tournament.saved = True
+            try:
+                store.history.save_tournament(tournament.view())
+            except Exception:
+                log.exception("Could not save tournament %s", tournament.id)
+
+    async def nudge_match(room):
+        """Keep a tournament table moving: wake its AIs, and deal the next game if nobody asks for it."""
+        if room.ai_match:
+            if room.bot_task is None or room.bot_task.done():
+                room.bot_task = asyncio.create_task(ai_match_loop(room))
+        elif (room.status == 'round_over' and room.history
+              and time.time() - room.history[-1].get('ended_at', time.time()) >= TOURNAMENT_NEXT_GAME):
+            async with room.lock:
+                if room.status == 'round_over':
+                    room.start_round()
+                    room.version += 1
+                    await broadcast(room)
+                    kick_bot(room)
+
+    async def advance_tournaments():
+        for key, tournament in list(store.tournaments.items()):
+            if tournament.status == 'live':
+                try:
+                    await advance_tournament(tournament)
+                except Exception:
+                    log.exception("Could not advance tournament %s", tournament.id)
+            elif time.time() - tournament.touched > 12 * 3600:
+                del store.tournaments[key]  # an old lobby, or a result nobody has looked at in a while
+
+    async def ai_match_loop(room):
+        """A tournament match between two AIs: Golfbot plays both seats, a move at a time,
+        and deals each next game itself after a short pause on the result."""
+        rng = random.Random()
+        try:
+            while True:
+                await asyncio.sleep(AI_MATCH_PACE)
+                async with room.lock:
+                    if room.id not in store.rooms or room.status not in ("playing", "round_over"):
+                        return
+                    game = room.game
+                    if room.status == "round_over":
+                        if time.time() - room.history[-1].get('ended_at', 0) >= AI_MATCH_BREAK:
+                            room.start_round()
+                            room.version += 1
+                            await broadcast(room)
+                        continue
+                    if game.phase == "setup":
+                        # the first seat turns two cards up; the engine answers for the second
+                        hidden = [index for index, slot in enumerate(game.players[0]) if not slot.visible]
+                        for index in rng.sample(hidden, 2 - game.visible_count(0)):
+                            game.opening_reveal(0, index)
+                        room.track_scores()
+                        room.version += 1
+                        await broadcast(room)
+                        continue
+                    if game.phase == "over":
+                        continue
+                    version = room.version
+                    position = public_position(game)
+                    position._root_actions = set(legal_actions(game))
+                try:
+                    action = await bot_workers.choose(position)
+                except Exception:
+                    log.exception("AI decision failed at table %s; using a legal fallback", room.id)
+                    action = None
+                async with room.lock:
+                    if room.id not in store.rooms or room.status != "playing":
+                        continue
+                    if room.game is not game or room.version != version:
+                        continue
+                    allowed = legal_actions(game)
+                    if action not in allowed:
+                        action = fallback_action(allowed)
+                    if action is None:
+                        log.error("No legal AI move at table %s in phase %s", room.id, game.phase)
+                        return
+                    play_action(game, action)
+                    room.track_scores()
+                    room.record_result()
+                    room.version += 1
+                    room.touched = time.time()
+                    await broadcast(room)
+        except Exception:
+            log.exception("The AI match stopped unexpectedly at table %s", room.id)
+        finally:
+            if room.bot_task is asyncio.current_task():
+                room.bot_task = None
 
     @app.websocket("/ws/{room_id}")
     async def websocket(ws: WebSocket, room_id: str):
@@ -2541,6 +3195,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get("/stats")
     @app.get("/leaderboard")
     @app.get("/spectate")
+    @app.get("/tournament/{tournament_id}")
     @app.get("/patch-notes")
     @app.get("/notifications")
     @app.get("/account")
@@ -2554,6 +3209,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     # Only the outer app runs the lifespan; mounted app lifespans are not invoked.
     host = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     host.state.store = store
+    host.state.advance_tournaments = advance_tournaments  # the once-a-second pass, for tests
 
     @host.api_route('/Golfgame', methods=['GET', 'POST', 'DELETE', 'PATCH', 'PUT', 'OPTIONS', 'HEAD'])
     @host.api_route('/Golfgame/{rest:path}', methods=['GET', 'POST', 'DELETE', 'PATCH', 'PUT', 'OPTIONS', 'HEAD'])

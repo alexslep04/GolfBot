@@ -7,6 +7,7 @@ import unittest
 from threading import Event
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -796,6 +797,23 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(room.status, 'playing')
         self.assertEqual(room.game.phase, 'setup')
         self.assertEqual(room.ready, [False, False])
+
+    def test_a_guest_can_start_the_rematch_once_the_series_is_over(self):
+        room = self.room()
+        finish = lambda scores: (room.start_round(), setattr(room.game, 'phase', 'over'),
+                                 setattr(room.game, 'score', lambda p: scores[p]), room.record_result())
+        finish([2, 9])
+        # one game in: the series is still on, and only the host could start it over
+        self.assertEqual(room.status, 'round_over')
+        with self.assertRaises(HTTPException) as refused:
+            apply_move(room, 'guest', Move(action='rematch', version=room.version))
+        self.assertEqual(refused.exception.status_code, 409)
+        finish([1, 8])
+        self.assertEqual((room.status, room.champion), ('finished', 0))
+        old = room.match_id
+        apply_move(room, 'guest', Move(action='rematch', version=room.version))
+        self.assertEqual((room.status, room.history, room.wins, room.champion), ('playing', [], [0, 0], None))
+        self.assertNotEqual(room.match_id, old)
 
     def test_disconnected_room_cleanup(self):
         store = Store()

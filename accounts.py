@@ -39,6 +39,11 @@ class Accounts:
             self.db.execute('CREATE TABLE IF NOT EXISTS account_display_names (account_id TEXT NOT NULL, name TEXT NOT NULL, used_at REAL NOT NULL, PRIMARY KEY(account_id, name))')
             # the settings a signed-in player chose, so every device they use has them
             self.db.execute('CREATE TABLE IF NOT EXISTS account_preferences (account_id TEXT PRIMARY KEY, payload TEXT NOT NULL)')
+            # when each account was made (unknown for those made before this was kept)
+            if 'created_at' not in {row[1] for row in self.db.execute('PRAGMA table_info(accounts)')}:
+                self.db.execute('ALTER TABLE accounts ADD COLUMN created_at REAL')
+            # who has joined whose table by opening its invite link: one row per pair
+            self.db.execute('CREATE TABLE IF NOT EXISTS invite_joins (host TEXT NOT NULL, guest TEXT NOT NULL, host_label TEXT NOT NULL, at REAL NOT NULL, PRIMARY KEY(host, guest))')
 
     @staticmethod
     def public(row):
@@ -46,7 +51,8 @@ class Accounts:
 
     def login(self, google_sub):
         with self.lock, self.db:
-            self.db.execute('INSERT OR IGNORE INTO accounts (id, google_sub, unique_name) VALUES (?, ?, NULL)', (secrets.token_hex(16), google_sub))
+            self.db.execute('INSERT OR IGNORE INTO accounts (id, google_sub, unique_name, created_at) VALUES (?, ?, NULL, ?)',
+                            (secrets.token_hex(16), google_sub, time.time()))
             row = self.db.execute('SELECT id, unique_name, display_name FROM accounts WHERE google_sub=?', (google_sub,)).fetchone()
             token = secrets.token_urlsafe(32)
             self.db.execute('DELETE FROM account_sessions WHERE expires <= ?', (time.time(),))
@@ -112,6 +118,29 @@ class Accounts:
         with self.lock:
             row = self.db.execute('SELECT payload FROM account_preferences WHERE account_id=?', (account_id,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def newest(self):
+        """The account made most recently (with its unique name chosen), or None."""
+        with self.lock:
+            row = self.db.execute("""SELECT id, unique_name, display_name, created_at FROM accounts
+                WHERE unique_name IS NOT NULL ORDER BY rowid DESC LIMIT 1""").fetchone()
+        return {'id': 'account:' + row[0], 'unique_name': row[1], 'display_name': row[2], 'created_at': row[3]} if row else None
+
+    def record_invite(self, host, guest, host_label):
+        """Note that `guest` joined a table of `host`'s through its invite link (player ids).
+        Each pair counts once, however often they come back."""
+        if not host or not guest or host == guest:
+            return
+        with self.lock, self.db:
+            self.db.execute('INSERT OR IGNORE INTO invite_joins VALUES (?, ?, ?, ?)', (host, guest, host_label, time.time()))
+            self.db.execute('UPDATE invite_joins SET host_label=? WHERE host=?', (host_label, host))
+
+    def invite_counts(self):
+        """How many different people each host has brought in by invite link, most first."""
+        with self.lock:
+            rows = self.db.execute("""SELECT host, MAX(host_label), COUNT(*), MAX(at) FROM invite_joins
+                GROUP BY host ORDER BY COUNT(*) DESC, MIN(at)""").fetchall()
+        return [{'id': host, 'label': label, 'count': count, 'at': at} for host, label, count, at in rows]
 
     def display_names(self, account_id):
         """Every display name this account has saved, with when it was last chosen."""

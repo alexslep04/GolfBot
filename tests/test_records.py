@@ -11,17 +11,21 @@ def match(rounds, names=('Ann', 'Bob')):
 
 class RecordTests(unittest.TestCase):
     def test_empty_history_has_no_records(self):
-        self.assertEqual(build_records([]), {'highest_elo': None, 'comeback': None, 'most_modifier': None,
+        self.assertEqual(build_records([]), {'highest_mmr': None, 'comeback': None, 'most_modifier': None,
+                                             'ai_vs_players': None, 'luck': None, 'gospel': None, 'spectacle': None,
+                                             'recruit': None, 'upset': None,
                                              'least_modifier': None, 'comeback_modifier': None,
                                              'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None, 'most_time': None,
                                              'yapper': None, 'longest_pvp': None, 'bogey': None, 'lowest': None, 'party': None,
                                              'always_in_play': ['Poisoned Card']})
 
-    def test_highest_elo_counts_past_peaks_and_current_ratings(self):
-        results = [match([{'elo': [{'id': 'a', 'label': 'Ann', 'after': 1040}, {'id': 'b', 'label': 'Bob', 'after': 960}]},
-                          {'elo': [{'id': 'a', 'label': 'Ann', 'after': 1010}, {'id': 'b', 'label': 'Bob', 'after': 990}]}])]
-        self.assertEqual(build_records(results)['highest_elo']['elo'], 1040)
-        self.assertEqual(build_records(results, [{'id': 'c', 'label': 'Cy', 'elo': 1100}])['highest_elo']['label'], 'Cy')
+    def test_highest_mmr_counts_past_peaks_and_current_ratings_but_not_the_old_elo(self):
+        results = [match([{'mmr': [{'id': 'a', 'label': 'Ann', 'after': 1040}, {'id': 'b', 'label': 'Bob', 'after': 960}]},
+                          {'mmr': [{'id': 'a', 'label': 'Ann', 'after': 1010}, {'id': 'b', 'label': 'Bob', 'after': 990}]},
+                          # Elo from before 1.4.0 was another scale: never a record
+                          {'elo': [{'id': 'a', 'label': 'Ann', 'after': 1500}, {'id': 'b', 'label': 'Bob', 'after': 500}]}])]
+        self.assertEqual(build_records(results)['highest_mmr']['mmr'], 1040)
+        self.assertEqual(build_records(results, [{'id': 'c', 'label': 'Cy', 'mmr': 1100}])['highest_mmr']['label'], 'Cy')
 
     def test_comeback_is_the_winners_largest_deficit(self):
         results = [match([{'winner': 1, 'scores': [12, 9], 'timeline': [[4, 4], [5, 19], [10, 12]]},
@@ -78,29 +82,80 @@ class RecordTests(unittest.TestCase):
         won = lambda winner, at, scores=(1, 2): {'winner': winner, 'scores': list(scores), 'ended_at': at}
         results = [match([won(0, 1, (4, 9)), won(1, 2, (12, 3)), won(0, 3, (-2, 8))]),
                    match([won(0, 4, (20, 25))], names=('Bob', 'Cy'))]
-        ratings = [{'id': 'player:Ann', 'label': 'Ann', 'elo': 1030}, {'id': 'player:Bob', 'label': 'Bob', 'elo': 1080}]
+        ratings = [{'id': 'player:Ann', 'label': 'Ann', 'mmr': 1030}, {'id': 'player:Bob', 'label': 'Bob', 'mmr': 1080}]
         bob = personal_records(results, ratings, 'player:Bob')
         self.assertEqual(bob['id'], 'player:Bob')
         # Bob's own: not the table's lowest (-2, Ann's) but his, 3
-        self.assertEqual((bob['lowest']['points'], bob['bogey']['points'], bob['highest_elo']['elo']), (3, 20, 1080))
+        self.assertEqual((bob['lowest']['points'], bob['bogey']['points'], bob['highest_mmr']['mmr']), (3, 20, 1080))
         self.assertEqual(bob['pvp_streak']['streak'], 1)
         cy = personal_records(results, ratings, 'player:Cy')
-        self.assertEqual((cy['highest_elo'], cy['pvp_streak'], cy['lowest']['points']), (None, None, 25))
+        self.assertEqual((cy['highest_mmr'], cy['pvp_streak'], cy['lowest']['points']), (None, None, 25))
         self.assertEqual(personal_records(results, ratings, 'bot:golfbot'), {})
 
-    def test_player_card_has_elo_own_best_streak_and_only_records_held(self):
+    def test_player_card_has_mmr_own_best_streak_and_only_records_held(self):
         won = lambda winner, at: {'winner': winner, 'scores': [1, 2], 'ended_at': at}
         results = [match([won(0, 1), won(0, 2), won(1, 3), won(0, 4)]),  # Ann: 2
                    match([won(0, 5), won(0, 6), won(0, 7)], names=('Bob', 'Cy'))]  # Bob: 3
-        ratings = [{'id': 'player:Ann', 'label': 'Ann', 'elo': 1080}, {'id': 'player:Bob', 'label': 'Bob', 'elo': 1010}]
+        ratings = [{'id': 'player:Ann', 'label': 'Ann', 'mmr': 1080, 'provisional': True}, {'id': 'player:Bob', 'label': 'Bob', 'mmr': 1010}]
         ann = player_card(results, ratings, 'player:Ann')
-        self.assertEqual((ann['elo'], ann['pvp_streak']), (1080, 2))
+        self.assertEqual((ann['mmr'], ann['provisional'], ann['pvp_streak']), (1080, True, 2))
         # Ann also finished a game on the fewest points anyone has (1, reached first)
-        self.assertEqual(set(ann['records']), {'highest_elo', 'lowest'})
+        self.assertEqual(set(ann['records']), {'highest_mmr', 'lowest'})
         bob = player_card(results, ratings, 'player:Bob')
         # Bob also finished a game on the most points anyone has (2, reached first)
-        self.assertEqual((bob['elo'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak', 'most_time', 'bogey'}))
-        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'elo': None, 'pvp_streak': 0, 'seconds_played': 0, 'records': {}})
+        self.assertEqual((bob['mmr'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak', 'most_time', 'bogey'}))
+        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'mmr': None, 'provisional': False, 'pvp_streak': 0, 'seconds_played': 0, 'records': {}})
+
+    def test_the_records_added_in_1_4_0(self):
+        solo = lambda scores, **extra: {'winner': scores.index(min(scores)), 'scores': scores, 'ended_at': 5, **extra}
+        golfbot = {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'}
+        ann, bob = ({'id': f'account:{name}', 'kind': 'account', 'display_name': name.title()} for name in ('ann', 'bob'))
+        # Ann against Golfbot: 21 games with a random first turn, 14 of them hers
+        games = [solo([3, 9], first=0 if game < 14 else 1, first_random=True, spectators=game % 3) for game in range(21)]
+        games.append(solo([1, 0], forfeit=True, first=0, first_random=True))  # a forfeit is no game
+        results = [{'names': ['Ann', 'Golfbot'], 'solo': True, 'participants': [ann, golfbot], 'rounds': games, 'started_at': 100},
+                   # Bob always chose to go first: that is no luck
+                   {'names': ['Bob', 'Golfbot'], 'solo': True, 'participants': [bob, golfbot], 'started_at': 50,
+                    'rounds': [solo([8, 2], first=0, first_random=False) for _ in range(30)]},
+                   # a rated series the lower-rated player won, 6 points to 14
+                   {'names': ['Ann', 'Bob'], 'participants': [ann, bob], 'status': 'finished', 'winner': 1, 'points': [14, 6],
+                    'rounds': [{'winner': 1, 'scores': [14, 6], 'ended_at': 9, 'spectators': 4, 'series_winner': 1,
+                                'mmr': [{'id': ann['id'], 'label': 'Ann', 'before': 1180, 'after': 1100},
+                                        {'id': bob['id'], 'label': 'Bob', 'before': 950, 'after': 1030}]}]},
+                   # an older series rated by Elo counts too, by the Elo each had at its first game
+                   {'names': ['Ann', 'Bob'], 'participants': [ann, bob], 'status': 'finished', 'winner': 0, 'points': [3, 9],
+                    'rounds': [{'winner': 0, 'scores': [3, 9], 'elo': [{'id': ann['id'], 'before': 990, 'after': 1006},
+                                                                      {'id': bob['id'], 'before': 1040, 'after': 1024}]}]},
+                   # the higher-rated player being left to it is no upset
+                   {'names': ['Ann', 'Bob'], 'participants': [ann, bob], 'status': 'abandoned', 'winner': None, 'points': [1, 0],
+                    'rounds': [{'winner': 0, 'scores': [0, 1], 'forfeit': True, 'series_winner': 0, 'series_forfeit': 1,
+                                'mmr': [{'id': ann['id'], 'before': 600, 'after': 700}, {'id': bob['id'], 'before': 1500, 'after': 1400}]}]}]
+        extras = {'invites': [{'id': bob['id'], 'label': 'bob', 'count': 3, 'at': 7}, {'id': ann['id'], 'label': 'ann', 'count': 1, 'at': 9}],
+                  'newest': {'id': bob['id'], 'unique_name': 'bob', 'display_name': 'Bob', 'created_at': None}}
+        records = build_records(results, extras=extras)
+        ai = records['ai_vs_players']
+        self.assertEqual((ai['id'], ai['bot_points'], ai['player_points'], ai['games']), ('bot:golfbot', 21 * 9 + 30 * 2, 21 * 3 + 30 * 8, 51))
+        luck = records['luck']
+        self.assertEqual((luck['label'], luck['first'], luck['games']), ('Ann', 14, 21))
+        self.assertAlmostEqual(luck['rate'], 2 / 3)
+        self.assertEqual((records['gospel']['label'], records['gospel']['count']), ('bob', 3))
+        spectacle = records['spectacle']
+        self.assertEqual((spectacle['count'], spectacle['players'], spectacle['scores'], spectacle['label']), (4, ['Ann', 'Bob'], [14, 6], 'Bob'))
+        # no creation date was kept for Bob's account: the day of his first game stands in
+        self.assertEqual(records['recruit'], {'id': bob['id'], 'label': 'Bob', 'unique_name': 'bob', 'at': 50})
+        upset = records['upset']
+        self.assertEqual((upset['label'], upset['opponent'], upset['gap'], upset['ratings'], upset['points'], upset['winner']),
+                         ('Bob', 'Ann', 230, [950, 1180], [14, 6], 1))
+        # Golfbot holds the AI record; the others are held by people
+        self.assertEqual(set(player_card(results, [], 'bot:golfbot', extras)['records']), {'ai_vs_players'})
+        self.assertEqual(set(player_card(results, [], bob['id'], extras)['records']) & {'gospel', 'recruit', 'upset', 'spectacle', 'luck'},
+                         {'gospel', 'recruit', 'upset', 'spectacle'})
+
+    def test_comeback_modifier_leaves_out_the_poisoned_card(self):
+        comeback = lambda keys: {'winner': 0, 'scores': [3, 9], 'timeline': [[20, 2]], 'activations': [keys, []]}
+        results = [match([comeback(['poisoned_card']), comeback(['poisoned_card', 'suited_rows']), comeback(['poisoned_card'])])]
+        self.assertEqual(build_records(results)['comeback_modifier']['key'], 'suited_rows')
+        self.assertIsNone(build_records([match([comeback(['poisoned_card'])])])['comeback_modifier'])
 
     def test_time_played_counts_each_game_for_its_players_capped_and_never_bots(self):
         timed = lambda start, end: {'winner': 0, 'scores': [1, 2], 'started_at': start, 'ended_at': end}

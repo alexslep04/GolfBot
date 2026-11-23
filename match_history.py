@@ -31,6 +31,7 @@ class MatchHistory:
             self.connection.execute("CREATE INDEX IF NOT EXISTS matches_guest ON matches(guest)")
             self.connection.execute('CREATE TABLE IF NOT EXISTS match_seats (match_id TEXT NOT NULL, seat INTEGER NOT NULL, browser TEXT NOT NULL, PRIMARY KEY(match_id, seat))')
             self.connection.execute('CREATE TABLE IF NOT EXISTS history_meta (key TEXT PRIMARY KEY, value REAL NOT NULL)')
+            self.connection.execute('CREATE TABLE IF NOT EXISTS tournaments (id TEXT PRIMARY KEY, finished_at REAL, payload TEXT NOT NULL)')
             # Older hosts may still have a pre-reset series in memory. Prevent
             # those summaries from repopulating the database after a reset.
             for event in ('INSERT', 'UPDATE'):
@@ -58,6 +59,9 @@ class MatchHistory:
             "house_rules": room.house_rules, "house_version": room.house_version,
             "patch": room.patch, "series_mode": room.series_mode, "game_type": room.game_type,
             "participants": room.participants,
+            # a tournament match says which tournament and round it was
+            "tournament": ({key: tournament.get(key) for key in ('id', 'name', 'label', 'match')}
+                           if (tournament := getattr(room, 'tournament', None)) else None),
             "started_at": room.started_at, "updated_at": time.time(),
             "status": "finished" if room.series_complete or room.champion is not None else "ended" if room.best_of is None and all(room.departed) else "abandoned" if abandoned else "in_progress",
             "winner": room.champion, "wins": list(room.wins),
@@ -92,11 +96,18 @@ class MatchHistory:
                                            for counts in game['modifier_counts']]
         return match
 
-    def for_browser(self, token, limit=100, offset=0):
+    # Match history's three lists: games against Golfbot, tournament matches, and the rest
+    KINDS = {
+        'solo': "WHERE json_extract(payload, '$.solo') AND json_extract(payload, '$.tournament') IS NULL",
+        'tournament': "WHERE json_extract(payload, '$.tournament') IS NOT NULL",
+        'pvp': "WHERE NOT COALESCE(json_extract(payload, '$.solo'), 0) AND json_extract(payload, '$.tournament') IS NULL",
+    }
+
+    def for_browser(self, token, limit=100, offset=0, kind=None):
         """List everyone's matches; identify the viewer's seat only if they played."""
         key = browser_key(token)
         with self.lock:
-            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches " + self.KINDS.get(kind, '') + " ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
             viewers = {match_id: seat for match_id, seat in self.connection.execute('SELECT match_id, seat FROM match_seats WHERE browser=?', (key,))} if key else {}
         return [{**self._upgrade(json.loads(payload)), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
                 for match_id, host, guest, payload in rows]
@@ -160,6 +171,23 @@ class MatchHistory:
             self.connection.execute('DELETE FROM matches')
             self.connection.execute('DELETE FROM match_seats')
         return count
+
+    def save_tournament(self, summary):
+        """Keep a finished tournament: its entrants, every match and who won."""
+        with self.lock, self.connection:
+            self.connection.execute('INSERT OR REPLACE INTO tournaments VALUES (?, ?, ?)',
+                                    (summary['id'], summary.get('finished_at'), json.dumps(summary)))
+
+    def tournaments(self, limit=50):
+        """Finished tournaments, newest first."""
+        with self.lock:
+            rows = self.connection.execute('SELECT payload FROM tournaments ORDER BY finished_at DESC, id LIMIT ?', (limit,)).fetchall()
+        return [json.loads(payload) for (payload,) in rows]
+
+    def tournament(self, tournament_id):
+        with self.lock:
+            row = self.connection.execute('SELECT payload FROM tournaments WHERE id=?', (tournament_id,)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def close(self):
         self.connection.close()

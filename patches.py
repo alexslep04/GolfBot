@@ -1,8 +1,49 @@
 """Release labels stored with results; older unlabelled games stay unlabelled."""
-PATCH_VERSION = "1.3.0"
+PATCH_VERSION = "1.4.0"
 
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
+    "rules": {"revisions": [], "additions": []},
+    # this patch sorts its changes under headings
+    "sections": [
+        {"title": "Tournaments", "notes": [
+            "Host a tournament from Play with Friends: single elimination, double elimination or round robin, seeded at random or by MMR.",
+            "Empty spots go to AI opponents or byes. Matches can be Best of or Total points over 1, 3, 5 or 9 games, and a tournament can be Ranked.",
+            "Invite players from the lobby, then follow the live bracket and watch any match from Spectate. Finished tournaments are kept in Match history.",
+        ]},
+        {"title": "Ranked", "notes": [
+            "Ranked now runs on Glicko-2. Your MMR comes from the series you play, and every game also moves a separate game rating, shown in Advanced stats. Everyone starts at 1000.",
+            "Leaving a Ranked series early now loses the series.",
+            "After a Ranked series you can rematch the same opponent, once you both ask for it.",
+        ]},
+        {"title": "Records and stats", "notes": [
+            "New records: AI vs. all players, Luck of the draw, Spreading the gospel, Quite the spectacle, Newest recruit and David vs. Goliath.",
+            "Comeback rule no longer counts the Poisoned Card, and Beggars Will be Choosers counts toward Most common rule again.",
+            "Under each record, your own best (or a note that the record is yours).",
+            "Modifiers are now called rules everywhere.",
+            "Advanced stats lists the records a player holds, and a player's card shows every record they are part of.",
+            "New stats: how often you get the first turn, and your win rate with and without it.",
+        ]},
+        {"title": "Tables and invites", "notes": [
+            "Host a Table has a Solo option: your own match and rules against Golfbot.",
+            "After a series, anyone at the table can start the Rematch.",
+            "You can invite someone who is playing Golfbot to your table; they leave that game to join.",
+            "At big tables your tag counts down to your turn: Up in 3, Up in 2, Up next.",
+        ]},
+        {"title": "Spectate and Match history", "notes": [
+            "Spectate shows the win streak of anyone playing Golfbot.",
+            "Match history is split into PVP, Solo and Tournaments.",
+            "Solo results keep two graphs: points through the game and points through the series.",
+        ]},
+        {"title": "Fixes and small things", "notes": [
+            "Changing your display name now shows at your table straight away.",
+            "Turn notifications switch on again.",
+            "The notes for a new patch pop up the first time you open it.",
+        ]},
+    ],
+    "changes": [],
+}, {
+    "version": "1.3.0",
     # this patch names its sections itself; older ones use the default headings
     "labels": {"revisions": "Reworked rules", "additions": "New Rules", "changes": "Gameplay"},
     "rules": {
