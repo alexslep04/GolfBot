@@ -154,8 +154,10 @@ const prefs = {
   showOdds: true, // spectating: each player's chance of winning under their points
   patchSeen: "", // the newest patch whose notes this player has been shown
   // the emotes on this player's bar, in order; any of each kind (Settings > Emotes)
+  // Every emote there is today starts on the bar. An emote added to the game
+  // later is NOT added here: it starts off the bar, for new players and old.
   emoteFaces: "unamused,shocked,laughing,cackling,nervous",
-  emoteWords: "luck,thanks,oops,wow,save",
+  emoteWords: "luck,thanks,oops,wow,save,ofc,tempo,ranked",
 };
 // Each theme is a set of color tokens in style.css, under :root[data-theme].
 // "golf" is the original sticker look and needs no attribute.
@@ -167,8 +169,17 @@ const THEMES = [
   // a theme marked "debug" is offered only on a debug server (and a saved
   // choice of one falls back to Original anywhere else)
 ].filter((theme) => theme[3] !== "debug" || document.documentElement.dataset?.debug !== undefined);
+/**
+ * Every setting is saved together, so a saved emote bar may be one that was
+ * never chosen. For a short while the bar started with only five sayings: one
+ * saved exactly like that goes back to the default (all of them).
+ */
+function unchosenEmotes(saved) {
+  if (saved.emoteWords === "luck,thanks,oops,wow,save") delete saved.emoteWords;
+  return saved;
+}
 try {
-  const saved = JSON.parse(localStorage.getItem("golf-prefs") || "{}");
+  const saved = unchosenEmotes(JSON.parse(localStorage.getItem("golf-prefs") || "{}"));
   // "Join Ranked on open" used to be on by default, and every setting is saved
   // together, so a saved "on" from then was never chosen: only one turned on
   // since (marked autoQueueChosen) counts. A saved "off" was always a choice.
@@ -221,6 +232,7 @@ function accountPrefs() {
 }
 /** Take the settings saved on the account (only ones this version knows). */
 function adoptPrefs(saved) {
+  saved = unchosenEmotes({ ...saved });
   for (const [key, value] of Object.entries(saved || {}))
     if ((key in prefs || key === "autoQueueChosen") && !DEVICE_PREFS.includes(key) && typeof value !== "object") prefs[key] = value;
   if (prefs.autoQueue && !prefs.autoQueueChosen) prefs.autoQueue = false;

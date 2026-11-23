@@ -3158,7 +3158,7 @@ button.tag-rules:active > .tag-in {
   width: 88%;
   height: 88%;
 }
-/* the text emotes: a row of short sayings under the faces, scrolling sideways
+/* the text emotes: two rows of short sayings under the faces, scrolling sideways
    (it takes the faces' width and never widens the pop-up itself) */
 .emote-words {
   display: flex;

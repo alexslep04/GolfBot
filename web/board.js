@@ -1408,14 +1408,17 @@ function emoteButtons() {
         `<button type="button" data-emote="${id}" aria-label="Send ${emoteNames[id].toLowerCase()} emote" ${closed}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
     )
     .join("");
-  // ...and the sayings, in one row that scrolls sideways (no row at all with none)
-  const words = emoteBar("words")
-    .map(
-      (id) =>
-        `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`,
-    )
+  // ...and the sayings, in two rows that scroll sideways together: the first
+  // half of them over the rest (one row for a single saying, none with none)
+  const word = (id) =>
+    `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`;
+  const said = emoteBar("words");
+  const half = Math.ceil(said.length / 2);
+  const words = [said.slice(0, half), said.slice(half)]
+    .filter((row) => row.length)
+    .map((row) => `<div class="emote-words-row">${row.map(word).join("")}</div>`)
     .join("");
-  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words"><div class="emote-words-row">${words}</div></div>` : ""}`;
+  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words">${words}</div>` : ""}`;
 }
 // the text emotes' fade at the edge goes once they are scrolled to the end
 document.addEventListener?.(

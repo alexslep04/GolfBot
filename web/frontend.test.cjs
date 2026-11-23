@@ -867,38 +867,60 @@ test('dates within the last 24 hours read as how long ago',()=>{
   assert.equal(label(86401+3600),new Date((now-86401-3600)*1000).toLocaleDateString());
 });
 
-test('the emote bar shows the emotes chosen in Settings > Emotes, in their order, with the sayings in one row',()=>{
+test('the emote bar shows the emotes chosen in Settings > Emotes, in their order, with the sayings in two rows',()=>{
   const h=harness();const bar=kind=>h.run(`emoteBar("${kind}").join()`);
   assert.equal(h.run('emoteNames.ranked'),'Join Ranked!');assert.ok(h.run('TEXT_EMOTES.includes("ranked")'));
-  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.equal(bar('words'),'luck,thanks,oops,wow,save');
+  // every emote there is starts on the bar
+  assert.equal(bar('faces'),h.run('FACE_EMOTES.join()'));assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');
+  assert.equal(bar('words'),h.run('TEXT_EMOTES.join()'));assert.equal(bar('words'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
   h.run('state={status:"playing"}');
   let html=h.run('emoteButtons()');
-  assert.equal(html.match(/data-emote="/g).length,10);assert.equal(html.match(/class="emote-words-row"/g).length,1);
-  assert.doesNotMatch(html,/data-emote="ranked"/);
-  // one left off the bar joins its end with a tap, and there is no limit to how many
-  assert.match(h.run('emoteEditHtml()'),/data-emote-pick="words:ranked"  aria-label="Add Join Ranked! to your bar"/);
-  h.run('pickEmote("words","ranked");pickEmote("words","tempo");pickEmote("words","ofc")');
-  assert.equal(bar('words'),'luck,thanks,oops,wow,save,ranked,tempo,ofc');
-  assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-pick="words:[a-z]+"  aria-label="Add/); // none left off
-  assert.equal(h.run('emoteButtons()').match(/class="emote-word"/g).length,8);
+  assert.equal(html.match(/data-emote="/g).length,13);
+  // the sayings in two rows: the first half over the rest
+  const rows=html=>[...html.matchAll(/<div class="emote-words-row">(.*?)<\/div>/g)].map(row=>[...row[1].matchAll(/data-emote="(\w+)"/g)].map(m=>m[1]).join());
+  assert.deepEqual(rows(html),['luck,thanks,oops,wow','save,ofc,tempo,ranked']);
+  assert.doesNotMatch(h.run('emoteEditHtml()'),/aria-label="Add /); // none left off
   // on the bar: a tap chooses (and shows the x that takes it off), a tap on another trades places
-  h.run('pickEmote("words","ranked")');assert.equal(bar('words'),'luck,thanks,oops,wow,save,ranked,tempo,ofc');
+  h.run('pickEmote("words","ranked")');assert.equal(bar('words'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
   html=h.run('emoteEditHtml()');
   assert.match(html,/data-emote-pick="words:ranked" aria-pressed="true"/);assert.match(html,/data-emote-drop="words:ranked" aria-label="Take Join Ranked! off your bar"/);
   assert.equal(html.match(/data-emote-drop=/g).length,1);
-  h.run('pickEmote("words","luck")');assert.equal(bar('words'),'ranked,thanks,oops,wow,save,luck,tempo,ofc');
+  h.run('pickEmote("words","luck")');assert.equal(bar('words'),'ranked,thanks,oops,wow,save,ofc,tempo,luck');
   assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-drop=|aria-pressed="true"/);
   // a second tap on the chosen one lets it go; one chosen of the other kind trades nothing
   h.run('pickEmote("faces","shocked");pickEmote("faces","shocked");pickEmote("faces","unamused");pickEmote("words","oops");pickEmote("words","wow")');
-  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.equal(bar('words'),'ranked,thanks,wow,oops,save,luck,tempo,ofc');
-  // taken off, an emote leaves the bar; a kind can be emptied, and then has no row on the bar
-  h.run('dropEmote("faces","cackling")');assert.equal(bar('faces'),'unamused,shocked,laughing,nervous');
-  assert.doesNotMatch(h.run('emoteButtons()'),/cackling/);
-  h.run('for(const id of emoteBar("words")) dropEmote("words",id)');assert.equal(bar('words'),'');assert.equal(h.run('prefs.emoteWords'),'');
+  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.equal(bar('words'),'ranked,thanks,wow,oops,save,ofc,tempo,luck');
+  // taken off, an emote leaves the bar (an odd number puts the extra saying in the top row); one left off joins the end with a tap
+  h.run('dropEmote("faces","cackling");dropEmote("words","save");dropEmote("words","ofc");dropEmote("words","tempo")');
+  assert.equal(bar('faces'),'unamused,shocked,laughing,nervous');assert.equal(bar('words'),'ranked,thanks,wow,oops,luck');
+  html=h.run('emoteButtons()');assert.doesNotMatch(html,/cackling/);assert.deepEqual(rows(html),['ranked,thanks,wow','oops,luck']);
+  assert.match(h.run('emoteEditHtml()'),/data-emote-pick="words:tempo"  aria-label="Add Not my tempo\. to your bar"/);
+  h.run('pickEmote("words","tempo")');assert.equal(bar('words'),'ranked,thanks,wow,oops,luck,tempo');
+  // one saying has one row; a kind can be emptied, and then has no row on the bar
+  h.run('prefs.emoteWords="wow"');assert.deepEqual(rows(h.run('emoteButtons()')),['wow']);
+  h.run('dropEmote("words","wow")');assert.equal(bar('words'),'');assert.equal(h.run('prefs.emoteWords'),'');
   html=h.run('emoteButtons()');assert.doesNotMatch(html,/emote-words/);assert.match(html,/data-emote-mute/);
   assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-pick="words:[a-z]+" aria-pressed/); // none on it
   // the editor opens from under the preferences, in Settings and in the table's menu alike
   assert.match(h.run('prefsHtml()'),/<button type="button" class="btn c-fw pref" data-emote-settings>.*?<\/button><\/div>$/); // the last row
   // a saved bar with a name it doesn't know, or one twice, keeps the rest
   h.run('prefs.emoteWords="ranked,nope,ranked,luck"');assert.equal(bar('words'),'ranked,luck');
+});
+
+test('an emote added to the game later starts off the bar, for a new player and for one with a saved bar',()=>{
+  const fresh=harness();
+  fresh.run('TEXT_EMOTES.push("gg");emoteNames.gg="Good game!";FACE_EMOTES.push("smug");emoteNames.smug="Smug"');
+  assert.equal(fresh.run('emoteBar("words").join()'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
+  assert.equal(fresh.run('emoteBar("faces").join()'),'unamused,shocked,laughing,cackling,nervous');
+  const edit=fresh.run('emoteEditHtml()');
+  assert.match(edit,/aria-label="Add Good game! to your bar"/);assert.match(edit,/aria-label="Add Smug to your bar"/);
+  fresh.run('state={status:"playing"}');assert.doesNotMatch(fresh.run('emoteButtons()'),/data-emote="(gg|smug)"/);
+  fresh.run('prefs.emoteWords="wow,luck"');assert.equal(fresh.run('emoteBar("words").join()'),'wow,luck');
+  fresh.run('pickEmote("words","gg")');assert.equal(fresh.run('emoteBar("words").join()'),'wow,luck,gg');
+  // the bar that started with five sayings (for a short while) was never a choice: it becomes every saying
+  assert.equal(fresh.run('unchosenEmotes({emoteWords:"luck,thanks,oops,wow,save",theme:"night"}).emoteWords'),undefined);
+  assert.equal(fresh.run('unchosenEmotes({emoteWords:"luck,thanks,oops,wow"}).emoteWords'),'luck,thanks,oops,wow');
+  const h=harness();
+  h.run('session.account={id:1,unique_name:"me"};session.preferences={emoteWords:"luck,thanks,oops,wow,save",emoteFaces:"nervous"};syncPrefs()');
+  assert.equal(h.run('prefs.emoteWords'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');assert.equal(h.run('prefs.emoteFaces'),'nervous');
 });
