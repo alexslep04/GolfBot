@@ -151,7 +151,7 @@ function lobbyRulesSheet(match) {
   const enabled = catalog.filter((rule) => match.rules?.[rule.key]);
   return `<section class="sheet rules-sheet c-p1" role="dialog" aria-modal="true" aria-label="Rules in play">
     <div class="sheet-head"><h2>${e(match.name)}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    <h3>${enabled.length} modifier${enabled.length === 1 ? "" : "s"} in play${match.house_rules ? " · House rules" : ""}</h3>
+    <h3>${enabled.length} rule${enabled.length === 1 ? "" : "s"} in play${match.house_rules ? " · House rules" : ""}</h3>
     <div>${enabled.map((rule) => ruleHelpCard(rule)).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>
   </section>`;
 }
@@ -2776,7 +2776,7 @@ function statsTable(entries, scope, title, color) {
     ["Average turns per game", (s) => statNumber(s.average_turns ?? null)],
     ["Average time spent on move", (s) => statSeconds(s.average_move_seconds ?? null)],
     [
-      "Average modifiers in play per game",
+      "Average rules in play per game",
       (s) => statNumber(s.average_rules_in_play ?? null),
     ],
     [
@@ -2976,9 +2976,10 @@ function leaderboardBody(tab, result) {
   const solo = tab === "solo",
     rows = result[tab] || [];
   const mine = session.account ? "account:" + session.account.id : null;
-  const intro = `<p class="hint dark">${solo ? "Ranked by best solo streak against Golfbot · All time" : `Ranked by Elo from rated games · Patch ${e(result.patch)}`}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
+  // what the board is ranked by: under the board, as on the Records tab
+  const intro = `<p class="hint dark leader-foot">${solo ? "Ranked by best solo streak against Golfbot · All time" : `Ranked by Elo from rated games · Patch ${e(result.patch)}`}${rows.some((row) => row.id?.startsWith("account:")) ? ". Tap a player for their full record." : ""}</p>`;
   if (!rows.length)
-    return `${intro}<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>`;
+    return `<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a rated game to get on the board."}</p></section>${intro}`;
   const value = (row) => (solo ? row.best_streak : row.elo);
   const record = (row) => `${statNumber(row.wins)}–${statNumber(row.draws)}–${statNumber(row.losses)}`;
   const rate = (row) => (row.win_rate === null || row.win_rate === undefined ? "—" : statPercent(row.win_rate));
@@ -3003,7 +3004,7 @@ function leaderboardBody(tab, result) {
       </${tag}>`;
     })
     .join("");
-  return `${intro}${hero}<div class="list leader-list">${list}</div>`;
+  return `${hero}<div class="list leader-list">${list}</div>${intro}`;
 }
 /** Time in games, as a number and its unit: hours once there's an hour of it, else minutes. */
 function timeParts(seconds) {
@@ -3017,41 +3018,56 @@ function timeParts(seconds) {
 }
 const timeLabel = (seconds) => timeParts(seconds).join(" ");
 /** Records: the all-time bests, one card each. */
-function recordsBody(records = {}) {
-  return `<p class="hint dark">All-time bests from every saved game.</p><div class="records">${recordCards(records)
+function recordsBody(records = {}, personal = {}) {
+  return `<div class="records">${recordCards(records, personal)
     .map(({ html }) => html)
-    .join("")}</div>`;
+    .join("")}</div><p class="hint dark leader-foot">All-time bests from every saved game.</p>`;
 }
-/** Every record's card, with the record it shows (null while nobody holds it). */
-function recordCards(records = {}) {
+/**
+ * Every record's card, with the record it shows (null while nobody holds it). Under
+ * each record that a player can hold, the viewer's own best (their PR), when they have one.
+ */
+function recordCards(records = {}, personal = {}) {
   const mine = session.account ? "account:" + session.account.id : null;
   const who = (record) => `${record.id && record.id === mine ? youStar() : ""}${e(record.label)}`;
   const when = (at) => (at ? new Date(at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "");
   const games = (n) => `${statNumber(n)} game${n === 1 ? "" : "s"}`;
-  const card = (key, color, symbol, title, record, value, unit, detail, empty, note = "") =>
-    `<section class="panel ${color} record-card" style="--i:${key}"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${
+  // the viewer's own best: a small box under the record's card, or a note that the
+  // record is theirs (one reached first holds it, so an equal best only ties it)
+  const pr = (key, record, mineBest, value, unit, text) => (recordValue) => {
+    if (!mineBest) return "";
+    if (record && personal.id && record.id === personal.id)
+      return `<div class="record-pr held"><span class="record-pr-text">${youStar()}You hold this record</span></div>`;
+    const tied = record && String(value) === String(recordValue);
+    return `<div class="record-pr"><span class="record-pr-value">${stickerText(String(value), { split: true, key: `record-pr:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-pu:${key}` }) : ""}</span><span class="record-pr-text">${tied ? "Ties the record" : text}</span></div>`;
+  };
+  const card = (key, color, symbol, title, record, value, unit, detail, empty, note = "", mine = () => "") =>
+    `<div class="record-slot ${color}" style="--i:${key}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${
       record
         ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
         : `<p class="hint dark">${empty}</p>`
-    }${note ? `<p class="record-note">${note}</p>` : ""}</section>`;
+    }${note ? `<p class="record-note">${note}</p>` : ""}</section>${mine(value)}</div>`;
   const { highest_elo: elo, comeback, most_modifier: most, least_modifier: least, comeback_modifier: clutch, pvp_streak: streak, games_today: today, modifiers_in_game: stacked, most_time: hours, yapper, longest_pvp: marathon, bogey, lowest, party } = records;
   const [played, playedUnit] = timeParts(hours?.seconds);
+  const P = personal;
+  const plural = (n, one, many = one + "s") => (n === 1 ? one : many);
+  const [myPlayed, myPlayedUnit] = timeParts(P.most_time?.seconds);
   const cards = [
-    card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet."),
-    card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet."),
-    card(2, "c-p2", "arrow.up.right", "Biggest comeback", comeback, comeback?.points, "pts", comeback && `<strong>${who(comeback)}</strong> was ${comeback.points} pts behind${comeback.opponents?.length ? ` ${e(comeback.opponents.length === 1 ? comeback.opponents[0] : `${comeback.opponents.length} players`)}` : ""} and won${comeback.scores ? ` ${e(comeback.scores.join("–"))}` : ""}${comeback.at ? ` · ${when(comeback.at)}` : ""}`, "No comebacks yet. The winner has to have been behind at some point."),
-    card(3, "c-s7", "clock.arrow.circlepath", "Most games today", today, today?.games, today?.games === 1 ? "game" : "games", today && `<strong>${who(today)}</strong> has finished the most games since midnight`, "No games finished today yet."),
-    card(4, "c-p1", "star.fill", "Most common modifier", most, most && statNumber(most.activations), most?.activations === 1 ? "time" : "times", most && `<strong>${e(most.name)}</strong> has come into play ${statNumber(most.activations)} time${most.activations === 1 ? "" : "s"}, the most of any modifier`, "No modifiers have come into play yet.", `Leaves out ${e([...(records.always_in_play || []), ...(records.never_most || [])].join(" and "))}.`),
-    card(5, "c-p4", "wand.and.stars", "Least common modifier", least, least && statPercent(least.rate), "", least && `<strong>${e(least.name)}</strong> came into play in ${statNumber(least.active)} of ${games(least.games)} it was on`, "Not enough games with modifiers yet."),
-    card(6, "c-s5", "bolt.fill", "Comeback modifier", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a modifier yet."),
-    card(7, "c-s6", "sparkles", "Most modifiers in a game", stacked, stacked?.count, "", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with modifiers yet."),
-    card(8, "c-p2", "text.bubble.fill", "Biggest yapper", yapper, yapper && statNumber(yapper.emotes), yapper?.emotes === 1 ? "emote" : "emotes", yapper && `<strong>${who(yapper)}</strong> has sent the most emotes at the table`, "No emotes counted yet. Counting started with this update."),
-    card(9, "c-s7", "clock.arrow.circlepath", "Longest 1v1 game", marathon, marathon && statNumber(marathon.turns), marathon?.turns === 1 ? "turn" : "turns", marathon && `<strong>${e((marathon.players || []).join(" vs "))}</strong>${marathon.scores ? ` finished ${e(marathon.scores.join(" to "))}` : ""} after ${statNumber(marathon.turns)} turns${marathon.at ? ` · ${when(marathon.at)}` : ""}`, "No 1v1 games between players yet."),
-    card(10, "c-p1", "tortoise.fill", "Bogey monster", bogey, bogey?.points, "pts", bogey && `<strong>${who(bogey)}</strong> finished a game on ${bogey.points} pts, the most ever${bogey.scores ? ` (scores: ${e(bogey.scores.join(", "))})` : ""}${bogey.at ? ` · ${when(bogey.at)}` : ""}`, "No games finished yet."),
-    card(11, "c-s5", "bird.fill", "Lowest score", lowest, lowest?.points, "pts", lowest && `<strong>${who(lowest)}</strong> finished a game on ${lowest.points} pts, the fewest ever${lowest.scores ? ` (scores: ${e(lowest.scores.join(", "))})` : ""}${lowest.at ? ` · ${when(lowest.at)}` : ""}`, "No games finished yet."),
-    card(12, "c-s4", "person.3.fill", "It's a party", party, party?.count, "signed in", party && `<strong>${e((party.players || []).join(", "))}</strong> all played in one game${party.seats > party.count ? ` of ${party.seats}` : ""}${party.at ? ` · ${when(party.at)}` : ""}`, "No game with two signed-in players yet."),
+    card(0, "c-p3", "crown.fill", "Highest Elo", elo, elo?.elo, "Elo", elo && `<strong>${who(elo)}</strong>${elo.at ? ` · ${when(elo.at)}` : ""}`, "No rated games yet.", "", pr(0, elo, P.highest_elo, P.highest_elo?.elo, "Elo", "Your highest")),
+    card(1, "c-s4", "flame.fill", "Best PvP win streak", streak, streak?.streak, streak?.streak === 1 ? "win" : "wins", streak && `<strong>${who(streak)}</strong> won ${streak.streak} 1v1 game${streak.streak === 1 ? "" : "s"} in a row against other players${streak.at ? ` · ${when(streak.at)}` : ""}`, "No 1v1 games won against another player yet.", "", pr(1, streak, P.pvp_streak, P.pvp_streak?.streak, plural(P.pvp_streak?.streak, "win"), "Your best streak")),
+    card(2, "c-p2", "arrow.up.right", "Biggest comeback", comeback, comeback?.points, "pts", comeback && `<strong>${who(comeback)}</strong> was ${comeback.points} pts behind${comeback.opponents?.length ? ` ${e(comeback.opponents.length === 1 ? comeback.opponents[0] : `${comeback.opponents.length} players`)}` : ""} and won${comeback.scores ? ` ${e(comeback.scores.join("–"))}` : ""}${comeback.at ? ` · ${when(comeback.at)}` : ""}`, "No comebacks yet. The winner has to have been behind at some point.", "", pr(2, comeback, P.comeback, P.comeback?.points, "pts", "Your biggest")),
+    card(3, "c-s7", "clock.arrow.circlepath", "Most games today", today, today?.games, today?.games === 1 ? "game" : "games", today && `<strong>${who(today)}</strong> has finished the most games since midnight`, "No games finished today yet.", "", pr(3, today, P.games_today, P.games_today?.games, plural(P.games_today?.games, "game"), "Yours today")),
+    card(4, "c-p1", "star.fill", "Most common rule", most, most && statNumber(most.activations), most?.activations === 1 ? "time" : "times", most && `<strong>${e(most.name)}</strong> has come into play ${statNumber(most.activations)} time${most.activations === 1 ? "" : "s"}, the most of any rule`, "No rules have come into play yet.", `Leaves out ${e((records.always_in_play || []).join(" and "))}, which comes into play every game it's on.`, pr(4, null, P.most_modifier, P.most_modifier && statNumber(P.most_modifier.activations), plural(P.most_modifier?.activations, "time"), `Yours: <strong>${e(P.most_modifier?.name || "")}</strong>`)),
+    card(5, "c-p4", "wand.and.stars", "Least common rule", least, least && statPercent(least.rate), "", least && `<strong>${e(least.name)}</strong> came into play in ${statNumber(least.active)} of ${games(least.games)} it was on`, "Not enough games with rules yet."),
+    card(6, "c-s5", "bolt.fill", "Comeback rule", clutch, clutch?.wins, clutch?.wins === 1 ? "win" : "wins", clutch && `<strong>${e(clutch.name)}</strong> was in play for the winner in the most comeback wins`, "No comeback wins with a rule yet."),
+    card(7, "c-s6", "sparkles", "Most rules in play on one hand", stacked, stacked?.count, stacked?.count === 1 ? "rule" : "rules", stacked && `<strong>${who(stacked)}</strong> had ${stacked.count} in play in one game: ${e(stacked.rules.join(", "))}${stacked.at ? ` · ${when(stacked.at)}` : ""}`, "No games with rules in play yet.", "", pr(7, stacked, P.modifiers_in_game, P.modifiers_in_game?.count, plural(P.modifiers_in_game?.count, "rule"), "Your most")),
+    card(8, "c-p2", "text.bubble.fill", "Biggest yapper", yapper, yapper && statNumber(yapper.emotes), yapper?.emotes === 1 ? "emote" : "emotes", yapper && `<strong>${who(yapper)}</strong> has sent the most emotes at the table`, "No emotes counted yet. Counting started with this update.", "", pr(8, yapper, P.yapper, P.yapper && statNumber(P.yapper.emotes), plural(P.yapper?.emotes, "emote"), "Yours")),
+    card(9, "c-s7", "clock.arrow.circlepath", "Longest 1v1 game", marathon, marathon && statNumber(marathon.turns), marathon?.turns === 1 ? "turn" : "turns", marathon && `<strong>${e((marathon.players || []).join(" vs "))}</strong>${marathon.scores ? ` finished ${e(marathon.scores.join(" to "))}` : ""} after ${statNumber(marathon.turns)} turns${marathon.at ? ` · ${when(marathon.at)}` : ""}`, "No 1v1 games between players yet.", "", pr(9, null, P.longest_pvp, P.longest_pvp && statNumber(P.longest_pvp.turns), plural(P.longest_pvp?.turns, "turn"), "Your longest")),
+    card(10, "c-p1", "tortoise.fill", "Bogey monster", bogey, bogey?.points, "pts", bogey && `<strong>${who(bogey)}</strong> finished a game on ${bogey.points} pts, the most ever${bogey.scores ? ` (scores: ${e(bogey.scores.join(", "))})` : ""}${bogey.at ? ` · ${when(bogey.at)}` : ""}`, "No games finished yet.", "", pr(10, bogey, P.bogey, P.bogey?.points, "pts", "Your highest")),
+    card(11, "c-s5", "bird.fill", "Lowest score", lowest, lowest?.points, "pts", lowest && `<strong>${who(lowest)}</strong> finished a game on ${lowest.points} pts, the fewest ever${lowest.scores ? ` (scores: ${e(lowest.scores.join(", "))})` : ""}${lowest.at ? ` · ${when(lowest.at)}` : ""}`, "No games finished yet.", "", pr(11, lowest, P.lowest, P.lowest?.points, "pts", "Your lowest")),
+    card(12, "c-s4", "person.3.fill", "It's a party", party, party?.count, "signed in", party && `<strong>${e((party.players || []).join(", "))}</strong> all played in one game${party.seats > party.count ? ` of ${party.seats}` : ""}${party.at ? ` · ${when(party.at)}` : ""}`, "No game with two signed-in players yet.", "", pr(12, null, P.party, P.party?.count, "signed in", "Your biggest")),
   ];
-  cards.push(card(13, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet."));
+  cards.push(card(13, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet.", "", pr(13, hours, P.most_time, myPlayed, myPlayedUnit, "Yours")));
   const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, lowest, party, hours];
   return cards.map((html, i) => ({ html, record: held[i] }));
 }
@@ -3098,7 +3114,7 @@ async function leaderboardPage(tab = "pvp") {
   history.replaceState({}, "", appPath("/leaderboard"));
   const draw = (body) => leaderShell("leaderboard", "Leaderboard", tab, body, "Loading leaderboard…");
   // the last board shows straight away; it is only redrawn if the fetch changed it
-  const body = (result) => (tab === "records" ? recordsBody(result.records) : leaderboardBody(tab, result));
+  const body = (result) => (tab === "records" ? recordsBody(result.records, result.personal) : leaderboardBody(tab, result));
   draw(leaderboardCache ? body(leaderboardCache) : null);
   try {
     const result = await api("/api/leaderboards");

@@ -27,7 +27,7 @@ from match_history import MatchHistory
 from progression import Progression
 import practice_save
 from player_stats import build_stats
-from records import build_records, player_card
+from records import build_records, personal_records, player_card
 from scoring import (active_rule_effects, column_score, visible_effect_total, modifier_data, rule_preview_data,
                      scoring_rule_keys, ANGEL_RANKS)
 from bot import fallback_action, legal_actions, play_action, public_position
@@ -1675,12 +1675,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     @app.get('/api/leaderboards')
     async def leaderboards(request: Request):
-        session_for(request)
+        session = session_for(request)
         # the boards show every guest as one "Guest"; records still name the player
         boards = store.progression.leaderboard(PATCH_VERSION)
         ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
         boards['records'] = await asyncio.to_thread(build_records, results, ratings)
+        # the viewer's own best at each, shown under its card
+        me = 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
+        boards['personal'] = await asyncio.to_thread(personal_records, results, ratings, me)
         return boards
 
     @app.get('/api/player-card')

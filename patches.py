@@ -46,7 +46,7 @@ PATCH_NOTES = [{
         "Leaderboards include PVP, Solo, and Advanced views.",
         "Practice supports saving and resuming games and tracking streaks.",
         "Voiding a game ends its series.",
-        "Modifier counts and rule examples make scoring easier to follow.",
+        "Rule counts and examples make scoring easier to follow.",
         "The public game address is sleptsov.dev/golf; legacy /Golfgame links redirect to /golf.",
     ],
 }, {

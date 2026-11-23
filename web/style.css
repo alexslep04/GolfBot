@@ -58,6 +58,7 @@
   --u: min(1px, 100vw / 402);
   font-size: calc(var(--u) * 10);
   --bg: #c4efab;
+  --edge: #cff5bc; /* the course's color at the screen's top and bottom on a phone */
   --fw: #73d542;
   --fw2: #a0e970;
   --fw3: #c3f3a4;
@@ -200,6 +201,7 @@
    backdrop, its card back) sit beside the rule they replace, marked "Poker:". */
 :root[data-theme="poker"] {
   --bg: #021b14;
+  --edge: #032017;
   --felt: #17573b; /* the lit middle of the table */
   --gold: #c9a961;
   --fw: #3f8a64;
@@ -249,6 +251,7 @@
    the seat colors kept bright enough to read but laid on deep surfaces. */
 :root[data-theme="night"] {
   --bg: #0f2018;
+  --edge: #193422;
   --fw: #3f8f5a;
   --fw2: #57a86f;
   --fw3: #17301f;
@@ -302,6 +305,7 @@
   --f-text: #cfcfcf; /* every label */
   --scrim: rgb(0 0 0 / 0.72);
   --bg: #000;
+  --edge: #000;
   --fw: var(--f-edge);
   --fw2: var(--f-edge);
   --fw3: var(--f-fill);
@@ -502,11 +506,8 @@ body {
    bottom (the fairway is 1076 of the image's 1276 units; the rest is the
    first cut around it). On narrow phones it shrinks with the width so its
    side edges stay in view, but its ends still just leave the screen. */
-/* The backdrop is only a picture, never a color: Safari paints the color of a
-   fixed element at the screen's edge flat across its bars, hiding what is
-   behind them. With the color on the page instead (html, above), the picture
-   runs on under the status bar and the toolbar, and it is as tall as the
-   screen with the bars put away (100lvh), so the toolbar never shows an edge. */
+/* The backdrop is as tall as the screen with Safari's bars put away (100lvh),
+   so the toolbar never shows its edge. */
 #backdrop {
   position: fixed;
   inset: 0;
@@ -514,6 +515,16 @@ body {
   z-index: -1;
   background: url(assets/fairway.svg) center / auto
     min(148vh, max(122vh, 250vw)) no-repeat;
+}
+/* Safari (iOS 26) never shows the page under its status bar and toolbar: it
+   fills them with one flat color, the page's background or a fixed element's.
+   On a phone the course fills the screen, so both are the course's own color
+   at its edges (--edge), and the bars run on from it without a seam. */
+@media (max-width: 759px) {
+  html,
+  #backdrop {
+    background-color: var(--edge);
+  }
 }
 /* Night Golf: the same course after dark */
 :root[data-theme="night"] #backdrop {
@@ -4263,15 +4274,21 @@ button.tag-rules:active > .tag-in {
   will-change: auto;
 }
 .sheet {
-  position: relative; /* over the shade's dim (::before) */
+  /* fixed to the screen's bottom (over the shade's dim, its ::before): Safari
+     fills its toolbar with the color of a fixed element at the screen's edge,
+     so the sheet runs on under the toolbar instead of the page's color */
+  position: fixed;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
   /* the sheet runs on below the bottom of the screen (its tail), so however the
      screen's bottom edge moves (Safari's toolbar coming and going) no gap opens
      under it; the tail's padding lets its last line still scroll into view */
   --sheet-tail: max(10rem, 7dvh);
+  bottom: calc(-1 * var(--sheet-tail));
   width: 100%;
   max-width: 48rem;
   max-height: calc(86dvh + var(--sheet-tail));
-  margin-bottom: calc(-1 * var(--sheet-tail));
   overflow: auto;
   overscroll-behavior: contain;
   /* an equal gutter each side, so the scrollbar never pushes content off-center */
@@ -5034,6 +5051,8 @@ button:disabled > .haptic-switch {
     padding: 1.6rem;
   }
   .sheet {
+    position: relative;
+    bottom: auto;
     --sheet-tail: 0rem;
     border-bottom: 0.4rem solid var(--c);
     border-radius: 3.2rem;
@@ -5217,16 +5236,23 @@ button:disabled > .haptic-switch {
   gap: 2.2rem 1.6rem;
   margin-top: 2.4rem;
 }
+/* a record's card, with the viewer's own best (if any) underneath it */
+.record-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  animation: pop 0.45s var(--spring) both;
+  animation-delay: calc(var(--i) * 70ms);
+}
 .record-card {
   position: relative;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.6rem;
   padding: 2.2rem 1.4rem 1.6rem;
   text-align: center;
-  animation: pop 0.45s var(--spring) both;
-  animation-delay: calc(var(--i) * 70ms);
 }
 .record-card h3 {
   margin: 0;
@@ -5239,14 +5265,19 @@ button:disabled > .haptic-switch {
   left: -0.8rem;
   rotate: -10deg;
 }
+/* each digit is its own sticker; they sit snug, with a little room before the unit */
 .record-value {
   display: flex;
   align-items: baseline;
-  gap: 0.4rem;
   font: 700 4.4rem/1 var(--round);
   --sw: 0.7rem;
 }
+.record-value .stk:not(.pts),
+.record-pr-value .stk:not(.pts) {
+  margin-right: -0.03em;
+}
 .record-value .pts {
+  margin-left: 0.5rem;
   font-size: 1.8rem;
   --sw: 0.5rem;
 }
@@ -5258,6 +5289,49 @@ button:disabled > .haptic-switch {
 .record-card .record-note {
   font-size: 1.15rem;
   opacity: 0.7;
+}
+/* the note under a board (what it's ranked by, or where its records come from) */
+.leader-foot {
+  margin-top: 2.4rem;
+  text-align: center;
+}
+/* the viewer's own best (PR), under the record's card: a box only as tall as
+   what it holds, in the card's fill with a softer second stroke (the cards in a
+   row stretch to one height, so the boxes under them line up) */
+.record-pr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.5rem 1.2rem;
+  color: var(--ct);
+  /* its number is drawn like the card's: the card's fill, edged in its color */
+  --fill: var(--c2);
+  --stroke: var(--c);
+  border: 0.25rem solid color-mix(in srgb, var(--c) 45%, var(--c2));
+  border-radius: 2.4rem; /* the card's own (.panel) */
+  background: var(--c2);
+}
+.record-pr-value {
+  display: flex;
+  align-items: baseline;
+  font: 700 3.2rem/1 var(--round);
+  white-space: nowrap;
+  --sw: 0.55rem;
+}
+.record-pr-value .pts {
+  margin-left: 0.4rem;
+  font-size: 1.4rem;
+  --sw: 0.4rem;
+}
+.record-pr-text {
+  font: 700 1.25rem/1.2 var(--text);
+  opacity: 0.8;
+  text-align: center;
+}
+.record-pr.held .record-pr-text {
+  padding: 0.5rem 0;
 }
 .leader-empty {
   display: flex;
@@ -5291,7 +5365,7 @@ button:disabled > .haptic-switch {
 }
 @media (prefers-reduced-motion: reduce) {
   .leader-hero,
-  .record-card,
+  .record-slot,
   .leader-list .board-row {
     animation: none;
   }

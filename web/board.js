@@ -1105,7 +1105,7 @@ function renderTags() {
       const rank = (sticker) => (now.has(sticker.rule) ? 2 : sticker.rule === "poisoned_card" ? 0 : 1);
       stickers = stickers.map((sticker, i) => [rank(sticker), i, sticker]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , sticker]) => sticker);
     }
-    const modifiers = `${count} Modifier${count === 1 ? "" : "s"}`;
+    const modifiers = `${count} Rule${count === 1 ? "" : "s"}`;
     rulesTag.classList.toggle("previewing", after);
     patch(
       `rules-txt-${side}`,
@@ -1127,7 +1127,7 @@ function renderTags() {
     );
     rulesTag.setAttribute(
       "aria-label",
-      `${state.names[player]}: ${after ? `new score ${total} points. ` : ""}${count} modifiers in play, ${signed(delta)} points against the cards' face value. Open details.`,
+      `${state.names[player]}: ${after ? `new score ${total} points. ` : ""}${count} rule${count === 1 ? "" : "s"} in play, ${signed(delta)} points against the cards' face value. Open details.`,
     );
   }
   // the cycle button wears the color of the opponent it turns to
@@ -2813,7 +2813,7 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} modifiers in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} rules in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}

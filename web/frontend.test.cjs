@@ -187,7 +187,7 @@ test('every selectable rule has examples, hidden by default, with only necessary
 test('rated labels use Elo, modifier totals come from each player, Practice alone shows flame',()=>{
   const h=harness();h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,names:["Alice","Bot"],rated:true,ratings:[1234,1100],practice:false,connected:[true,true],rules:{},game:{phase:"turn",effect_totals:[8,10],scores:[8,10],effects:[[],[]],players:[[],[]],turn_order:[0,1],modifier_counts:[2,4],draw_count:20}};renderTags();`);
   assert.match(h.run(`board.el.querySelector("[data-score-for='me']").firstElementChild.innerHTML`),/Alice \(1234\)/);
-  assert.match(h.run(`board.el.querySelector("[data-rules-for='opp']").querySelector(".txt").innerHTML`),/4 Modifiers/);
+  assert.match(h.run(`board.el.querySelector("[data-rules-for='opp']").querySelector(".txt").innerHTML`),/4 Rules/);
   assert.equal(h.run('board.el.querySelector("[data-practice-streak]").hidden'),true);
   h.run('state.rated=false;state.practice=true;state.streak={current:7,best:9,draws:1};renderTags()');
   assert.doesNotMatch(h.run(`board.el.querySelector("[data-score-for='me']").firstElementChild.innerHTML`),/1234/);
@@ -505,13 +505,13 @@ test('the modifiers bar counts points against the face value of the cards, and p
   // a matched column of 8s and a 3: 19 on the cards, 3 on the score tag
   h.run(`board.el=document.createElement("div");board.view={opp:1};state={viewer:0,status:"playing",names:["Alice","Bot"],connected:[true,true],rules:{},game:{phase:"choose",current:0,decision_player:0,legal:{flip:[]},effect_totals:[3,12],scores:[3,12],effects:[["Column 1 pair: 0 (-16)"],[]],players:[[${card(8)},${card(3)},{visible:false,card:null},${card(8)}],[${card(10)},${card(2)}]],turn_order:[0,1],modifier_counts:[0,1],draw_count:20}};renderTags();`);
   const bar=side=>h.run(`board.el.querySelector("[data-rules-for='${side}']").querySelector(".txt").innerHTML`);
-  assert.equal(bar('me'),'0 Modifiers in<br>play (-16pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
-  assert.match(h.run(`board.el.querySelector("[data-rules-for='me']").attributes["aria-label"]`),/0 modifiers in play, -16 points against the cards' face value/);
+  assert.equal(bar('me'),'0 Rules in<br>play (-16pts)');assert.equal(bar('opp'),'1 Rule in<br>play (0pts)');
+  assert.match(h.run(`board.el.querySelector("[data-rules-for='me']").attributes["aria-label"]`),/0 rules in play, -16 points against the cards' face value/);
   // a move waiting for Confirm: your bar reads as it would afterwards; theirs only if their score would change
   h.run(`board.staged={ready:true,movers:[],preview:{version:1,effect_totals:[9,12],modifier_counts:[2,1],face_values:[14,12],effects:[[],[]]}};renderTags();`);
-  assert.equal(bar('me'),'<b class="new-score">New score: 9pts</b><br>2 Modifiers (-5pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
+  assert.equal(bar('me'),'<b class="new-score">New score: 9pts</b><br>2 Rules (-5pts)');assert.equal(bar('opp'),'1 Rule in<br>play (0pts)');
   h.run(`board.staged.preview.effect_totals=[9,15];board.staged.preview.face_values=[14,12];renderTags();`);
-  assert.equal(bar('opp'),'<b class="new-score">New score: 15pts</b><br>1 Modifier (+3pts)');
+  assert.equal(bar('opp'),'<b class="new-score">New score: 15pts</b><br>1 Rule (+3pts)');
   // the score tags themselves already show the new scores
   const tag=side=>h.run(`board.el.querySelector("[data-score-for='${side}']").attributes["aria-label"]`);
   assert.match(tag('me'),/^Alice: 9 points once this move is confirmed/);assert.match(tag('opp'),/^Bot: 15 points once/);
@@ -519,7 +519,7 @@ test('the modifiers bar counts points against the face value of the cards, and p
   h.run(`state.rules={poisoned_card:true};board.staged.preview.effects=[["Column 1 pair: 0 (-16)","Suited row 1: -3","Straight row 2: -4","Poisoned Card: +2"],[]];renderTags();`);
   assert.match(h.run(`board.signatures["rules-ico-me"]`),/^[^|]+\|flag\.pattern\.checkered:/);
   // called off: back to the table as it is
-  h.run(`paintSelection=()=>{};cancelStaged();`);assert.match(tag('me'),/^Alice: 3 points,/);assert.equal(bar('me'),'0 Modifiers in<br>play (-16pts)');assert.equal(bar('opp'),'1 Modifier in<br>play (0pts)');
+  h.run(`paintSelection=()=>{};cancelStaged();`);assert.match(tag('me'),/^Alice: 3 points,/);assert.equal(bar('me'),'0 Rules in<br>play (-16pts)');assert.equal(bar('opp'),'1 Rule in<br>play (0pts)');
 });
 
 test('a staged move can be confirmed at once, and asks the server what the score would be',async()=>{

@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from records import build_records, most_games_today, player_card, time_played
+from records import build_records, most_games_today, personal_records, player_card, time_played
 
 
 def match(rounds, names=('Ann', 'Bob')):
@@ -15,8 +15,7 @@ class RecordTests(unittest.TestCase):
                                              'least_modifier': None, 'comeback_modifier': None,
                                              'pvp_streak': None, 'games_today': None, 'modifiers_in_game': None, 'most_time': None,
                                              'yapper': None, 'longest_pvp': None, 'bogey': None, 'lowest': None, 'party': None,
-                                             'always_in_play': ['Poisoned Card'],
-                                             'never_most': ['Beggars Will be Choosers']})
+                                             'always_in_play': ['Poisoned Card']})
 
     def test_highest_elo_counts_past_peaks_and_current_ratings(self):
         results = [match([{'elo': [{'id': 'a', 'label': 'Ann', 'after': 1040}, {'id': 'b', 'label': 'Bob', 'after': 960}]},
@@ -46,15 +45,26 @@ class RecordTests(unittest.TestCase):
         records = build_records([match([game, quiet])])
         self.assertEqual(records['most_modifier']['key'], 'royal_pairs')
 
-    def test_most_common_is_the_most_activated_never_beggars(self):
-        # Devil's Row is on in only one game but activated by both players twice over;
+    def test_most_common_is_the_most_activated_beggars_included(self):
+        # Angel Numbers is on in only two games but activated by both players each time;
         # Royal Pairs is on in every game but activated less often in total
-        often = {'rules': {'royal_pairs': True, 'angel_numbers': True, 'beggars': True},
-                 'activations': [['angel_numbers', 'beggars'], ['angel_numbers', 'beggars']]}
-        rare = {'rules': {'royal_pairs': True, 'beggars': True}, 'activations': [['royal_pairs', 'beggars'], ['beggars']]}
-        records = build_records([match([often, often, rare, rare])])
-        most = records['most_modifier']
+        often = {'rules': {'royal_pairs': True, 'angel_numbers': True},
+                 'activations': [['angel_numbers'], ['angel_numbers']]}
+        rare = {'rules': {'royal_pairs': True}, 'activations': [['royal_pairs'], []]}
+        most = build_records([match([often, often, rare, rare])])['most_modifier']
         self.assertEqual((most['key'], most['activations']), ('angel_numbers', 4))
+        # Beggars Will be Choosers counts like any other modifier
+        begged = {'rules': {'beggars': True}, 'activations': [['beggars'], ['beggars']]}
+        most = build_records([match([often, often, rare, rare, begged, begged, begged])])['most_modifier']
+        self.assertEqual((most['key'], most['activations']), ('beggars', 6))
+
+    def test_your_most_common_modifier_also_leaves_out_poisoned_card(self):
+        game = {'rules': {'poisoned_card': True, 'royal_pairs': True}, 'scores': [1, 2],
+                'activations': [['poisoned_card', 'royal_pairs'], ['poisoned_card']]}
+        poisoned = {'rules': {'poisoned_card': True}, 'scores': [1, 2], 'activations': [['poisoned_card'], []]}
+        mine = personal_records([match([game, poisoned, poisoned])], [], 'player:Ann')['most_modifier']
+        self.assertEqual((mine['key'], mine['activations']), ('royal_pairs', 1))
+        self.assertIsNone(personal_records([match([game])], [], 'player:Bob')['most_modifier'])
 
     def test_pvp_streak_counts_1v1_wins_in_a_row_against_people_only(self):
         won = lambda winner, at: {'winner': winner, 'scores': [1, 2], 'ended_at': at}
@@ -63,6 +73,20 @@ class RecordTests(unittest.TestCase):
                    {**match([won(0, 8)] * 5), 'solo': True}]  # wins against Golfbot never count
         streak = build_records(results)['pvp_streak']
         self.assertEqual((streak['label'], streak['streak']), ('Bob', 3))
+
+    def test_personal_records_are_each_players_own_bests(self):
+        won = lambda winner, at, scores=(1, 2): {'winner': winner, 'scores': list(scores), 'ended_at': at}
+        results = [match([won(0, 1, (4, 9)), won(1, 2, (12, 3)), won(0, 3, (-2, 8))]),
+                   match([won(0, 4, (20, 25))], names=('Bob', 'Cy'))]
+        ratings = [{'id': 'player:Ann', 'label': 'Ann', 'elo': 1030}, {'id': 'player:Bob', 'label': 'Bob', 'elo': 1080}]
+        bob = personal_records(results, ratings, 'player:Bob')
+        self.assertEqual(bob['id'], 'player:Bob')
+        # Bob's own: not the table's lowest (-2, Ann's) but his, 3
+        self.assertEqual((bob['lowest']['points'], bob['bogey']['points'], bob['highest_elo']['elo']), (3, 20, 1080))
+        self.assertEqual(bob['pvp_streak']['streak'], 1)
+        cy = personal_records(results, ratings, 'player:Cy')
+        self.assertEqual((cy['highest_elo'], cy['pvp_streak'], cy['lowest']['points']), (None, None, 25))
+        self.assertEqual(personal_records(results, ratings, 'bot:golfbot'), {})
 
     def test_player_card_has_elo_own_best_streak_and_only_records_held(self):
         won = lambda winner, at: {'winner': winner, 'scores': [1, 2], 'ended_at': at}
