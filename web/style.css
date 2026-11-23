@@ -1924,18 +1924,22 @@ button.tag-rules:active > .tag-in {
   height: 3.5rem;
   align-items: center;
 }
+/* Each digit's box is padded out past its outline (the margins take the room
+   back): while a digit rolls, Safari on iPhone draws it on a layer the size of
+   its box, which would shave the sides off the outline. */
 .score .digits .stk {
   font: 700 4.8rem/1 var(--round);
   letter-spacing: -0.144rem;
   --sw: 0.8rem;
-  margin-right: -0.12rem;
+  padding-inline: 0.6rem;
+  margin-inline: -0.6rem calc(-0.6rem - 0.12rem);
   transform: rotate(2deg);
 }
 .score .digits .stk:nth-child(even) {
   transform: rotate(-2deg);
 }
 .score .digits .stk:last-child {
-  margin-right: 0;
+  margin-right: -0.6rem;
 }
 .score .digits.long .stk {
   font-size: 3.6rem;

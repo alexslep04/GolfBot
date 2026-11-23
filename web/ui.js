@@ -1,6 +1,19 @@
 "use strict";
 // Shared UI primitives: escaping, sticker icons, sticker text.
 
+/**
+ * When something happened (unix seconds): within the last 24 hours, how long
+ * ago ("5 mins ago"); before that, the date.
+ */
+function dateLabel(at, options) {
+  const ago = Math.max(1, Math.floor(Date.now() / 1000 - at));
+  if (ago <= 86400) {
+    const [n, unit] = ago < 60 ? [ago, "second"] : ago < 3600 ? [Math.floor(ago / 60), "min"] : [Math.floor(ago / 3600), "hour"];
+    return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  }
+  return new Date(at * 1000).toLocaleDateString(undefined, options);
+}
+
 const e = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,

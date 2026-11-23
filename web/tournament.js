@@ -61,7 +61,7 @@ function tournamentRows(list) {
           ? `Hosted by ${e(item.host)} · ${players} so far · waiting to start`
           : item.status === "live"
             ? `${players} · ${item.live} match${item.live === 1 ? "" : "es"} in play`
-            : `${players} · ${item.finished_at ? e(new Date(item.finished_at * 1000).toLocaleDateString()) : "Finished"}${item.champion ? ` · ${e(item.champion)} won` : ""}`;
+            : `${players} · ${item.finished_at ? e(dateLabel(item.finished_at)) : "Finished"}${item.champion ? ` · ${e(item.champion)} won` : ""}`;
       return `<button type="button" class="list-item ${item.status === "finished" ? "c-fw" : "c-p4"}" data-tournament-open="${e(item.id)}"><span class="avatar-badge ${item.status === "finished" ? "c-fw" : "c-p4"}">${icon("trophy.fill", 24, { idle: false })}</span><div class="grow"><strong>${item.mine ? youStar() : ""}${e(item.name)}</strong><small>${e(item.format_name)}${item.ranked ? " · Ranked" : ""} · ${detail}</small></div>${glyph("chevron.right", 20)}</button>`;
     })
     .join("");

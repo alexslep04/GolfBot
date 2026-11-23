@@ -853,3 +853,12 @@ test('Advanced stats lists the records a player holds, and a player card every r
   await h.run('loadPlayerCard("bot:golfbot")');
   assert.match(bot.innerHTML,/AI vs\. all players/);assert.doesNotMatch(bot.innerHTML,/Best PvP win streak/);
 });
+
+test('dates within the last 24 hours read as how long ago',()=>{
+  const h=harness();const now=Math.floor(Date.now()/1000);
+  const label=ago=>h.run(`dateLabel(${now-ago})`);
+  assert.equal(label(1),'1 second ago');assert.equal(label(45),'45 seconds ago');
+  assert.equal(label(60),'1 min ago');assert.equal(label(59*60+59),'59 mins ago');
+  assert.equal(label(3600),'1 hour ago');assert.equal(label(86400),'24 hours ago');
+  assert.equal(label(86401+3600),new Date((now-86401-3600)*1000).toLocaleDateString());
+});

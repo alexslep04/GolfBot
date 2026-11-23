@@ -2375,8 +2375,9 @@ function onBoardPointerDown(event) {
   // the pile's visible edge means the drawn card sitting on top of it
   if (slot?.dataset.ref === '["draw",null]' && state.game?.held)
     slot = slotFor(["held", null]) || slot;
-  // touching anything but Confirm calls a staged move off
-  if (board.staged && !event.target.closest("[data-confirm]")) {
+  // touching anything but Confirm or a rules tag calls a staged move off
+  // (the rules can be read before a move is confirmed)
+  if (board.staged && !event.target.closest("[data-confirm], [data-rules-for]")) {
     const moved = board.staged.movers.includes(slot);
     cancelStaged();
     if (moved || event.target.closest("[data-undo]")) return; // the cards just go back

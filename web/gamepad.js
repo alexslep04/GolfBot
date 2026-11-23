@@ -413,9 +413,10 @@ function padPress(name) {
   const table = padOnTable() && PAD.scope === document.body;
   const legal = table ? state.game.legal : {};
   const step = name === "lb" ? -1 : 1;
-  // while a card is carried or a move is staged, only A, B and the trigger act
+  // while a card is carried or a move is staged, only A, B, the trigger and
+  // Select (the rules) act
   const pending = table && (board.carry || board.staged);
-  if (pending && !["a", "b", "rt"].includes(name)) return;
+  if (pending && !["a", "b", "rt", "select"].includes(name)) return;
   // a staged move is still playing out: nothing to press yet
   if (table && board.staged && !board.staged.ready && name !== "b") return;
   // menus, dialogs and the results: a button wearing this one's sticker is pressed
