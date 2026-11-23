@@ -197,6 +197,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.guest.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(self.guest.post(path, json={'emote': 'luck'}).status_code, 200)  # "Good luck!"
         self.assertEqual(self.guest.post(path, json={'emote': 'tempo'}).status_code, 200)  # "Not my tempo"
+        self.assertEqual(self.guest.post(path, json={'emote': 'ranked'}).status_code, 200)  # "Join Ranked!"
         self.assertEqual(len(self.state()['emotes']), 2)
         self.host.post(f'/api/lobbies/{self.id}/leave')
         self.assertEqual(self.guest.post(path, json={'emote': 'shocked'}).status_code, 409)

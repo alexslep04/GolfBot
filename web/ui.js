@@ -153,6 +153,9 @@ const prefs = {
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
   showOdds: true, // spectating: each player's chance of winning under their points
   patchSeen: "", // the newest patch whose notes this player has been shown
+  // the emotes on this player's bar, in order; any of each kind (Settings > Emotes)
+  emoteFaces: "unamused,shocked,laughing,cackling,nervous",
+  emoteWords: "luck,thanks,oops,wow,save",
 };
 // Each theme is a set of color tokens in style.css, under :root[data-theme].
 // "golf" is the original sticker look and needs no attribute.
@@ -386,7 +389,8 @@ function inScroller(element) {
  */
 function hapticOverlay(scope = document) {
   // not the avatars: a native switch would take the sideways swipe for itself
-  scope.querySelectorAll("button[type=button]:not(.avatar)").forEach((button) => {
+  // (nor the emotes in Settings > Emotes, which are held and dragged)
+  scope.querySelectorAll("button[type=button]:not(.avatar):not(.emote-choice)").forEach((button) => {
     const existing = button.lastElementChild?.classList.contains("haptic-switch") ? button.lastElementChild : null;
     if (inScroller(button)) {
       existing?.remove();

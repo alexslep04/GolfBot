@@ -69,9 +69,22 @@ const emoteNames = {
   ofc: "Ofc!",
   luck: "Good luck!",
   tempo: "Not my tempo.",
+  ranked: "Join Ranked!",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo"];
+const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo", "ranked"];
+const FACE_EMOTES = Object.keys(emoteNames).filter((id) => !TEXT_EMOTES.includes(id));
+// Which emotes are on a player's emote bar, and in what order, is theirs to
+// choose (Settings > Emotes): any of each kind, or none. Any emote can still
+// be received.
+const EMOTE_KINDS = { faces: ["emoteFaces", FACE_EMOTES], words: ["emoteWords", TEXT_EMOTES] };
+/** The emotes on this player's bar, in order: `kind` is "faces" or "words". */
+function emoteBar(kind) {
+  const [pref, all] = EMOTE_KINDS[kind];
+  return String(prefs[pref] ?? "")
+    .split(",")
+    .filter((id, i, list) => all.includes(id) && list.indexOf(id) === i);
+}
 let activeEmotes = {},
   emoteSeen = {},
   emoteTimers = {},
@@ -1113,7 +1126,8 @@ function prefsHtml() {
   const row = prefRow;
   const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
   const rows = [
-    row("theme", "paintpalette.fill", "Theme", theme[1], theme !== THEMES[0], true),
+    // (not a switch: it opens the themes' own sheet)
+    `<button type="button" class="btn c-fw pref" data-theme-settings>${tilted("paintpalette.fill", 26)}<span class="grow">Theme</span><b class="pref-value on">${e(theme[1])}</b></button>`,
     row("contrastCards", "suit.diamond.fill", "High contrast cards", onOff(prefs.contrastCards), !!prefs.contrastCards),
     row("autoQueue", "sparkles", "Join Ranked on open", onOff(prefs.autoQueue), prefs.autoQueue),
     row("confirm", "checkmark.circle.fill", "Confirm moves", onOff(prefs.confirm), prefs.confirm),
@@ -1128,6 +1142,10 @@ function prefsHtml() {
     rows.push(
       row("padDrag", "gamecontroller.fill", "Controller: trigger drag", prefs.padDrag === "toggle" ? "Toggle" : "Hold", prefs.padDrag === "toggle", true),
     );
+  // under them all, the way into the emote bar's own sheet (not a switch)
+  rows.push(
+    `<button type="button" class="btn c-fw pref" data-emote-settings>${tilted("text.bubble.fill", 26)}<span class="grow">Emotes</span><b class="pref-value on">Edit</b></button>`,
+  );
   return `<h3>Preferences</h3><div class="menu-list" data-prefs>${rows.join("")}</div>`;
 }
 /* ---------- turn and Ranked queue notifications ----------
@@ -1241,10 +1259,7 @@ function notificationsPage() {
 function togglePref(key) {
   if (key === "alerts" || key === "turnAlerts" || key === "queueAlerts") return toggleAlerts(key);
   if (key === "padDrag") setPref(key, prefs.padDrag === "toggle" ? "hold" : "toggle");
-  else if (key === "theme") {
-    const at = THEMES.findIndex(([name]) => name === prefs.theme);
-    setPref(key, THEMES[(at + 1) % THEMES.length][0]);
-  } else setPref(key, !prefs[key]);
+  else setPref(key, !prefs[key]);
   if (key === "confirm" && !prefs.confirm) cancelStaged();
   const holder = sheetRoot.querySelector("[data-prefs]");
   if (holder) holder.outerHTML = prefsHtml().replace(/^<h3>.*?<\/h3>/, "");
@@ -1269,6 +1284,223 @@ function settingsSheet() {
     <p class="hint dark sheet-note">This website has been programmed by Claude Fable 5.2. Front-end design was handmade in <a href="https://www.figma.com/design/OtrBljPuG5YggsJYThYGpq/Golf?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma${textSymbol("arrow.up.right", "out-arrow")}</a> by Spencer.</p>
   </section>`);
 }
+/* ---------- Settings > Theme: every theme, drawn in its own colors ----------
+   Each theme's row carries that theme's color tokens (read from the
+   stylesheet), so the row and the small preview in it show the theme as it
+   looks: the table, a card, and the first four players' colors. */
+const themeTokenCache = {};
+/** A theme's color tokens as inline CSS: whatever wears them is drawn in that theme. */
+function themeTokens(key) {
+  if (key in themeTokenCache) return themeTokenCache[key];
+  const tokens = new Map();
+  try {
+    for (const sheet of document.styleSheets || [])
+      for (const rule of sheet.cssRules || []) {
+        const selector = rule.selectorText || "";
+        // the tokens every theme starts from, then the ones this theme changes
+        const base = selector === ":root";
+        const themed = /^:root(\[data-theme="[\w-]+"\]|:is\([^)]*\))$/.test(selector) && selector.includes(`[data-theme="${key}"]`);
+        if (!base && !themed) continue;
+        for (const name of rule.style) if (name.startsWith("--")) tokens.set(name, rule.style.getPropertyValue(name).trim());
+      }
+  } catch {} // (a stylesheet that can't be read: the rows keep the theme in use)
+  tokens.delete("--u"); // the page's own scale
+  return (themeTokenCache[key] = [...tokens].map(([name, value]) => `${name}:${value}`).join(";"));
+}
+function themeListHtml() {
+  const chosen = (THEMES.find(([key]) => key === prefs.theme) || THEMES[0])[0];
+  return `<div class="theme-list" role="radiogroup" aria-label="Theme" data-themes>${THEMES.map(
+    ([key, name]) =>
+      `<button type="button" class="theme-choice" role="radio" aria-checked="${key === chosen}" data-theme-pick="${key}" style="${e(themeTokens(key))}"><span class="theme-preview" aria-hidden="true"><span class="tp-card"></span>${[1, 2, 3, 4].map((p) => `<i style="background:var(--p${p})"></i>`).join("")}</span><span class="grow">${e(name)}</span>${key === chosen ? icon("checkmark.circle.fill", 30, { idle: false }) : ""}</button>`,
+  ).join("")}</div>`;
+}
+function themeSheet() {
+  openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Theme">
+    <div class="sheet-head"><h2>Theme</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    ${themeListHtml()}
+  </section>`);
+}
+function pickTheme(key) {
+  if (!THEMES.some(([name]) => name === key)) return;
+  setPref("theme", key);
+  const holder = sheetRoot.querySelector?.("[data-themes]");
+  if (holder) holder.outerHTML = themeListHtml();
+  if (state?.game && page === "room") renderBoard();
+}
+/* ---------- Settings > Emotes: which emotes are on the bar ----------
+   Each kind (faces, sayings) has its bar and the emotes left off it. A tap on
+   one left off adds it to the end of the bar. On the bar, a tap chooses an
+   emote: its x then takes it off, and a tap on another trades their places.
+   An emote can also be dragged: along the bar, onto it or off it. Every emote
+   slides to wherever a change leaves it. */
+let emotePick = null; // [kind, id] of the emote chosen on the bar
+function emoteEditHtml() {
+  const item = (kind, id, on) => {
+    const picked = on && emotePick?.[0] === kind && emotePick[1] === id;
+    const name = emoteNames[id];
+    const label = on ? `${name}${picked ? ", chosen" : ""}` : `Add ${name} to your bar`;
+    return `<span class="emote-item" data-emote-item="${kind}:${id}"><button type="button" class="emote-choice${kind === "words" ? " emote-word" : ""}" data-emote-pick="${kind}:${id}" ${on ? `aria-pressed="${picked}"` : ""} aria-label="${e(label)}">${kind === "words" ? e(name) : `<img src="${appPath(`/static/emotes/${id}.png`)}" alt="" draggable="false">`}</button>${picked ? `<button type="button" class="emote-remove" data-emote-drop="${kind}:${id}" aria-label="Take ${e(name)} off your bar">${icon("xmark.circle.fill", 26, { idle: false })}</button>` : ""}</span>`;
+  };
+  const part = (kind, title, none, all) => {
+    const bar = emoteBar(kind);
+    const spare = EMOTE_KINDS[kind][1].filter((id) => !bar.includes(id));
+    return `<h3>${title}</h3>
+      <div class="emote-edit ${kind}"><div class="emote-choices bar" role="group" aria-label="${title} bar"><span class="emote-bar-name" aria-hidden="true">${stickerText(`${title} bar`, { idle: false })}</span><span class="emote-none">${none}</span>${bar.map((id) => item(kind, id, true)).join("")}</div>
+      <div class="emote-choices" role="group" aria-label="Not on your bar"><span class="emote-none">${all}</span>${spare.map((id) => item(kind, id, false)).join("")}</div></div>`;
+  };
+  return `<div data-emote-edit>${part("faces", "Face emotes", "No face emotes on your bar.", "Every face emote is on your bar.")}${part("words", "Text emotes", "No text emotes on your bar.", "Every text emote is on your bar.")}<p class="hint dark sheet-note">Add, reorder, or remove emotes from your emote bar!</p></div>`;
+}
+function emotesSheet() {
+  emotePick = null;
+  openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Emotes">
+    <div class="sheet-head"><h2>Emotes</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    ${emoteEditHtml()}
+  </section>`);
+}
+/** Change the editor; every emote but the one `held` slides from where it was to where it is now. */
+function slideEmotes(change, held = null) {
+  const items = () => [...(sheetRoot.querySelectorAll?.("[data-emote-item]") || [])];
+  const was = new Map(items().map((el) => [el.dataset.emoteItem, el.getBoundingClientRect()]));
+  change();
+  for (const el of items()) {
+    const from = was.get(el.dataset.emoteItem);
+    if (!from || el === held || !el.animate) continue;
+    // (one still sliding starts again from where it has got to, measured against where it will rest)
+    for (const running of el.getAnimations?.() || []) running.cancel();
+    el.style.zIndex = "";
+    const to = el.getBoundingClientRect();
+    const dx = from.left - to.left,
+      dy = from.top - to.top;
+    if ((!dx && !dy) || reducedMotion.matches) continue;
+    el.style.zIndex = 2; // over the ones it passes
+    el.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0 0" }], { duration: 420, easing: "cubic-bezier(0.3, 0.75, 0.3, 1.12)" }).onfinish = () => (el.style.zIndex = "");
+  }
+}
+/** Draw the editor again as the saved bars have it. */
+function redrawEmoteEdit() {
+  slideEmotes(() => {
+    const holder = sheetRoot.querySelector?.("[data-emote-edit]");
+    if (holder) holder.outerHTML = emoteEditHtml();
+  });
+}
+function saveEmoteBar(kind, bar) {
+  emotePick = null;
+  setPref(EMOTE_KINDS[kind][0], bar.join(","));
+  if (state?.game && page === "room") renderBoard(); // the bar at the table follows
+}
+/** A tap on an emote in Settings > Emotes. */
+function pickEmote(kind, id) {
+  const bar = emoteBar(kind);
+  const first = emotePick?.[0] === kind ? emotePick[1] : null;
+  if (!bar.includes(id)) saveEmoteBar(kind, [...bar, id]); // one left off joins the end
+  else if (first && first !== id) {
+    // two on the bar take each other's place
+    const a = bar.indexOf(first),
+      b = bar.indexOf(id);
+    [bar[a], bar[b]] = [bar[b], bar[a]];
+    saveEmoteBar(kind, bar);
+  } else emotePick = first === id ? null : [kind, id];
+  redrawEmoteEdit();
+}
+/** The x on a chosen emote: it comes off the bar. */
+function dropEmote(kind, id) {
+  saveEmoteBar(kind, emoteBar(kind).filter((other) => other !== id));
+  redrawEmoteEdit();
+}
+/* Dragging in Settings > Emotes. A mouse carries an emote once it has moved a
+   little; a finger holds it for a moment first, so a swipe that starts on an
+   emote still scrolls the sheet. Carried, the emote is put down in the page
+   wherever it is over (the others slide out of its way), and the bar is saved
+   as it stands when the emote is let go. */
+let emoteDrag = null;
+let emoteDragEnded = 0; // when a carried emote was last let go: the click that follows is no tap
+const emoteBoxes = (kind) => {
+  const edit = sheetRoot.querySelector?.(`.emote-edit.${kind}`);
+  return [edit?.querySelector(".emote-choices.bar"), edit?.querySelector(".emote-choices:not(.bar)")];
+};
+function liftEmote(drag) {
+  const box = drag.el.getBoundingClientRect();
+  drag.active = true;
+  drag.grab = { x: drag.x - box.left, y: drag.y - box.top }; // where on the emote it is held
+  drag.el.classList.add("dragging");
+  haptic("snap");
+}
+/** Put the carried emote down in the page where the pointer is: true if that moved it. */
+function placeEmote(drag, x, y) {
+  const [bar, spare] = emoteBoxes(drag.kind);
+  if (!bar || !spare) return false;
+  const over = (box) => {
+    const r = box.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  };
+  const box = over(spare) ? spare : over(bar) ? bar : drag.el.parentElement;
+  const idOf = (el) => el.dataset.emoteItem.split(":")[1];
+  const others = [...box.querySelectorAll("[data-emote-item]")].filter((el) => el !== drag.el);
+  let before;
+  if (box === spare) {
+    // off the bar, emotes keep their usual order
+    const all = EMOTE_KINDS[drag.kind][1];
+    before = others.find((el) => all.indexOf(idOf(el)) > all.indexOf(drag.id));
+  } else
+    // on the bar: ahead of the first emote the pointer comes before, reading the rows in order
+    before = others.find((el) => {
+      const r = el.getBoundingClientRect();
+      return y < r.top || (y <= r.bottom && x < r.left + r.width / 2);
+    });
+  before ||= null;
+  if (drag.el.parentElement === box && drag.el.nextElementSibling === before) return false;
+  slideEmotes(() => box.insertBefore(drag.el, before), drag.el);
+  return true;
+}
+function emoteDragEnd(event) {
+  const drag = emoteDrag;
+  if (!drag || (event && event.pointerId !== drag.pointer)) return;
+  clearTimeout(drag.timer);
+  emoteDrag = null;
+  if (!drag.active) return; // a tap, or a swipe: nothing was carried
+  drag.el.classList.remove("dragging");
+  if (!drag.moved) return; // picked up and put straight back: the click that follows is a tap
+  emoteDragEnded = performance.now();
+  const [bar] = emoteBoxes(drag.kind);
+  const order = bar ? [...bar.querySelectorAll("[data-emote-item]")].map((el) => el.dataset.emoteItem.split(":")[1]) : [];
+  if (bar && event?.type !== "pointercancel" && order.join() !== emoteBar(drag.kind).join()) saveEmoteBar(drag.kind, order);
+  redrawEmoteEdit(); // it settles from where it was let go (called off, everything goes back)
+}
+document.addEventListener("pointerdown", (event) => {
+  const el = event.target.closest?.("[data-emote-item]");
+  if (!el || emoteDrag || event.button > 0 || event.target.closest(".emote-remove") || !sheetRoot.contains(el)) return;
+  const [kind, id] = el.dataset.emoteItem.split(":");
+  const drag = (emoteDrag = { kind, id, el, pointer: event.pointerId, x: event.clientX, y: event.clientY, active: false, moved: false, quiet: 0 });
+  if (event.pointerType === "touch") drag.timer = setTimeout(() => emoteDrag === drag && liftEmote(drag), 220);
+});
+document.addEventListener("pointermove", (event) => {
+  const drag = emoteDrag;
+  if (!drag || event.pointerId !== drag.pointer) return;
+  const far = Math.hypot(event.clientX - drag.x, event.clientY - drag.y);
+  if (!drag.active) {
+    if (event.pointerType === "touch") {
+      if (far > 8) emoteDragEnd(); // a swipe: the sheet's to scroll
+      return;
+    }
+    if (far < 5) return;
+    liftEmote(drag);
+  }
+  drag.moved = true;
+  // (a beat between moves, so emotes still sliding aside are not measured mid-slide)
+  const now = performance.now();
+  if (now >= drag.quiet && placeEmote(drag, event.clientX, event.clientY)) drag.quiet = now + 140;
+  // it stays under the pointer, wherever in the page it has been put
+  drag.el.style.translate = "";
+  const home = drag.el.getBoundingClientRect();
+  drag.el.style.translate = `${event.clientX - drag.grab.x - home.left}px ${event.clientY - drag.grab.y - home.top}px`;
+});
+document.addEventListener("pointerup", emoteDragEnd);
+document.addEventListener("pointercancel", emoteDragEnd);
+// while an emote is carried, the finger moves it and not the sheet
+document.addEventListener("touchmove", (event) => emoteDrag?.active && event.preventDefault(), { passive: false });
+// (holding one must not open the browser's own menu for an image, or start its own drag)
+for (const type of ["contextmenu", "dragstart"])
+  document.addEventListener(type, (event) => event.target.closest?.("[data-emote-edit]") && event.preventDefault());
 function voidOfferButton() {
   if (!state?.rated) return "";
   const disabled = state.status !== "playing" || state.void_offer || state.void_offered?.[state.viewer];
@@ -3437,6 +3669,13 @@ document.addEventListener("click", async (event) => {
     if ("undo" in data) return cancelStaged();
     if (data.pref) return togglePref(data.pref);
     if ("settings" in data) return settingsSheet();
+    if ("emoteSettings" in data) return emotesSheet();
+    if ("themeSettings" in data) return themeSheet();
+    if (data.themePick) return pickTheme(data.themePick);
+    if (data.emotePick || data.emoteDrop) {
+      if (performance.now() - emoteDragEnded < 400) return; // the end of a drag, not a tap
+      return data.emotePick ? pickEmote(...data.emotePick.split(":")) : dropEmote(...data.emoteDrop.split(":"));
+    }
     if ("gameMenu" in data) return gameMenuSheet();
     if ("sheetPlayer" in data) return openRulesSheet(Number(data.sheetPlayer));
     if (data.statsFor)

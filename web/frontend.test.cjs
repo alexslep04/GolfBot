@@ -577,26 +577,30 @@ test('a double-tap flips whatever else has happened at the table, and waits its 
   assert.equal(h.requests.length,count);assert.equal(h.run('board.queuedFlip'),null);
 });
 
-test('settings offer the Original, Poker, Night Golf and (debug only) Focus themes, and the choice re-skins the page',()=>{
-  // without debug, Night Golf goes straight back to Original
+test('settings offer the Original, Poker, Night Golf and (debug only) Focus themes on their own sheet, and the choice re-skins the page',()=>{
+  // without debug there is no Focus, and a saved choice of it can't be picked
   const plain=harness();
-  plain.run('togglePref("theme");togglePref("theme");togglePref("theme")');
-  assert.equal(plain.run('prefs.theme'),'golf');
+  assert.doesNotMatch(plain.run('themeListHtml()'),/data-theme-pick="focus"/);
+  plain.run('pickTheme("focus")');assert.equal(plain.run('prefs.theme'),'golf');
   const h=harness({debug:true});
+  // Settings names the theme in use on a row that opens the themes' sheet (no longer a switch that cycles them)
   h.run('settingsSheet()');
-  assert.match(h.nodes.get('sheet').innerHTML,/data-pref="theme"[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Original<\/b>/);
+  assert.match(h.nodes.get('sheet').innerHTML,/<button type="button" class="btn c-fw pref" data-theme-settings>[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Original<\/b>/);
+  assert.doesNotMatch(h.nodes.get('sheet').innerHTML,/data-pref="theme"/);
   assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
-  h.run('togglePref("theme")');
-  assert.equal(h.run('prefs.theme'),'poker');assert.equal(h.run('document.documentElement.dataset.theme'),'poker');
-  h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Poker<\/b>/);
-  h.run('togglePref("theme")');
-  assert.equal(h.run('prefs.theme'),'night');assert.equal(h.run('document.documentElement.dataset.theme'),'night');
-  h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Night Golf<\/b>/);
-  h.run('togglePref("theme")');
-  assert.equal(h.run('prefs.theme'),'focus');assert.equal(h.run('document.documentElement.dataset.theme'),'focus');
-  h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,/<b class="pref-value on">Focus<\/b>/);
-  h.run('togglePref("theme")');
-  assert.equal(h.run('prefs.theme'),'golf');assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
+  // the sheet lists each theme with a preview, the one in use checked
+  h.run('themeSheet()');
+  let sheet=h.nodes.get('sheet').innerHTML;
+  assert.match(sheet,/aria-label="Theme"/);assert.equal(sheet.match(/class="theme-preview"/g).length,4);
+  for(const [key,name] of [['golf','Original'],['poker','Poker'],['night','Night Golf'],['focus','Focus']])
+    assert.match(sheet,new RegExp(`role="radio" aria-checked="${key==='golf'}" data-theme-pick="${key}"[^]*?<span class="grow">${name}</span>`));
+  for(const [key,name] of [['poker','Poker'],['night','Night Golf'],['focus','Focus'],['golf','Original']]){
+    h.run(`pickTheme("${key}")`);
+    assert.equal(h.run('prefs.theme'),key);assert.equal(h.run('document.documentElement.dataset.theme'),key==='golf'?undefined:key);
+    assert.match(h.run('themeListHtml()'),new RegExp(`aria-checked="true" data-theme-pick="${key}"`));
+    assert.equal(h.run('themeListHtml()').match(/aria-checked="true"/g).length,1);
+    h.run('settingsSheet()');assert.match(h.nodes.get('sheet').innerHTML,new RegExp(`<b class="pref-value on">${name}</b>`));
+  }
   // every theme the settings offer has its tokens in the stylesheet
   const css=fs.readFileSync(path.join(__dirname,'style.css'),'utf8');
   for(const [key] of JSON.parse(h.run('JSON.stringify(THEMES)')).slice(1)) assert.match(css,new RegExp(`:root\\[data-theme="${key}"\\] \\{`));
@@ -861,4 +865,40 @@ test('dates within the last 24 hours read as how long ago',()=>{
   assert.equal(label(60),'1 min ago');assert.equal(label(59*60+59),'59 mins ago');
   assert.equal(label(3600),'1 hour ago');assert.equal(label(86400),'24 hours ago');
   assert.equal(label(86401+3600),new Date((now-86401-3600)*1000).toLocaleDateString());
+});
+
+test('the emote bar shows the emotes chosen in Settings > Emotes, in their order, with the sayings in one row',()=>{
+  const h=harness();const bar=kind=>h.run(`emoteBar("${kind}").join()`);
+  assert.equal(h.run('emoteNames.ranked'),'Join Ranked!');assert.ok(h.run('TEXT_EMOTES.includes("ranked")'));
+  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.equal(bar('words'),'luck,thanks,oops,wow,save');
+  h.run('state={status:"playing"}');
+  let html=h.run('emoteButtons()');
+  assert.equal(html.match(/data-emote="/g).length,10);assert.equal(html.match(/class="emote-words-row"/g).length,1);
+  assert.doesNotMatch(html,/data-emote="ranked"/);
+  // one left off the bar joins its end with a tap, and there is no limit to how many
+  assert.match(h.run('emoteEditHtml()'),/data-emote-pick="words:ranked"  aria-label="Add Join Ranked! to your bar"/);
+  h.run('pickEmote("words","ranked");pickEmote("words","tempo");pickEmote("words","ofc")');
+  assert.equal(bar('words'),'luck,thanks,oops,wow,save,ranked,tempo,ofc');
+  assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-pick="words:[a-z]+"  aria-label="Add/); // none left off
+  assert.equal(h.run('emoteButtons()').match(/class="emote-word"/g).length,8);
+  // on the bar: a tap chooses (and shows the x that takes it off), a tap on another trades places
+  h.run('pickEmote("words","ranked")');assert.equal(bar('words'),'luck,thanks,oops,wow,save,ranked,tempo,ofc');
+  html=h.run('emoteEditHtml()');
+  assert.match(html,/data-emote-pick="words:ranked" aria-pressed="true"/);assert.match(html,/data-emote-drop="words:ranked" aria-label="Take Join Ranked! off your bar"/);
+  assert.equal(html.match(/data-emote-drop=/g).length,1);
+  h.run('pickEmote("words","luck")');assert.equal(bar('words'),'ranked,thanks,oops,wow,save,luck,tempo,ofc');
+  assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-drop=|aria-pressed="true"/);
+  // a second tap on the chosen one lets it go; one chosen of the other kind trades nothing
+  h.run('pickEmote("faces","shocked");pickEmote("faces","shocked");pickEmote("faces","unamused");pickEmote("words","oops");pickEmote("words","wow")');
+  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.equal(bar('words'),'ranked,thanks,wow,oops,save,luck,tempo,ofc');
+  // taken off, an emote leaves the bar; a kind can be emptied, and then has no row on the bar
+  h.run('dropEmote("faces","cackling")');assert.equal(bar('faces'),'unamused,shocked,laughing,nervous');
+  assert.doesNotMatch(h.run('emoteButtons()'),/cackling/);
+  h.run('for(const id of emoteBar("words")) dropEmote("words",id)');assert.equal(bar('words'),'');assert.equal(h.run('prefs.emoteWords'),'');
+  html=h.run('emoteButtons()');assert.doesNotMatch(html,/emote-words/);assert.match(html,/data-emote-mute/);
+  assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-pick="words:[a-z]+" aria-pressed/); // none on it
+  // the editor opens from under the preferences, in Settings and in the table's menu alike
+  assert.match(h.run('prefsHtml()'),/<button type="button" class="btn c-fw pref" data-emote-settings>.*?<\/button><\/div>$/); // the last row
+  // a saved bar with a name it doesn't know, or one twice, keeps the rest
+  h.run('prefs.emoteWords="ranked,nope,ranked,luck"');assert.equal(bar('words'),'ranked,luck');
 });

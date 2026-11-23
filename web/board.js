@@ -1393,7 +1393,7 @@ function renderEmotes() {
   patch(
     "emote-pop",
     pop,
-    `${board.emotesOpen}|${opponentEmotesMuted}|${state.status}`,
+    `${board.emotesOpen}|${opponentEmotesMuted}|${state.status}|${prefs.emoteFaces}|${prefs.emoteWords}`,
     () =>
       board.emotesOpen ? `<div class="emote-pop" role="group" aria-label="Quick emotes">${emoteButtons()}</div>` : "",
   );
@@ -1401,21 +1401,21 @@ function renderEmotes() {
 /** The quick emotes and the mute bell: in the chat bubble's pop-up, and under the results. */
 function emoteButtons() {
   const closed = state.status === "closed" ? "disabled" : "";
-  const faces = Object.entries(emoteNames)
-    .filter(([id]) => !TEXT_EMOTES.includes(id))
+  // the ones this player keeps on their bar, in their order (Settings > Emotes): the faces...
+  const faces = emoteBar("faces")
     .map(
-      ([id, label]) =>
-        `<button type="button" data-emote="${id}" aria-label="Send ${label.toLowerCase()} emote" ${closed}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
+      (id) =>
+        `<button type="button" data-emote="${id}" aria-label="Send ${emoteNames[id].toLowerCase()} emote" ${closed}><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`,
     )
     .join("");
-  // the sayings in two rows that scroll sideways together
-  const word = (id) =>
-    `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`;
-  const half = Math.ceil(TEXT_EMOTES.length / 2);
-  const words = [TEXT_EMOTES.slice(0, half), TEXT_EMOTES.slice(half)]
-    .map((row) => `<div class="emote-words-row">${row.map(word).join("")}</div>`)
+  // ...and the sayings, in one row that scrolls sideways (no row at all with none)
+  const words = emoteBar("words")
+    .map(
+      (id) =>
+        `<button type="button" class="emote-word" data-emote="${id}" aria-label="Say ${e(emoteNames[id])}" ${closed}>${e(emoteNames[id])}</button>`,
+    )
     .join("");
-  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div><div class="emote-words">${words}</div>`;
+  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words"><div class="emote-words-row">${words}</div></div>` : ""}`;
 }
 // the text emotes' fade at the edge goes once they are scrolled to the end
 document.addEventListener?.(
@@ -1752,6 +1752,8 @@ function renderSummary() {
     (state.timeline || []).length,
     chartView(),
     opponentEmotesMuted,
+    prefs.emoteFaces,
+    prefs.emoteWords,
   ].join("|");
   patch("summary", holder, signature, () => {
     if (board.summaryHidden)
