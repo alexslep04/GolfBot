@@ -1,7 +1,7 @@
 "use strict";
-// Golf's service worker: it shows the "your turn" notification the server
-// pushes while the game is in the background, and brings the game back to the
-// front when that notification is tapped.
+// Golf's service worker: it shows the notifications the server pushes while
+// the game is in the background ("your turn", and "someone joined the Ranked
+// queue"), and brings the game back to the front when one is tapped.
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));

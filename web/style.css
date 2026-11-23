@@ -502,11 +502,17 @@ body {
    bottom (the fairway is 1076 of the image's 1276 units; the rest is the
    first cut around it). On narrow phones it shrinks with the width so its
    side edges stay in view, but its ends still just leave the screen. */
+/* The backdrop is only a picture, never a color: Safari paints the color of a
+   fixed element at the screen's edge flat across its bars, hiding what is
+   behind them. With the color on the page instead (html, above), the picture
+   runs on under the status bar and the toolbar, and it is as tall as the
+   screen with the bars put away (100lvh), so the toolbar never shows an edge. */
 #backdrop {
   position: fixed;
   inset: 0;
+  min-height: 100lvh;
   z-index: -1;
-  background: var(--bg) url(assets/fairway.svg) center / auto
+  background: url(assets/fairway.svg) center / auto
     min(148vh, max(122vh, 250vw)) no-repeat;
 }
 /* Night Golf: the same course after dark */
@@ -515,12 +521,11 @@ body {
 }
 /* Focus: nothing behind the table but black */
 :root[data-theme="focus"] #backdrop {
-  background: #000;
+  background: none;
 }
 /* Poker: a felt card table in place of the fairway, the same shape and size,
    with the dark room around it running out to every edge of the screen */
 :root[data-theme="poker"] #backdrop {
-  background-color: #021b14;
   background-image: url(assets/poker-table.svg);
 }
 .svg-defs {
@@ -1215,6 +1220,25 @@ p {
 }
 .panel p + p {
   margin-top: 0.8rem;
+}
+/* Notifications: the steps to put Golf on an iPhone's Home Screen, each with
+   a picture of what to tap */
+.guide {
+  list-style: none;
+  margin: 1.2rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 1.6rem;
+}
+.guide-shot {
+  display: block;
+  width: 100%;
+  max-width: 24rem;
+  height: auto;
+  margin: 0.8rem auto 0;
+  border: 0.3rem solid var(--c);
+  border-radius: 1.6rem;
+  background: #fff;
 }
 .new-tag {
   display: inline-grid;

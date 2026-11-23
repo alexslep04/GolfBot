@@ -135,6 +135,10 @@ class Join(BaseModel):
     via: Literal["link"] | None = None
 
 
+class Presence(Join):
+    visible: bool = False  # the page is in front of the player, not in a background tab
+
+
 class InvitePlayer(BaseModel):
     player_id: str = Field(min_length=1, max_length=32)
 
@@ -201,6 +205,7 @@ class Session:
     auth_attempts: list = field(default_factory=list)
     public_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
     online_until: float = 0
+    looking_until: float = 0  # a page of theirs was last in front (presence said so) until then
     invite_times: list = field(default_factory=list)
     avatar: str = DEFAULT_AVATAR
     # spectating: the table being watched, and its players (to follow them to their next table)
@@ -575,8 +580,9 @@ class Store:
         # a declined pair: frozenset of two tokens -> (cooldown end, each one's queue join time then)
         self.queue_declined = {}
         self.queue_lock = asyncio.Lock()
-        # turn notifications: each browser's push subscription (kept beside the match
-        # history so a restart does not forget them), and the last turn it was told about
+        # turn and Ranked queue notifications: each browser's push subscription and
+        # which of the two it wants (kept beside the match history so a restart
+        # does not forget them), and the last turn it was told about
         self.push_file = None if str(history_path) == ":memory:" else Path(history_path).with_name("push-subscriptions.json")
         self.push_subscriptions = {}
         if self.push_file and self.push_file.exists():
@@ -585,6 +591,7 @@ class Store:
             except (OSError, ValueError):
                 self.push_subscriptions = {}
         self.push_told = {}
+        self.queue_alerted = {}  # token -> when it was last told someone joined the Ranked queue
         self.push_keys = None  # loaded or made on first use; False when pywebpush is missing
         self.push_contact = None
 
@@ -1196,7 +1203,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                                        for ws in list(sockets)))
             room.odds_task = asyncio.create_task(refresh_odds(room, send_watchers))
 
-    # ---------- turn notifications (web push) ----------
+    # ---------- turn and Ranked queue notifications (web push) ----------
     def push_keys():
         """The server's push signing keys, made once and kept in data/ (or None without pywebpush)."""
         if store.push_keys is not None:
@@ -1257,7 +1264,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         seat = game.decision_player
         token = room.seats[seat] if seat < len(room.seats) else None
         subscription = store.push_subscriptions.get(token)
-        if not subscription or seat in room.bot_seats:
+        if not subscription or not subscription.get('turn', True) or seat in room.bot_seats:
             return
         turn = f'{room.id}|{len(room.history)}|{game.turns}|{seat}'
         if store.push_told.get(token) == turn:
@@ -1268,6 +1275,29 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         payload = {'title': 'Your turn in Golf', 'body': f'{room.name}: it\'s your move.',
                    'tag': 'golf-turn', 'url': f'lobby/{room.id}'}
         asyncio.get_running_loop().run_in_executor(None, send_push, token, subscription, payload)
+
+    QUEUE_ALERT_GAP = 600  # seconds: one "someone joined Ranked" notification at most per player
+
+    def notify_queue(joiner):
+        """Tell everyone who asked for Ranked queue notifications that a player
+        is waiting, unless they are in the queue or a game already, have Golf in
+        front of them (the page shows its own note), or were told lately."""
+        now = time.time()
+        loop = asyncio.get_running_loop()
+        for token, subscription in list(store.push_subscriptions.items()):
+            if not subscription.get('queue') or token == joiner.token or token in store.queue:
+                continue
+            other = store.sessions.get(token)
+            if other and (not queue_allowed(other) or other.looking_until > now
+                          or joiner.account and other.account and joiner.account['id'] == other.account['id']):
+                continue
+            if now - store.queue_alerted.get(token, 0) < QUEUE_ALERT_GAP:
+                continue
+            store.queue_alerted[token] = now
+            payload = {'title': 'Someone wants a Ranked match',
+                       'body': f'{joiner.username} joined the Ranked queue. Join now to play them.',
+                       'tag': 'golf-queue', 'url': ''}
+            loop.run_in_executor(None, send_push, token, subscription, payload)
 
     def kick_bot(room):
         if room.ai_match:
@@ -1493,13 +1523,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     class PushSubscription(BaseModel):
         subscription: dict | None = None
+        turn: bool = True  # "your turn" notifications
+        queue: bool = False  # "someone joined the Ranked queue" notifications
 
     @app.get('/api/push/key')
     async def push_key(request: Request):
         session_for(request)
         keys = await asyncio.to_thread(push_keys)
         if not keys:
-            raise HTTPException(404, 'Turn notifications are not available on this server.')
+            raise HTTPException(404, 'Notifications are not available on this server.')
         return {'key': keys['public']}
 
     @app.post('/api/push/subscribe')
@@ -1509,7 +1541,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         endpoint = subscription.get('endpoint')
         if not isinstance(endpoint, str) or not endpoint.startswith('https://') or not isinstance(subscription.get('keys'), dict):
             raise HTTPException(422, 'That is not a push subscription.')
-        store.push_subscriptions[session.token] = {'endpoint': endpoint, 'keys': subscription['keys']}
+        store.push_subscriptions[session.token] = {'endpoint': endpoint, 'keys': subscription['keys'],
+                                                   'turn': body.turn, 'queue': body.queue}
         save_push_subscriptions()
         # push services ask who is sending: the site this game is served from, as
         # a bare https://host (the signing library refuses a path or plain http)
@@ -1859,9 +1892,12 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             session.online_until = time.time() + 30
             if len(store.queue) >= 500 and session.token not in store.queue:
                 raise HTTPException(503, 'The queue is full. Try again shortly.')
+            joined = session.token not in store.queue
             store.queue.setdefault(session.token, time.time())
             store.queue_notices.pop(session.token, None)
             prune_queue()
+            if joined:
+                notify_queue(session)
             return queue_view(session)
 
     @app.post('/api/queue/leave')
@@ -2005,12 +2041,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return session_view(session)
 
     @app.post('/api/presence')
-    async def presence(body: Join, request: Request):
+    async def presence(body: Presence, request: Request):
         session = session_for(request)
         if not at_table(session) and not (session.account and session.account.get('display_name')):
             set_name(session, body.username)
             choose_avatar(session, body.avatar)
         session.online_until = time.time() + 30
+        # a page in front polls every few seconds and says so (a background tab
+        # does not, so this runs out soon after Golf is put away)
+        if body.visible:
+            session.looking_until = time.time() + 15
         prune_invites()
         prune_queue()
         invitations = []
@@ -3154,6 +3194,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get("/spectate")
     @app.get("/tournament/{tournament_id}")
     @app.get("/patch-notes")
+    @app.get("/notifications")
     @app.get("/account")
     @app.get("/lobby/{room_id}")
     async def index(request: Request):
