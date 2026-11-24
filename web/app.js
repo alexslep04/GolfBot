@@ -1344,8 +1344,7 @@ function emoteEditHtml() {
   const part = (kind, title, none, all) => {
     const bar = emoteBar(kind);
     const spare = EMOTE_KINDS[kind][1].filter((id) => !bar.includes(id));
-    return `<h3>${title}</h3>
-      <div class="emote-edit ${kind}"><div class="emote-choices bar" role="group" aria-label="${title} bar"><span class="emote-bar-name" aria-hidden="true">${stickerText(`${title} bar`, { idle: false })}</span><span class="emote-none">${none}</span>${bar.map((id) => item(kind, id, true)).join("")}</div>
+    return `<div class="emote-edit ${kind}"><div class="emote-choices bar" role="group" aria-label="${title} bar"><span class="emote-bar-name" aria-hidden="true">${title} bar</span><span class="emote-none">${none}</span>${bar.map((id) => item(kind, id, true)).join("")}</div>
       <div class="emote-choices" role="group" aria-label="Not on your bar"><span class="emote-none">${all}</span>${spare.map((id) => item(kind, id, false)).join("")}</div></div>`;
   };
   return `<div data-emote-edit>${part("faces", "Face emotes", "No face emotes on your bar.", "Every face emote is on your bar.")}${part("words", "Text emotes", "No text emotes on your bar.", "Every text emote is on your bar.")}<p class="hint dark sheet-note">Add, reorder, or remove emotes from your emote bar!</p></div>`;

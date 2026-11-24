@@ -3272,6 +3272,10 @@ button.tag-rules:active > .tag-in {
   flex-direction: column;
   gap: 1rem;
 }
+/* (a little apart from the faces above it) */
+.emote-edit.words {
+  margin-top: 1.4rem;
+}
 .emote-choices {
   display: flex;
   flex-wrap: wrap;
@@ -3286,30 +3290,24 @@ button.tag-rules:active > .tag-in {
 .emote-choices.bar {
   position: relative;
   /* (room above for its name, which sits on the frame, and inside so the emotes clear it) */
-  margin-top: 1.2rem;
-  padding-top: 1.6rem;
+  margin-top: 1.4rem;
+  padding-top: 1.2rem;
   border: 0.4rem solid var(--ink);
   background: var(--paper);
   box-shadow: 0.3rem 0.3rem 0 var(--shadow);
 }
-/* the bar's name, a sticker set on its top edge: the sheet's light color
-   inside an outline of its main color */
+/* the bar's name on its top edge, written like a field's label: the box's
+   own fill inside an outline of its frame */
 .emote-bar-name {
   position: absolute;
-  left: 1.6rem;
-  top: -0.2rem;
-  translate: 0 -50%;
-  font: 700 2.2rem/1 var(--round);
-  /* (set apart a little, so each letter's outline clears the next) */
-  letter-spacing: 0.07em;
-  word-spacing: 0.1em;
+  left: 2rem;
+  top: -1.45rem;
+  font: 700 1.6rem/1.4 var(--text);
+  color: var(--paper);
+  -webkit-text-stroke: 0.5rem var(--ink);
+  paint-order: stroke fill;
   white-space: nowrap;
   pointer-events: none;
-  --fill: var(--c2);
-  --stroke: var(--c);
-  --sw: 0.6rem;
-  --shx: 0.2rem;
-  --shy: 0.2rem;
 }
 .emote-edit.words .emote-choices {
   min-height: 6.4rem;
