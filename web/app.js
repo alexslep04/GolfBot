@@ -796,7 +796,7 @@ function queuePillHtml(queue, compact = false) {
     const accept = queue.accepted
       ? `<button type="button" class="btn c-p3 queue-accept" disabled>${sparkle(false)}<span>Waiting for ${e(queue.opponent)}…</span>${sparkle(true)}</button>`
       : `<button type="button" class="btn c-p3 queue-accept" data-queue-reply="accept">${sparkle(false)}<span>${padTag("y")}Accept</span>${sparkle(true)}</button>`;
-    return `<div class="queue-pill offer open" role="dialog" aria-label="Classic match found"><div class="queue-offer-row"><span class="queue-text"><b>Match found!</b><small>vs ${e(queue.opponent)}<br>${style}</small></span>${decline}</div>${accept}</div>`;
+    return `<div class="queue-pill offer open" role="dialog" aria-label="Classic match found"><div class="queue-offer-row"><span class="queue-text"><b>Match found!</b><small>vs <span class="queue-who">${e(queue.opponent)}</span><br>${style}</small></span>${decline}</div>${accept}</div>`;
   }
   const status = offer ? "Match found!" : "In queue";
   return `<div class="queue-pill${offer ? " offer" : ""}"><span class="queue-info" role="status" aria-label="Ranked: ${status}"><span class="queue-text"><b>Ranked</b><small>${status}</small></span></span>${leave}</div>`;

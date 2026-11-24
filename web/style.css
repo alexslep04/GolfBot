@@ -4002,6 +4002,8 @@ button.tag-rules:active > .tag-in {
 .summary-emote-anchor {
   pointer-events: none;
   align-self: center;
+  /* never wider than the results, so the bar can't spill off the screen */
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4045,6 +4047,7 @@ button.tag-rules:active > .tag-in {
 }
 .emote-pop.summary-emotes {
   position: static;
+  max-width: 100%;
   margin-top: 0.6rem;
   justify-content: center;
   transform-origin: 50% 0;
@@ -5035,7 +5038,13 @@ button:disabled > .haptic-switch {
 .queue-pill.open .queue-text small {
   white-space: normal;
   overflow: visible;
-  opacity: 0.75;
+  /* (faded by color, not opacity, so the opponent's name can be full strength) */
+  opacity: 1;
+  color: color-mix(in srgb, var(--ct) 75%, transparent);
+}
+/* the opponent's name, in the pill's primary text color */
+.queue-pill.open .queue-who {
+  color: var(--ct);
 }
 .queue-pill.open .queue-text b {
   font-size: 1.6rem;
