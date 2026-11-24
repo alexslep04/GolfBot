@@ -106,6 +106,28 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(rules['poisoned_card']['win_rate'], 0)
         self.assertIsNone(rules['angel_numbers']['win_rate'])
 
+    def test_each_rule_is_broken_into_its_parts_over_the_games_that_record_them(self):
+        games = [match(['tester', 'GolfBot'], [
+            {**result([-2, 5], activations=[['angel_numbers', 'holdem'], []]),
+             'subrule_activations': [['angel_numbers:777', 'angel_numbers:999', 'holdem:flush', 'bogus:part'], []]},
+            {**result([6, 3], activations=[['angel_numbers'], []]),
+             'subrule_activations': [['angel_numbers:777'], []]},
+            # an older game: whole rules only, so it is left out of the parts
+            result([1, 4], activations=[['angel_numbers'], []]),
+        ], 0, solo=True)]
+        overall = build_stats(games, 'player:tester')['player']['overall']
+        self.assertEqual(overall['known_subrule_games'], 2)
+        rules = {row['key']: row for row in overall['rule_activations']}
+        self.assertEqual(rules['angel_numbers']['games'], 3)
+        parts = {part['key']: part for part in rules['angel_numbers']['subrules']}
+        self.assertEqual(list(parts), ['666', '777', '888', '999'])
+        self.assertEqual((parts['777']['games'], parts['777']['rate'], parts['777']['win_rate']), (2, 1, .5))
+        self.assertEqual((parts['999']['games'], parts['999']['win_rate']), (1, 1))
+        self.assertEqual((parts['666']['games'], parts['666']['win_rate']), (0, None))
+        self.assertEqual([part['name'] for part in rules['holdem']['subrules']],
+                         ['Flush', 'Straight', 'Full house', 'Four of a kind'])
+        self.assertEqual(rules['v10']['subrules'], [])
+
     def test_rule_filters_use_round_settings_and_full_matching_series_only(self):
         matches = [
             match(['tester', 'Rival'], [result([1, 4], {'v10': True}), result([5, 2], {'v10': False})], 0, rules={'v10': False}),

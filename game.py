@@ -5,6 +5,7 @@ from collections import Counter
 from copy import copy
 import random
 from scoring import (score_adjustments, column_score, opponent_adjustment, color_multiplier, scoring_rule_keys,
+                     scoring_subrule_keys,
                      angel_divisor, angel_multiplier, ANGEL_RANKS, POISON_POINTS)
 
 
@@ -73,6 +74,20 @@ RULE_OPTIONS = [
     ("all_in_color", "All in red/black"),
 ]
 
+# the parts each rule's activations are broken into in the stats ("rule:part"
+# keys); a rule not listed here has none
+SUBRULE_OPTIONS = {
+    "royal_pairs": [("queens", "Queen-Queen"), ("jacks", "Jack-Jack")],
+    "angel_numbers": [("666", "666"), ("777", "777"), ("888", "888"), ("999", "999")],
+    "king_queen": [("same", "Same color"), ("mixed", "Different colors")],
+    "holdem": [("flush", "Flush"), ("straight", "Straight"), ("full_house", "Full house"), ("four_kind", "Four of a kind")],
+    "tricky_straights": [("up", "Ascending"), ("down", "Descending")],
+    "beggars": [("right", "Guessed right"), ("wrong", "Guessed wrong"), ("passed", "Passed")],
+    "four_kind": [("moved", "Moved into columns"), ("kept", "Left in place")],
+    "suited_rows": [("red", "Red row"), ("black", "Black row")],
+    "all_in_color": [("red", "All red"), ("black", "All black")],
+}
+
 # 666, 777, 888 and 999 were four rules before they became Angel numbers; saved
 # games, results and settings that name them read as Angel numbers.
 LEGACY_RULE_KEYS = {'devils_row': 'angel_numbers', 'gamblers_row': 'angel_numbers',
@@ -140,6 +155,8 @@ class GolfGame:
         self.used_pairs = set()
         self.used_bonus_cards = set()
         self.activated_rules = [set() for _ in self.players]
+        # which way each rule fired ("rule:part" keys, as SUBRULE_OPTIONS names them)
+        self.activated_subrules = [set() for _ in self.players]
         self.scoring_reveal = False
         self.final_bonus_queue = []
         # Angel numbers each player has earned (6, 7, 8, 9); kept if the row breaks
@@ -158,6 +175,7 @@ class GolfGame:
         setattr(self.rules, key, bool(enabled))
         self.angels_earned = [set() for _ in self.players]
         self.activated_rules = [set() for _ in self.players]
+        self.activated_subrules = [set() for _ in self.players]
         self._update_combos()
 
     def visible_count(self, player):
@@ -195,6 +213,7 @@ class GolfGame:
     def _record_scoring_effects(self):
         for player, layout in enumerate(self.players):
             self.activated_rules[player].update(scoring_rule_keys(layout, self.rules))
+            self.activated_subrules[player].update(scoring_subrule_keys(layout, self.rules))
 
     def _update_combos(self):
         for player, layout in enumerate(self.players):
@@ -205,6 +224,7 @@ class GolfGame:
                 if self.rules.angel_numbers and rank in ANGEL_RANKS and all(slot.card.rank == rank for slot in row):
                     self.angels_earned[player].add(rank)
                     self.activated_rules[player].add("angel_numbers")
+                    self.activated_subrules[player].add(f"angel_numbers:{str(rank) * 3}")
         self._record_scoring_effects()
 
     def _mark_finish(self):
@@ -317,6 +337,8 @@ class GolfGame:
         pending = self.guess_pending
         target = self.players[self.current][pending["target"]]
         correct = rank is not None and rank == target.card.rank
+        self.activated_subrules[pending["player"]].add(
+            "beggars:" + ("passed" if rank is None else "right" if correct else "wrong"))
         target.visible = True
         self.last_guess = {"player": pending["player"], "owner": self.current, "target": pending["target"],
                            "rank": rank, "card": target.card.rank, "correct": correct,
@@ -410,6 +432,7 @@ class GolfGame:
             raise ValueError("There is no four-of-a-kind rearrangement pending.")
         pending = self.arrange_pending
         player = pending["player"]
+        self.activated_subrules[player].add("four_kind:" + ("kept" if columns is None else "moved"))
         if columns is not None:
             plan = self.arrangement_plan(player, pending["rank"], columns)
             if plan is None:
@@ -487,6 +510,7 @@ class GolfGame:
         sim.draw_pile, sim.discard_pile = list(self.draw_pile), list(self.discard_pile)
         sim.angels_earned = [set(ranks) for ranks in self.angels_earned]
         sim.activated_rules = [set(keys) for keys in self.activated_rules]
+        sim.activated_subrules = [set(keys) for keys in self.activated_subrules]
         if refs is not None:
             first, second = refs
             if self.phase not in ("bonus", "guess_trade") or first == second:
@@ -532,6 +556,7 @@ class GolfGame:
                     self.used_pairs.add(pair)
                     self.used_bonus_cards.update(pair)
                     self.activated_rules[player].add("royal_pairs")
+                    self.activated_subrules[player].add("royal_pairs:" + ("queens" if first.card.rank == 12 else "jacks"))
                     count += 1
         return count
 

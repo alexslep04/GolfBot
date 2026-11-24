@@ -1,6 +1,8 @@
 """Statistics from saved results, grouped by account or guest display name."""
 from collections import Counter
-from game import RULE_OPTIONS
+from game import RULE_OPTIONS, SUBRULE_OPTIONS
+
+SUBRULE_KEYS = {f'{rule}:{part}' for rule, parts in SUBRULE_OPTIONS.items() for part, _ in parts}
 from patches import PATCH_VERSION
 
 BOT_ID = 'bot:golfbot'
@@ -111,6 +113,8 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
     match_draws = 0
     points, activations, activation_wins = [], Counter(), Counter()
     known_activations = 0
+    # the parts of each rule (which Angel number, which Hold 'em hand, ...): only newer games record them
+    subrules, subrule_wins, known_subrules = Counter(), Counter(), 0
     turns, modifier_counts = [], []
     move_seconds, move_turns = 0.0, 0
     # who had the first turn (recorded from 1.4.0): games started, and wins either way
@@ -168,6 +172,12 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
                     for key in set(recorded[seat]) & {key for key, _ in RULE_OPTIONS}:
                         activations[key] += 1
                         activation_wins[key] += own < comparison
+                parts = result.get('subrule_activations')
+                if isinstance(parts, list) and len(parts) == len(seats) and isinstance(parts[seat], list):
+                    known_subrules += 1
+                    for key in set(parts[seat]) & SUBRULE_KEYS:
+                        subrules[key] += 1
+                        subrule_wins[key] += own < comparison
             if rounds:
                 if match['status'] != 'finished':
                     unfinished_matches += 1
@@ -215,8 +225,16 @@ def summarize(matches, player_id, enabled=(), disabled=(), opponent_id=None, hou
         'rule_activations': [{'key': key, 'name': name, 'games': activations[key],
                               'rate': activations[key] / known_activations if known_activations else None,
                               'wins': activation_wins[key],
-                              'win_rate': activation_wins[key] / activations[key] if activations[key] else None}
+                              'win_rate': activation_wins[key] / activations[key] if activations[key] else None,
+                              # each part over the games that record parts
+                              'subrules': [{'key': part, 'name': part_name, 'games': subrules[f'{key}:{part}'],
+                                            'rate': subrules[f'{key}:{part}'] / known_subrules if known_subrules else None,
+                                            'wins': subrule_wins[f'{key}:{part}'],
+                                            'win_rate': (subrule_wins[f'{key}:{part}'] / subrules[f'{key}:{part}']
+                                                         if subrules[f'{key}:{part}'] else None)}
+                                           for part, part_name in SUBRULE_OPTIONS.get(key, [])]}
                              for key, name in RULE_OPTIONS],
+        'known_subrule_games': known_subrules,
     }
 
 

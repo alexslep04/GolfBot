@@ -175,6 +175,34 @@ def scoring_rule_keys(layout, rules):
     return keys
 
 
+def scoring_subrule_keys(layout, rules, visible_only=True):
+    """Which way each scoring rule fired ("rule:part" keys), from the layout's cards.
+
+    The parts the stats break each rule into: Hold 'em's hands, the straights'
+    direction, the suited rows' and the six cards' color, and whether a King-Queen
+    column matched colors. (Angel numbers, bonus swaps, Beggars and 4 of a Kind
+    are recorded by the game as they happen.)
+    """
+    keys = set()
+    cards = [slot.card for slot in layout if slot.visible or not visible_only]
+    if rules.holdem:
+        hands = holdem_categories(cards)
+        keys.update(f'holdem:{hand}' for hand in ('flush', 'straight', 'full_house', 'four_kind') if hand in hands)
+    for _, direction, _ in straight_rows(layout, rules, visible_only):
+        keys.add('tricky_straights:up' if direction == 1 else 'tricky_straights:down')
+    for _, red, _ in suited_rows(layout, rules, visible_only):
+        keys.add('suited_rows:red' if red else 'suited_rows:black')
+    color = all_color(layout, rules, visible_only)
+    if color is not None:
+        keys.add('all_in_color:red' if color else 'all_in_color:black')
+    if rules.king_queen:
+        for i in range(3):
+            first, second = layout[i], layout[i + 3]
+            if (not visible_only or first.visible and second.visible) and {first.card.rank, second.card.rank} == {12, 13}:
+                keys.add('king_queen:same' if first.card.red == second.card.red else 'king_queen:mixed')
+    return keys
+
+
 def modifier_instance_counts(layout, rules, angels_earned=(), poisoned=False, *, visible_only=True):
     """Count optional modifier instances caused by this player's current layout.
 
@@ -217,9 +245,15 @@ def modifier_data(game, *, visible_only=True):
     counts = [modifier_instance_counts(
         layout, game.rules, game.angels_earned[player], poisoned=game.finisher == player,
         visible_only=visible_only) for player, layout in enumerate(game.players)]
+    subrules = getattr(game, 'activated_subrules', None) or [set() for _ in game.players]
     return {'modifier_counts': counts,
             'activations': [sorted(set(keys) | set(counts[player]))
-                            for player, keys in enumerate(game.activated_rules)]}
+                            for player, keys in enumerate(game.activated_rules)],
+            # the parts of those rules ("angel_numbers:777", "holdem:flush", ...); older results lack them
+            'subrule_activations': [sorted(set(subrules[player]) | scoring_subrule_keys(layout, game.rules, visible_only)
+                                           | {f'angel_numbers:{str(rank) * 3}' for rank in game.angels_earned[player]
+                                              if game.rules.angel_numbers})
+                                    for player, layout in enumerate(game.players)]}
 
 
 

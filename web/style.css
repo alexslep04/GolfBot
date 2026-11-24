@@ -1629,6 +1629,35 @@ table:not(:has(tfoot)) tbody tr:last-child > * {
 td {
   font-family: var(--text);
 }
+/* Advanced stats: a rule's parts, tucked under it */
+tr.sub-rule > * {
+  padding-block: 0.4rem;
+  font-size: 1.25rem;
+  border-bottom-width: 0.1rem;
+  border-bottom-color: color-mix(in srgb, var(--c) 45%, transparent);
+}
+/* (the arrow hangs, so a long name wraps under itself) */
+tr.sub-rule > th {
+  padding-left: 3.6rem;
+  text-indent: -1.6rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.sub-rule-arrow {
+  width: 0.95em;
+  margin-right: calc(1.6rem - 0.95em);
+  vertical-align: -0.05em;
+  opacity: 0.8;
+}
+/* the rule's own line runs lightly into its parts, which end on the full line */
+tr:has(+ tr.sub-rule) > * {
+  border-bottom-width: 0.1rem;
+  border-bottom-color: color-mix(in srgb, var(--c) 45%, transparent);
+}
+tr.sub-rule:not(:has(+ tr.sub-rule)) > * {
+  border-bottom-width: 0.2rem;
+  border-bottom-color: var(--c);
+}
 details > summary {
   cursor: pointer;
   list-style: none;

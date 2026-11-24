@@ -68,6 +68,9 @@ def save(room):
 def restore_game(payload):
     game = GolfGame.__new__(GolfGame)
     game.__dict__.update(decode(payload))
+    if not hasattr(game, 'activated_subrules'):
+        # saved before the parts of each rule were tracked: they count from here on
+        game.activated_subrules = [set() for _ in game.players]
     if not hasattr(game, 'angels_earned'):
         # saved before 666/777/888/999 became Angel numbers: 777 and 999 were
         # earned flags, and a 666 row left its cards locked in the hand

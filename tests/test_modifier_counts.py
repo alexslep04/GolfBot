@@ -64,6 +64,25 @@ class ModifierCountTests(unittest.TestCase):
         self.assertEqual(data["activations"][0], ["all_in_color", "angel_numbers", "royal_pairs", "suited_rows", "tricky_straights"])
         self.assertEqual(game.activated_rules[0], {"royal_pairs"})
 
+    def test_parts_of_each_rule_are_recorded_with_the_rule(self):
+        rules = Rules(tricky_straights=True, suited_rows=True, holdem=True, all_in_color=True,
+                      king_queen=True, angel_numbers=True, royal_pairs=True)
+        game = GolfGame(rules=rules)
+        # an ascending heart row and a descending diamond row: two straights, two red
+        # suited rows, all red, and a five-card straight; the other hand has a King-Queen column
+        game.players = [layout([3, 4, 5, 8, 7, 6], "HHHDDD"), layout([13, 13, 1, 12, 12, 4], "SHCDSC")]
+        game.angels_earned[0] = {7}
+        game.activated_subrules[1].add("royal_pairs:queens")
+        parts = modifier_data(game, visible_only=False)["subrule_activations"]
+        self.assertEqual(parts[0], ["all_in_color:red", "angel_numbers:777", "holdem:straight",
+                                    "suited_rows:red", "tricky_straights:down", "tricky_straights:up"])
+        # K♠ over Q♦ differs in color; and the bonus swap is kept as it happened
+        self.assertEqual(parts[1], ["king_queen:mixed", "royal_pairs:queens"])
+        # a face-up row of three earns its Angel number, part and all
+        game.players[0] = layout([9, 9, 9, 2, 3, 4], "SHDCSH")
+        game._update_combos()
+        self.assertIn("angel_numbers:999", game.activated_subrules[0])
+
     def test_final_counts_do_not_reuse_cumulative_activation_keys(self):
         game = GolfGame(rules=Rules(king_queen=True, angel_numbers=True, poisoned_card=True))
         game.players = [layout([1, 4, 8, 10, 6, 3]), layout([1, 4, 8, 10, 6, 3])]
