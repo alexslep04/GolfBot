@@ -1,0 +1,57 @@
+name: Deploy
+# After the tests pass on main, ask the server to update itself, and wait until
+# it is running the new commit. The server does the work (deploy/pi/deploy.sh):
+# this only knocks, with the DEPLOY_TOKEN secret. See docs/raspberry-pi.md.
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SITE: ${{ vars.DEPLOY_URL || 'https://sleptsov.dev/golf' }}
+      TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+    steps:
+      - name: Ask the server to deploy
+        id: ask
+        run: |
+          if [ -z "$TOKEN" ]; then
+            # (until the server is set up for this, there is nothing to knock on)
+            echo "::notice::No DEPLOY_TOKEN secret is set, so nothing was deployed. See docs/raspberry-pi.md."
+            exit 0
+          fi
+          status=$(curl -sS -o reply.txt -w '%{http_code}' --retry 3 --retry-delay 10 --max-time 30 \
+            -X POST -H "Authorization: Bearer $TOKEN" "$SITE/api/deploy")
+          echo "The server answered $status: $(head -c 300 reply.txt)"
+          if [ "$status" != 202 ]; then
+            echo "::error::The server did not accept the deploy (HTTP $status)."
+            exit 1
+          fi
+          echo "asked=yes" >> "$GITHUB_OUTPUT"
+      - name: Wait for the new version
+        if: steps.ask.outputs.asked == 'yes'
+        run: |
+          # (a deploy waits up to ten minutes for games in play, and a changed
+          # requirements.txt rebuilds the Python environment, which is slow on a Pi)
+          for attempt in $(seq 1 160); do
+            # the server goes to whatever main is now, which may be newer than the push that started this run
+            wanted=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" refs/heads/main | cut -f1)
+            running=$(curl -fsS --max-time 10 "$SITE/health" 2>/dev/null | python3 -c 'import json, sys; print(json.load(sys.stdin).get("commit") or "")' 2>/dev/null || true)
+            if [ -n "$wanted" ] && [ "$running" = "$wanted" ]; then
+              echo "Deployed: the server is running ${wanted:0:7}."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::After 40 minutes the server is running '${running:0:7}', not ${wanted:0:7}. On the Pi: journalctl -u golf-deploy -n 80"
+          exit 1

@@ -11,6 +11,7 @@ import logging
 import re
 import secrets
 import random
+import subprocess
 import time
 from urllib.parse import urlparse
 from typing import Literal
@@ -52,6 +53,18 @@ REACTION_COOLDOWN = 60  # seconds between reactions
 REACTION_DELAY = 0.9  # let the cards land first
 reaction_roll = random.random  # replaced in tests
 log = logging.getLogger(__name__)
+SLOW_REQUEST = 1.0  # seconds: anything slower is logged
+# asked for every few seconds, or on every move: logged only when they fail or are slow
+QUIET_REQUESTS = re.compile(r'/api/(presence|push/\w+|lobbies/[^/]+/(action|preview|emote))$')
+
+
+def running_commit():
+    """The Git commit this checkout is on (so a deploy can tell when it has landed)."""
+    try:
+        done = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=10)
+        return done.stdout.strip() if done.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 
@@ -494,6 +507,10 @@ class Room:
         self.game._record_scoring_effects()
         leaders = [p for p, score in enumerate(scores) if score == min(scores)]
         winner = leaders[0] if len(leaders) == 1 else None
+        kind = "tournament" if self.tournament else "ranked" if self.rated else "solo" if self.solo else self.game_type
+        log.info("Table %s (%s) game %d over after %d turns: %s; winner: %s", self.id, kind, len(self.history) + 1,
+                 self.game.turns, ", ".join(f"{name} {score}" for name, score in zip(self.names, scores)),
+                 self.names[winner] if winner is not None else "tied")
         self.history.append({"round": len(self.history) + 1, "scores": scores, "winner": winner,
                              "rules": asdict(self.game.rules),
                              "house_rules": self.house_rules, "house_version": self.house_version,
@@ -1080,14 +1097,19 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         google_client_id = os.environ.get('GOLFBOT_GOOGLE_CLIENT_ID', '')
         if not google_client_id and config.exists():
             google_client_id = json.loads(config.read_text(encoding='utf-8')).get('client_id', '')
+    commit = running_commit()
+    deploy_token = os.environ.get('GOLFBOT_DEPLOY_TOKEN', '')
+
     @asynccontextmanager
     async def lifespan(app):
         try:
+            log.info("Golf %s starting (commit %s)", PATCH_VERSION, (commit or 'unknown')[:7])
             store.history.interrupt_open_matches()
             monitor = asyncio.create_task(monitor_tables())
             try:
                 yield
             finally:
+                log.info("Golf stopping: %d tables open, %d in play between people", len(store.rooms), games_in_play())
                 monitor.cancel()
                 await asyncio.gather(monitor, return_exceptions=True)
                 for room in store.rooms.values():
@@ -1108,7 +1130,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         origin = request.headers.get("origin")
         if request.method in ("POST", "DELETE", "PATCH") and origin and urlparse(origin).netloc != request.headers.get("host"):
             return Response("Cross-origin changes are not allowed.", status_code=403)
-        response = await call_next(request)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            log_request(request, 500, time.perf_counter() - started)
+            raise
+        log_request(request, response.status_code, time.perf_counter() - started)
         response.headers["X-Content-Type-Options"] = "nosniff"
         local_http = request.url.scheme == 'http' and request.url.hostname in ('localhost', '127.0.0.1', '::1')
         response.headers["Referrer-Policy"] = 'no-referrer-when-downgrade' if local_http else 'strict-origin-when-cross-origin'
@@ -1116,6 +1144,24 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if request.url.path.removeprefix(request.scope.get("root_path", "")).startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    def log_request(request, status, seconds):
+        """One line for each request that changes something, fails on the server, or is slow."""
+        path = request.url.path.removeprefix(request.scope.get("root_path", ""))
+        changing = request.method != "GET" and path.startswith("/api") and not QUIET_REQUESTS.search(path)
+        failed = status >= 500 or (status >= 400 and request.method != "GET" and path.startswith("/api"))
+        if not (changing or failed or seconds >= SLOW_REQUEST):
+            return
+        session = store.sessions.get(request.cookies.get(COOKIE))
+        who = f"{session.username!r} {session.public_id}" if session else "no session"
+        level = logging.ERROR if status >= 500 else logging.WARNING if seconds >= SLOW_REQUEST else logging.INFO
+        log.log(level, "%s %s -> %d in %d ms (%s)", request.method, path, status, round(seconds * 1000), who)
+
+    def games_in_play():
+        """Games being played between people right now (a deploy waits for these to end)."""
+        return sum(1 for room in store.rooms.values()
+                   if room.status in ('playing', 'round_over') and not room.solo and not room.ai_match
+                   and any(room.clients.get(token) for token in room.seats))
 
     def session_for(request):
         session = store.session(request.cookies.get(COOKIE))
@@ -1565,7 +1611,27 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     @app.get("/health")
     async def health():
-        return {"status": "ok"}
+        return {"status": "ok", "patch": PATCH_VERSION, "commit": commit, "playing": games_in_play()}
+
+    @app.post("/api/deploy", status_code=202)
+    async def request_deploy(request: Request):
+        """GitHub asks for a deploy after the tests pass on main (.github/workflows/deploy.yml).
+
+        This only leaves a note, data/deploy-request; the machine's own service sees
+        it and runs deploy/pi/deploy.sh, which moves this checkout to main and
+        restarts. Nothing in the request chooses what is run. Off unless
+        GOLFBOT_DEPLOY_TOKEN is set.
+        """
+        if not deploy_token:
+            raise HTTPException(404, "Not found.")
+        if not secrets.compare_digest(request.headers.get("authorization", "").encode(), f"Bearer {deploy_token}".encode()):
+            log.warning("A deploy was asked for with the wrong token")
+            raise HTTPException(403, "Wrong deploy token.")
+        note = ROOT / "data" / "deploy-request"
+        note.parent.mkdir(exist_ok=True)
+        note.write_text(str(time.time()), encoding="utf-8")
+        log.info("Deploy requested (running commit %s)", (commit or 'unknown')[:7])
+        return {"status": "queued", "commit": commit}
 
     @app.get("/api/session")
     async def get_session(request: Request, response: Response):
@@ -2555,6 +2621,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room.void_offer = None
         room.forfeited = seat
         winner = 1 - seat
+        log.info("Table %s: %s forfeits to %s", room.id, room.names[seat], room.names[winner])
         if room.rated:
             if not room.round_recorded:
                 scores = [0, 0]

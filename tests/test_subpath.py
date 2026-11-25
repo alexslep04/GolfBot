@@ -34,7 +34,7 @@ class SubpathTests(unittest.TestCase):
         for asset in ('app.js', 'style.css', 'emotes/laughing.png'):
             self.assertEqual(self.host.get('/golf/static/' + asset).status_code, 200)
         self.assertIn('<base href="/"', self.host.get('/').text)
-        self.assertEqual(self.host.get('/health').json(), {'status': 'ok'})
+        self.assertEqual(self.host.get('/health').json()['status'], 'ok')
 
     def test_page_carries_its_first_render_data_so_a_refresh_needs_no_round_trips(self):
         import json
