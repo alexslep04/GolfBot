@@ -1,6 +1,6 @@
 """Back up the game data: the database and the small settings files beside it.
 
-    python3 backup.py --to /mnt/golf-backup/golf --to ~/golf-backups
+    python3 backup.py --to ~/golf-backups
 
 Each run writes one archive, golf-YYYYMMDD-HHMMSS.tar.gz, to every folder given.
 The database is copied through SQLite's own backup, so it is safe to run while

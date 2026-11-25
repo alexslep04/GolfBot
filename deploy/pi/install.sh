@@ -21,7 +21,7 @@ fi
 
 echo "== Packages"
 sudo apt-get update -qq
-sudo apt-get install -y -qq git python3 python3-venv curl cifs-utils
+sudo apt-get install -y -qq git python3 python3-venv curl
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || {
   echo "Golf needs Python 3.11 or newer; this is $(python3 --version). Use Raspberry Pi OS Bookworm or newer." >&2
   exit 1
@@ -36,9 +36,9 @@ if ! sudo test -f "$ENV_FILE"; then
 # Settings for the Golf server, its deploys and its backups.
 GOLFBOT_DEPLOY_TOKEN=$TOKEN
 GOLF_PORT=$PORT
-# Where the daily backup goes. The first is the network drive; the second is a
-# small local copy for the days the drive cannot be reached.
-GOLF_BACKUP_DIRS="/mnt/golf-backup/golf $HOME/golf-backups"
+# Where the daily backup is written (several folders may be given, separated by
+# spaces). The PC copies the archives from here: deploy/pc/pull-backups.ps1.
+GOLF_BACKUP_DIRS="$HOME/golf-backups"
 # A deploy waits this long (seconds) for games between people to finish.
 GOLF_DEPLOY_WAIT=600
 EOF
@@ -119,8 +119,8 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# the deploy and the backup run as $RUN_AS and need exactly these two things as root
-echo "$RUN_AS ALL=(root) NOPASSWD: /usr/bin/systemctl restart golf.service, /usr/bin/mount /mnt/golf-backup" | sudo tee /etc/sudoers.d/golf > /dev/null
+# the deploy runs as $RUN_AS and needs exactly this one thing as root
+echo "$RUN_AS ALL=(root) NOPASSWD: /usr/bin/systemctl restart golf.service" | sudo tee /etc/sudoers.d/golf > /dev/null
 sudo chmod 440 /etc/sudoers.d/golf
 sudo visudo -cf /etc/sudoers.d/golf > /dev/null
 

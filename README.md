@@ -132,7 +132,7 @@ python -m uvicorn server:app --host 0.0.0.0 --port 8000 --workers 1
 python -m unittest discover -s tests -v
 ```
 
-**Raspberry Pi:** [docs/raspberry-pi.md](docs/raspberry-pi.md) covers running the server as a service on a Pi, with the Cloudflare tunnel, automatic deploys when main changes, the server log, and daily backups to a network drive (`deploy/pi/`, `backup.py`, `logs.py`).
+**Raspberry Pi:** [docs/raspberry-pi.md](docs/raspberry-pi.md) covers running the server as a service on a Pi, with the Cloudflare tunnel, automatic deploys when main changes, the server log, and daily backups that a PC copies from the Pi (`deploy/pi/`, `deploy/pc/`, `backup.py`, `logs.py`).
 
 For Docker: `docker build -t golfbot .` then `docker run --rm -p 8000:8000 -v golfbot-data:/app/data golfbot`. The named volume retains history after the container stops. A hosted deployment should route both HTTP and WebSockets to this single process and terminate HTTPS at its proxy. Uvicorn trusts forwarded scheme headers from localhost by default; configure trusted proxy addresses explicitly for other hosts.
 

@@ -7,13 +7,25 @@ The Pi runs four things, all set up by the scripts in `deploy/pi/`:
 | The game server, started at boot and restarted if it stops | `golf.service` | `journalctl -u golf -f` |
 | The Cloudflare tunnel (`https://sleptsov.dev/golf/`) | `cloudflared.service` | `journalctl -u cloudflared -f` |
 | Deploys: main on GitHub → the Pi, after the tests pass | `golf-deploy.path` → `golf-deploy.service` | `journalctl -u golf-deploy -n 80` |
-| The daily backup to the network drive | `golf-backup.timer` → `golf-backup.service` | `journalctl -u golf-backup -n 40` |
+| The daily backup, which the PC then copies | `golf-backup.timer` → `golf-backup.service` | `journalctl -u golf-backup -n 40` |
 
 Everything the game saves is in `~/golf/data/`: `matches.sqlite3` (matches, accounts, ratings, progression), `google-signin.json`, `push-keys.json` and `push-subscriptions.json`.
 
 ## Moving the server to the Pi
 
 You need Raspberry Pi OS Bookworm or newer (64-bit recommended; the game needs Python 3.11+), SSH turned on, and an address for the Pi that does not change (reserve one for it in the router). Below, `pi@raspberrypi.local` stands for your user and Pi.
+
+**0. On the PC: let it sign in to the Pi without a password.** The copies below and the daily backup pull use this. This PC already has an SSH key (`~\.ssh\id_ed25519`); this adds it to the Pi, asking for the Pi's password one last time:
+
+```powershell
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh pi@raspberrypi.local "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+```
+
+```powershell
+ssh -o BatchMode=yes pi@raspberrypi.local "echo signed in without a password"
+```
+
+If the second command fails, the key has a passphrase: start Windows' `ssh-agent` service and run `ssh-add`, or the scheduled backup pull will not be able to sign in.
 
 **1. On the Pi: get the game and install it.** The first run builds the Python environment, which takes several minutes on a Pi.
 
@@ -62,12 +74,21 @@ gh secret set DEPLOY_TOKEN --repo alexslep04/GolfBot
 
 (It asks you to paste the token. It is also on the Pi, in `/etc/golf.env`.) Test it from GitHub → Actions → **Deploy** → **Run workflow**.
 
-**6. Connect the backup drive.** Give the script the drive's network share, `//HOST/SHARE`. It asks for the share's user name and password:
+**6. On the PC: copy the backups here every day.** The Pi makes a backup at about 04:30 each day; run one now so there is something to copy, then install the scheduled task. The script is fetched from the Pi, so no checkout is needed on the PC:
 
-```bash
-cd ~/golf && ./deploy/pi/backup-drive.sh //192.168.1.50/Backups
-sudo systemctl start golf-backup && journalctl -u golf-backup -n 20 --no-pager
+```powershell
+ssh pi@raspberrypi.local "sudo systemctl start golf-backup; ls -lh golf-backups"
 ```
+
+```powershell
+scp pi@raspberrypi.local:golf/deploy/pc/pull-backups.ps1 $env:TEMP\pull-backups.ps1
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $env:TEMP\pull-backups.ps1 -Pi pi@raspberrypi.local -Install
+```
+
+It should end with `Copied 1 new, 1 kept`, and `C:\Users\adsle\GolfBackups` then holds the archive, the script and `pull.log`.
 
 ## Deploys
 
@@ -104,21 +125,32 @@ grep "game .* over" ~/golf/data/logs/golf.log | tail
 
 ## Backups
 
-Every day at about 04:30 (and at the next start if the Pi was off), `golf-backup` writes `golf-YYYYMMDD-HHMMSS.tar.gz` to each folder in `GOLF_BACKUP_DIRS`: the network drive (`/mnt/golf-backup/golf`) and a local copy (`~/golf-backups`). The archive holds a consistent copy of the database, taken through SQLite's own backup while the server keeps running and checked with `PRAGMA integrity_check`, plus the `.json` files. Each folder keeps the newest 30 archives and one a month for a year.
-
-If the drive cannot be reached the local copy is still made and the run is marked failed. Check on it with:
+**On the Pi.** Every day at about 04:30 (and at the next start if the Pi was off), `golf-backup` writes `golf-YYYYMMDD-HHMMSS.tar.gz` to `~/golf-backups` (`GOLF_BACKUP_DIRS` in `/etc/golf.env`). The archive holds a consistent copy of the database, taken through SQLite's own backup while the server keeps running and checked with `PRAGMA integrity_check`, plus the `.json` files. The newest 30 archives are kept, and one a month for a year.
 
 ```bash
 systemctl list-timers golf-backup.timer
-systemctl status golf-backup
-ls -lh /mnt/golf-backup/golf | tail
+journalctl -u golf-backup -n 20 --no-pager
 ```
 
-**Restoring** an archive:
+**On the PC.** The scheduled task **Golf backups** runs `C:\Users\adsle\GolfBackups\pull-backups.ps1` every day at 09:00, or as soon as the PC is next on. It copies every archive newer than the ones it has, so days the PC was off are caught up, opens each copy to check it before keeping it, and keeps the newest 60 plus one a month. The data is then on two machines: the Pi's SD card and the PC.
+
+Each run adds a line to `C:\Users\adsle\GolfBackups\pull.log`. A run fails, and says why there, when the Pi cannot be reached, a copy is damaged, or the newest backup is more than two days old (the Pi has stopped making them). Nothing pops up when it fails, so look at the log now and then:
+
+```powershell
+Get-Content $env:USERPROFILE\GolfBackups\pull.log -Tail 5
+```
+
+```powershell
+Get-ScheduledTaskInfo 'Golf backups' | Format-List LastRunTime, LastTaskResult, NextRunTime
+```
+
+`LastTaskResult` 0 means it worked. To remove the task: `Unregister-ScheduledTask 'Golf backups'`.
+
+**Restoring** an archive, on the Pi (to use one that is only on the PC, `scp` it to the Pi's `~/golf-backups` first):
 
 ```bash
 sudo systemctl stop golf
-mkdir -p ~/golf-restore && tar -xzf /mnt/golf-backup/golf/golf-20261124-043000.tar.gz -C ~/golf-restore
+mkdir -p ~/golf-restore && tar -xzf ~/golf-backups/golf-20261124-043000.tar.gz -C ~/golf-restore
 mv ~/golf/data/matches.sqlite3 ~/golf/data/matches.damaged.sqlite3
 rm -f ~/golf/data/matches.sqlite3-wal ~/golf/data/matches.sqlite3-shm
 cp ~/golf-restore/* ~/golf/data/
