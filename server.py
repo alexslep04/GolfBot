@@ -708,6 +708,23 @@ def demo_mmr(profile):
     return DEMO_RANKED[name][0] if str((profile or {}).get('id', '')).startswith('demo:') and name in DEMO_RANKED else None
 
 
+def demo_stats_entry(player_id):
+    """A demo player's numbers for a profile's comparison (None for one off the leaderboard)."""
+    name = player_id.split(':', 1)[1].title()
+    if name not in DEMO_RANKED:
+        return None
+    mmr, rd, series, games = DEMO_RANKED[name]
+    played = sum(games)
+    return {'profile': {'id': player_id, 'username': name, 'unique_name': None, 'is_bot': False, 'is_guest': False,
+                        'display_names': [name], 'label': name},
+            'overall': {'rounds': played, 'round_wins': games[0], 'round_draws': games[1], 'round_losses': games[2],
+                        'round_win_rate': games[0] / played if played else 0, 'average_turns': 9.4,
+                        'match_wins': series[0], 'match_draws': series[1], 'match_losses': series[2],
+                        'match_win_rate': series[0] / sum(series) if sum(series) else None},
+            'ratings': {'series': {'rating': mmr, 'rd': rd, 'provisional': False},
+                        'game': {'rating': mmr - 20, 'rd': rd + 10, 'provisional': False}}}
+
+
 def demo_leaderboard_rows():
     return [{'id': f'demo:{name.lower()}', 'label': name, 'mmr': mmr, 'rd': rd, 'provisional': False,
              'wins': series[0], 'draws': series[1], 'losses': series[2], 'win_rate': series[0] / sum(series),
@@ -1514,14 +1531,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     DEMO_FIELD = DEMO_BOTS + ["Golfbot", "Albatross", "Divot", "Sandy", "Putter", "Wedge", "Tee", "Driver", "Rough",
                               "Bunker", "Hazard", "Chip", "Pitch", "Dogleg", "Fringe", "Links", "Niblick", "Spoon",
                               "Mashie", "Iron", "Hook", "Slice", "Shank", "Yips", "Gimme"]
-    DEMO_TOURNAMENTS = [("Demo Cup", DEMO_BOTS + ["Golfbot"], 3), ("Demo Open", DEMO_FIELD[:32], 1)]
+    # (name, players, best of, format, how empty places are filled)
+    DEMO_TOURNAMENTS = [("Demo Cup", DEMO_BOTS[:5], 3, "single", "byes"), ("Demo Open", DEMO_FIELD[:32], 1, "single", "ai"),
+                        ("Demo Double", DEMO_FIELD[:8], 1, "double", "ai"), ("Demo Round Robin", DEMO_FIELD[:6], 1, "round_robin", "ai")]
     DEMO_TABLES[-1] = ("Demo: 32 players", [name for name in DEMO_FIELD if name != "Golfbot"][:31] + ["Golfbot"], 3, "points", False)
     DEMO_LOOKS = ["tree", "bird", "dog", "cup", "fork", "club", "cat", "fish", "hare", "tortoise", "ladybug"]
 
-    def make_demo_tournament(name, players, best_of):
+    def make_demo_tournament(name, players, best_of, format="single", fill="ai"):
         """Demo players in a single-elimination bracket, seeded by MMR. Its matches are
         played by the quick debug bots, and it is never saved."""
-        tournament = Tournament(secrets.token_urlsafe(9), name, None, 'single', 'mmr', 'ai', False, settings={
+        tournament = Tournament(secrets.token_urlsafe(9), name, None, format, 'mmr', fill, False, settings={
             'best_of': best_of, 'series_mode': 'wins', 'first': 'random', 'house_rules': True,
             'house_version': HOUSE_VERSION, 'rules': asdict(parse_rules(house_rules())),
             'score_preview': True, 'show_odds': True})
@@ -1539,7 +1558,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def keep_demo_tournament():
         """A debug server always has its demo tournaments running; a finished one stays up
         a minute with its winner, then a fresh one is drawn."""
-        for name, players, best_of in DEMO_TOURNAMENTS:
+        for name, players, best_of, format, fill in DEMO_TOURNAMENTS:
             tournament = next((t for t in store.tournaments.values() if getattr(t, 'demo', False) and t.name == name), None)
             # (a match's table goes a minute after the match is decided: nothing needs it then)
             for match in (tournament.matches.values() if tournament else ()):
@@ -1560,7 +1579,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         room.bot_task.cancel()
                 tournament = None
             if tournament is None:
-                tournament = make_demo_tournament(name, players, best_of)
+                tournament = make_demo_tournament(name, players, best_of, format, fill)
                 store.tournaments[tournament.id] = tournament
                 await advance_tournament(tournament)
             tournament.touched = time.time()
@@ -1979,8 +1998,25 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             compared = (opponent or None) if opponent is not None else 'bot:golfbot'
             # every guest is one "Guest" here, as on the leaderboards
             results = await asyncio.to_thread(store.history.stats_results)
-            stats = await asyncio.to_thread(lambda: build_stats(results, selected, compared, enabled, disabled, house_rules, patch,
-                                                                profiles=profiles, merge_guests=True))
+            # (guests are kept apart when a player is asked for by id: one guest's numbers are
+            # their own, not every guest's added together)
+            merge = player is None and opponent is None
+            # (a demo player's numbers are filled in below; one with no saved games yet has none)
+            demo = lambda who: bool(who) and str(who).startswith('demo:')
+            build_selected = viewer_profile['id'] if demo(selected) else selected
+            build_compared = None if demo(compared) else compared
+            try:
+                stats = await asyncio.to_thread(lambda: build_stats(results, build_selected, build_compared, enabled, disabled, house_rules, patch,
+                                                                    profiles=profiles, merge_guests=merge))
+            except ValueError:
+                if not build_compared:
+                    raise
+                stats = await asyncio.to_thread(lambda: build_stats(results, build_selected, None, enabled, disabled, house_rules, patch,
+                                                                    profiles=profiles, merge_guests=merge))
+            # a debug server's demo players have no saved games: their numbers are their demo record
+            for key, wanted in (('player', selected), ('comparison', compared)):
+                if wanted and str(wanted).startswith('demo:'):
+                    stats[key] = demo_stats_entry(wanted)
             # a signed-in player's two ratings: MMR (by series) and their game rating
             for entry in (stats['player'], stats['comparison']):
                 if entry and entry['profile']['id'].startswith('account:'):
@@ -2005,6 +2041,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
         boards['records'] = await asyncio.to_thread(build_records, results, ratings, record_extras())
+        # (each holder's avatar, as they last played with it, for their card)
+        avatars = {}
+        for match in results:
+            for seat, profile in enumerate(match.get('participants') or []):
+                if isinstance(profile, dict) and profile.get('id') and seat < len(match.get('avatars') or []):
+                    avatars[profile['id']] = match['avatars'][seat] or avatars.get(profile['id'])
+        for record in boards['records'].values():
+            if isinstance(record, dict) and record.get('id') in avatars:
+                record['avatar'] = avatars[record['id']]
         # the viewer's own best at each, shown under its card
         me = 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
         boards['personal'] = await asyncio.to_thread(personal_records, results, ratings, me)
@@ -2046,6 +2091,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 (PATCH_VERSION, player)).fetchone()
         profile['solo_streak'], profile['best_solo_streak'] = (row[0], row[1]) if row else (0, 0)
         profile.update(label=None, unique_name=None, avatar=None, status=None, last_seen=None, friend=None)
+        if player == 'bot:golfbot':
+            profile['label'], profile['avatar'] = 'Golfbot', BOT_AVATAR
+        if player.startswith('browser:'):
+            # (a guest: named, with their avatar, as they last played)
+            for match in results:
+                for seat, seen in enumerate(match.get('participants') or []):
+                    if isinstance(seen, dict) and seen.get('id') == player:
+                        names, looks = match.get('names') or [], match.get('avatars') or []
+                        profile['label'] = seen.get('display_name') or (names[seat] if seat < len(names) else None) or profile['label']
+                        profile['avatar'] = (looks[seat] if seat < len(looks) else None) or profile['avatar']
         if player.startswith('demo:'):
             # (a debug server's demo player: named, with their avatar and demo MMR)
             name = player.split(':', 1)[1].title()

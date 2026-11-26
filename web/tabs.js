@@ -1292,6 +1292,12 @@ async function homeClick(button, data, event) {
     await loadMyStats();
     return true;
   }
+  if ("hideMyStats" in data) {
+    homeData.myStats = null;
+    redrawPane("you");
+    return true;
+  }
+
   return false;
 }
 
@@ -1579,12 +1585,10 @@ function watchPaneHtml() {
   const cups = (homeData.cups || []).filter((cup) => cup.status === "live").map((cup, i) => cupCardHtml(cup, i)).join("");
   const cards = (list) => list.map((game, i) => watchCardHtml(game, i)).join("");
   const empty = (text) => `<p class="watch-empty">${text}</p>`;
-  // (Refresh sits to the right of the page's first title)
-  const refresh = `<button type="button" class="close-btn c-fw watch-refresh" data-home-refresh="watch" aria-label="Refresh">${icon("arrow.clockwise", 30, { key: "watch-refresh" })}<span>Refresh</span></button>`;
   const pvpTitle = tabTitle("PvP Games", "Watch golfers battle it out live!", "watch-pvp");
   return `<div class="tab-body watch-body">
-    ${cups ? `${titleWith(tabTitle("Tournaments", "Golf tournaments being played right now!", "watch-cups"), refresh)}<div class="watch-cards cup-cards">${cups}</div>` : ""}
-    ${cups ? pvpTitle : titleWith(pvpTitle, refresh)}
+    ${cups ? `${tabTitle("Tournaments", "Golf tournaments being played right now!", "watch-cups")}<div class="watch-cards cup-cards">${cups}</div>` : ""}
+    ${pvpTitle}
     <div class="watch-cards">${cards(pvp) || empty("No games between players right now.")}</div>
     ${tabTitle("Solo Games", "Play until they leave against Golfbot!", "watch-solo")}
     <div class="watch-cards">${cards(solo) || empty("Nobody is playing Golfbot right now.")}</div>
@@ -1846,14 +1850,16 @@ function personalRecordItems(P) {
   const plural = (n, one, many = one + "s") => (n === 1 ? one : many);
   const [played, playedUnit] = timeParts(P.most_time?.seconds);
   return [
+    // (Golfbot's: its record against everyone it has played)
+    ["c-p3", "person.2.fill", "Wins vs people", P.vs_people && [statNumber(P.vs_people.wins), plural(P.vs_people.wins, "win"), null, `${statNumber(P.vs_people.draws)} ${plural(P.vs_people.draws, "draw")} · ${statNumber(P.vs_people.losses)} ${plural(P.vs_people.losses, "loss", "losses")} · ${statNumber(P.vs_people.games)} games`]],
     ["c-p3", "crown.fill", "Highest MMR", P.highest_mmr && [P.highest_mmr.mmr, "MMR", P.highest_mmr.at]],
-    ["c-s4", "flame.fill", "Best PvP win streak", P.pvp_streak && [P.pvp_streak.streak, plural(P.pvp_streak.streak, "win"), P.pvp_streak.at]],
+    ["c-s4", "flame.fill", P.vs_people ? "Best win streak vs people" : "Best PvP win streak", P.pvp_streak && [P.pvp_streak.streak, plural(P.pvp_streak.streak, "win"), P.pvp_streak.at]],
     ["c-p2", "arrow.up.right", "Biggest Comeback", P.comeback && [P.comeback.points, "points", P.comeback.at]],
     ["c-s7", "clock.arrow.circlepath", "Most Games Today", P.games_today && [P.games_today.games, plural(P.games_today.games, "game")]],
     ["c-s5", "bird.fill", "Lowest score", P.lowest && [P.lowest.points, "pts", P.lowest.at]],
     ["c-p1", "tortoise.fill", "Highest score", P.bogey && [P.bogey.points, "pts", P.bogey.at]],
     ["c-s6", "sparkles", "Most rules on one hand", P.modifiers_in_game && [P.modifiers_in_game.count, plural(P.modifiers_in_game.count, "rule"), P.modifiers_in_game.at]],
-    ["c-s7", "clock.arrow.circlepath", "Longest 1v1 game", P.longest_pvp && [P.longest_pvp.turns, plural(P.longest_pvp.turns, "turn"), P.longest_pvp.at]],
+    ["c-s7", "clock.arrow.circlepath", P.vs_people ? "Longest game" : "Longest 1v1 game", P.longest_pvp && [P.longest_pvp.turns, plural(P.longest_pvp.turns, "turn"), P.longest_pvp.at]],
     ["c-p4", "star.fill", "Favorite rule", P.most_modifier && [statNumber(P.most_modifier.activations), plural(P.most_modifier.activations, "time"), null, P.most_modifier.name]],
     ["c-p2", "text.bubble.fill", "Emotes sent", P.yapper && [statNumber(P.yapper.emotes), plural(P.yapper.emotes, "emote")]],
     ["c-s4", "person.3.fill", "Biggest party", P.party && [P.party.count, "signed in", P.party.at]],
@@ -1875,18 +1881,28 @@ function personalRecordsHtml(P, mine = null, empty = "Play a few games and your 
     const own = yours.get(title);
     return own ? `<div class="record-pr"><span class="record-pr-value">${stickerText(String(own[0]), { split: true, key: `prm:${i}` })}${stickerText(own[1], { cls: "pts", key: `prmu:${i}` })}</span><span class="record-pr-text">Your best</span></div>` : "";
   };
-  const slots = items.map(([color, symbol, title, [value, unit, at, note]], i) => `<div class="record-slot ${color}" style="--i:${i}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `pr:${i}` })}</span><h3>${title}</h3><div class="record-value">${stickerText(String(value), { split: true, key: `prv:${i}` })}${stickerText(unit, { cls: "pts", key: `pru:${i}` })}</div>${note ? `<p>${e(note)}</p>` : ""}${at ? `<p>${when(at)}</p>` : ""}</section>${best(title, i)}</div>`);
+  // A best that is the all-time record (this player holds it on Aces) says so at its foot.
+  const records = (typeof leaderboardCache !== "undefined" && leaderboardCache?.records) || homeData.boards?.records || {};
+  const RECORD_OF = { "Highest MMR": "highest_mmr", "Best PvP win streak": "pvp_streak", "Best win streak vs people": "pvp_streak", "Longest game": "longest_pvp", "Biggest Comeback": "comeback", "Most Games Today": "games_today", "Lowest score": "lowest", "Highest score": "bogey", "Most rules on one hand": "modifiers_in_game", "Longest 1v1 game": "longest_pvp", "Emotes sent": "yapper", "Biggest party": "party", "Time played": "most_time" };
+  const holds = (title) => {
+    const record = records[RECORD_OF[title]];
+    return !!(P.id && record && (record.id === P.id || record.ids?.includes(P.id)));
+  };
+  const allTime = (i) => `<p class="record-alltime">${icon("trophy.fill", 20, { idle: false })}<span>All time record!</span></p>`;
+  const slots = items.map(([color, symbol, title, [value, unit, at, note]], i) => `<div class="record-slot ${color}" style="--i:${i}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `pr:${i}` })}</span><h3>${title}</h3><div class="record-value">${stickerText(String(value), { split: true, key: `prv:${i}` })}${stickerText(unit, { cls: "pts", key: `pru:${i}` })}</div>${note ? `<p>${e(note)}</p>` : ""}${at ? `<p>${when(at)}</p>` : ""}${holds(title) ? allTime(i) : ""}</section>${best(title, i)}</div>`);
   // two columns of cards that each keep to their own height, as the Flags tab's do
   return hugColumns(slots);
 }
 /** Your full stats (what Advanced stats had): opened on request, as it takes a moment to work out. */
+/** The button that puts a stats table away again, as Show my stats is drawn. */
+const hideStatsButton = (attrs) => `<button type="button" class="btn small c-fw" ${attrs}>${tilted("chevron.up", 22)}Hide stats</button>`;
 function myStatsHtml() {
   const stats = homeData.myStats;
   const body = !stats
     ? `<button type="button" class="btn small c-fw" data-my-stats>${tilted("chart.bar.fill", 22)}Show my stats</button>`
     : stats.error
       ? `<p class="hint dark">${e(stats.error)}</p>`
-      : statsTable([stats.player], "overall", "Every game you've played", "c-fw");
+      : `${statsTable([stats.player], "overall", "Every game you've played", "c-fw")}${hideStatsButton("data-hide-my-stats")}`;
   return `${tabTitle("Your Stats", "Win rates, points and the rules you trigger", "you-stats")}<div class="stack wide you-stats">${body}</div>`;
 }
 async function loadMyStats() {
@@ -1967,7 +1983,22 @@ const possessive = (name) => `${name}${/s$/i.test(name) ? "'" : "'s"}`;
  * lies on: green on the page, the player's color in their sheet), `heading` how its
  * section titles are drawn.
  */
-function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading = tabTitle, extra = "" } = {}) {
+/** Who a profile can be compared with: you, your friends, and the players on the PvP board. */
+function compareChoices(skip) {
+  const me = myPlayerId();
+  const seen = new Set([skip]);
+  const out = [];
+  const add = (id, label, avatar) => {
+    if (!id || seen.has(id) || !label) return;
+    seen.add(id);
+    out.push({ id, label, avatar });
+  };
+  add(me, "You", session.avatar);
+  for (const friend of homeData.friends?.friends || []) add(friend.id, friend.unique_name ? `@${friend.unique_name}` : friend.display_name, friend.avatar);
+  for (const row of leaderboardCache?.pvp || []) add(row.id, row.label, row.avatar);
+  return out;
+}
+function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading = tabTitle, extra = "", opponent = null } = {}) {
   const entry = stats?.player,
     you = stats?.comparison;
   const name = profile.label || entry?.profile.label || "Player";
@@ -1991,8 +2022,13 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
     `<div class="list-item board-row ${color}"><span class="rank">${tilted(symbol, 30, { key: `profile:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${value}<small>${unit}</small></b></div>`;
   const [played, playedUnit] = timeParts(profile.seconds_played || 0);
   const wins = (n) => (n === 1 ? "win" : "wins");
+  // (Golfbot's numbers are from its games against people)
+  const vs = profile.personal?.vs_people;
+  const botTime = timeParts(profile.personal?.most_time?.seconds || 0);
   const rows = bot
-    ? ""
+    ? vs
+      ? `<div class="list leader-list profile-rows">${row("c-p3", "person.2.fill", "Record vs People", `${statNumber(vs.wins)}–${statNumber(vs.draws)}–${statNumber(vs.losses)}`, "")}${row("c-s4", "trophy.fill", "Win Rate", statPercent(vs.games ? vs.wins / vs.games : 0), "")}${row("c-p2", "flame.fill", "Best Win Streak", statNumber(profile.personal?.pvp_streak?.streak || 0), wins(profile.personal?.pvp_streak?.streak || 0))}${row("c-p4", "hourglass", "Time Played", botTime[0], botTime[1])}</div>`
+      : ""
     : `<div class="list leader-list profile-rows">${row("c-p3", "crown.fill", "Current MMR", mmr ?? "—", mmr ? "MMR" : "")}${row("c-s4", "flame.fill", "Solo Win Streak", statNumber(profile.solo_streak || 0), wins(profile.solo_streak))}${row("c-p2", "flame.fill", "PvP Win Streak", statNumber(profile.pvp_streak || 0), wins(profile.pvp_streak))}${row("c-p4", "hourglass", "Time Played", statNumber(played), playedUnit)}</div>`;
   // side by side with you
   const rating = (side) => {
@@ -2000,18 +2036,46 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
     return shown ? `${statNumber(shown.rating)}${shown.provisional ? "?" : ""} <small>±${statNumber(shown.rd)}</small>` : "—";
   };
   const of = (side, read) => (side?.overall ? read(side.overall) : "—");
+  // (every number the You tab's own stats have, side by side)
+  const game = (side) => {
+    const shown = side?.ratings?.game;
+    return shown ? `${statNumber(shown.rating)}${shown.provisional ? "?" : ""} <small>±${statNumber(shown.rd)}</small>` : "—";
+  };
+  const share = (wins, games, rate) => (games ? `${statPercent(rate)} <small>(${statNumber(wins)}/${statNumber(games)})</small>` : "—");
   const lines = [
     ["MMR", rating],
+    ["Game rating", game],
     ["Games played", (side) => of(side, (o) => statNumber(o.rounds))],
+    ["Game record W–L–D", (side) => of(side, (o) => `${statNumber(o.round_wins)}–${statNumber(o.round_losses)}–${statNumber(o.round_draws)}`)],
     ["Win %", (side) => of(side, (o) => statPercent(o.round_win_rate))],
+    ["Series W–L–D", (side) => of(side, (o) => `${statNumber(o.match_wins ?? 0)}–${statNumber(o.match_losses ?? 0)}–${statNumber(o.match_draws || 0)}`)],
+    ["Series win %", (side) => of(side, (o) => (o.match_win_rate == null ? "—" : statPercent(o.match_win_rate)))],
+    ["Avg points per game", (side) => of(side, (o) => statNumber(o.average_points ?? null))],
+    ["Avg opponent points", (side) => of(side, (o) => statNumber(o.average_opponent_points ?? null))],
+    ["Avg point advantage", (side) => of(side, (o) => (o.average_advantage == null ? "—" : o.average_advantage.toFixed(2)))],
+    ["Went first", (side) => of(side, (o) => share(o.first_games, o.known_first_games, o.first_rate))],
+    ["Win % going first", (side) => of(side, (o) => share(o.first_wins, o.first_games, o.first_win_rate))],
+    ["Win % not first", (side) => of(side, (o) => share(o.later_wins, o.later_games, o.later_win_rate))],
     ["Avg turns per game", (side) => of(side, (o) => statNumber(o.average_turns ?? null))],
+    ["Avg time per move", (side) => of(side, (o) => statSeconds(o.average_move_seconds ?? null))],
+    ["Avg rules in play", (side) => of(side, (o) => statNumber(o.average_rules_in_play ?? null))],
+    ["Total points", (side) => of(side, (o) => statNumber(o.total_points ?? null))],
+    ["Best / worst game", (side) => of(side, (o) => (o.best_round == null ? "—" : `${statNumber(o.best_round)} / ${statNumber(o.worst_round)}`))],
   ];
   const who = (side, fallback) => (side?.profile.unique_name ? `@${e(side.profile.unique_name)}` : e(side?.profile.label || fallback));
+  // (them by their username where they have one; the other side picked from a list: you first)
+  const handle = profile.unique_name ? `@${e(profile.unique_name)}` : e(name);
+  const choices = compareChoices(profile.id);
+  const other = choices.find((choice) => choice.id === (opponent || myPlayerId())) || choices[0] || { id: myPlayerId(), label: "You", avatar: session.avatar };
+  // (the second column is the chosen player's, if the stats came back for them)
+  const theirs = !you || !you.profile?.id || you.profile.id === other.id || other.id === myPlayerId() ? you : null;
+  // (on every other player's page, even before or without their stats: then their column
+  // reads "—" until there is something to show)
   const compare =
-    profile.self || bot || !entry
+    profile.self
       ? ""
-      : `${heading("Compare Players", "", "profile-compare", tint)}<div class="profile-versus">${boxed(tone, e(name), `<span class="profile-pick">${avatar ? icon(avatarIcon(avatar), 22, { idle: false }) : icon("person.fill", 20, { idle: false })}<b>${e(name)}</b></span>`)}${boxed(tone, "Other Player", `<span class="profile-pick">${icon(avatarIcon(session.avatar), 22, { idle: false })}<b>You</b></span>`)}</div><section class="panel ${tone} profile-compare"><div class="table-wrap"><table class="match-table"><thead><tr><th scope="col">Stat</th><th scope="col">${who(entry, name)}</th><th scope="col">${who(you, "You")}</th></tr></thead><tbody>${lines.map(([label, read]) => `<tr><th scope="row">${label}</th><td>${read(entry)}</td><td>${read(you)}</td></tr>`).join("")}</tbody></table></div></section>`;
-  const records = bot ? "" : `${heading(`${possessive(name)} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
+      : `${heading("Compare Players", "", "profile-compare", tint)}<div class="profile-versus">${boxed(tone, handle, `<span class="profile-pick">${avatar ? icon(avatarIcon(avatar), 22, { idle: false }) : icon("person.fill", 20, { idle: false })}<b>${handle}</b></span>`)}${boxed(tone, "Other Player", `<span class="profile-pick">${icon(avatarIcon(other.avatar), 22, { idle: false })}<b>${e(other.label)}</b>${glyph("chevron.down", 14)}</span><select class="cover" data-profile-opponent aria-label="Compare with">${choices.map((choice) => `<option value="${e(choice.id)}" ${choice.id === other.id ? "selected" : ""}>${e(choice.label)}</option>`).join("")}</select>`)}</div><section class="panel ${tone} profile-compare"><div class="table-wrap"><table class="match-table"><thead><tr><th scope="col">Stat</th><th scope="col">${handle}</th><th scope="col">${other.id === myPlayerId() ? who(you, "You") : e(other.label)}</th></tr></thead><tbody>${lines.map(([label, read]) => `<tr><th scope="row">${label}</th><td>${read(entry)}</td><td>${read(theirs)}</td></tr>`).join("")}</tbody></table></div></section>`;
+  const records = `${heading(`${possessive(name)} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
   // another player's flags: only the ones they have completed, in their own color
   const earned = new Set(profile.flags || []);
   const flags = bot
@@ -2021,10 +2085,15 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
   return `<div class="profile-body">${head}${extra}${rows}${compare}${records}${flags}</div>`;
 }
 /** Fetch a player's profile and how they compare with the viewer. */
-async function fetchProfile(id) {
-  const me = myPlayerId();
+async function fetchProfile(id, opponent = null) {
+  const me = opponent || myPlayerId();
   const query = new URLSearchParams({ player: id, opponent: id === me ? "" : me, house_rules: "false" });
-  const [profile, stats] = await Promise.all([api(`/api/profile?player=${encodeURIComponent(id)}`), api("/api/stats?" + query).catch(() => null)]);
+  // (the all-time records too, if not already loaded, to mark the ones this player holds)
+  const [profile, stats] = await Promise.all([
+    api(`/api/profile?player=${encodeURIComponent(id)}`),
+    api("/api/stats?" + query).catch(() => null),
+    leaderboardCache ? null : api("/api/leaderboards").then((boards) => (leaderboardCache = boards)).catch(() => null),
+  ]);
   return { profile, stats };
 }
 let profileBack = "home"; // where the profile page's Back leads
@@ -2040,6 +2109,7 @@ async function profilePage(id) {
     const { profile, stats } = await fetchProfile(id);
     if (page !== "profile") return;
     body = profileHtml(profile, stats);
+    profileShown = { profile, stats, opts: {} };
     document.title = `${profile.label || stats?.player?.profile.label || "Player"} · Golf`;
   } catch (error) {
     body = `<p class="empty">${e(error.message)}</p>`;
@@ -2047,6 +2117,27 @@ async function profilePage(id) {
   const holder = root.querySelector("[data-profile-holder]");
   if (holder) holder.innerHTML = body;
 }
+/* Comparing a profile with someone else: their stats side by side instead of yours. */
+let profileShown = null; // {profile, opts}: the profile page or sheet showing, to draw again
+async function compareProfileWith(select) {
+  const holder = select.closest("[data-profile-holder], [data-profile-sheet]");
+  const shown = holder && profileShown;
+  if (!shown) return;
+  const opponent = select.value;
+  try {
+    const { stats } = await fetchProfile(shown.profile.id, opponent);
+    if (!holder.isConnected) return;
+    shown.opts = { ...shown.opts, opponent };
+    shown.stats = stats;
+    holder.innerHTML = profileHtml(shown.profile, stats, shown.opts);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+document.addEventListener("change", (event) => {
+  const select = event.target.closest?.("[data-profile-opponent]");
+  if (select) compareProfileWith(select);
+});
 /** A friend request sent (or one of theirs accepted) from a profile. */
 async function profileFriend(button, uniqueName) {
   if (!uniqueName) return;

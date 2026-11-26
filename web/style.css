@@ -5872,10 +5872,16 @@ button:disabled > .haptic-switch {
   padding: 0.4rem 0.4rem 1.2rem;
   margin-inline: -0.4rem;
 }
-/* a round robin has no shape to keep: its matches simply wrap */
-.bracket.robin {
-  flex-wrap: wrap;
-  overflow-x: visible;
+/* a round robin: its rounds side by side like a bracket's, each column from the top */
+.bracket.robin > .bracket-round {
+  justify-content: flex-start;
+}
+.robin-out {
+  margin: 0;
+  text-align: center;
+  font: 700 1.3rem/1.2 var(--text);
+  color: var(--fw-text);
+  opacity: 0.7;
 }
 .bracket-round {
   display: flex;
@@ -7825,8 +7831,8 @@ button:disabled > .haptic-switch {
 
 /* ---------- the bracket: match cards ----------
    Each round is a column, its matches spread so each sits level with the two it follows
-   from. A card's color says where its match has got to: orange live or about to start,
-   blue finished, green while its players are still to be decided. */
+   from. A card's color says where its match has got to: orange while it is played,
+   blue finished, green before it starts (players known or still to be decided). */
 /* (the bracket runs the full width of the screen and scrolls sideways when it is wider) */
 .bracket {
   gap: 1.6rem;
@@ -7936,12 +7942,18 @@ button.bk-match:active {
 }
 
 /* ---------- standings: a card holding the table ---------- */
+/* The table scrolls sideways edge to edge of the card: the room around it is the
+   scroller's own padding (inside what scrolls), not the card's, so nothing is cut off
+   short of the card's border. */
 .standings-card {
-  padding: 0.8rem 1rem 0.4rem;
+  padding: 0;
+  overflow: hidden;
 }
 .standings-card .table-wrap {
   margin: 0;
+  padding: 0.8rem 1rem 0.4rem;
   border: 0;
+  border-radius: inherit;
   background: none;
   box-shadow: none;
 }
@@ -8098,7 +8110,7 @@ button.st-player:active {
 }
 .bk-arrows .edge {
   stroke: var(--paper);
-  stroke-width: 7;
+  stroke-width: 8.5;
 }
 .bk-arrows .ink {
   stroke: var(--c);
@@ -8262,4 +8274,225 @@ button.st-player:active {
 :root.spectators-over-bar .spectator-emote.from-right {
   right: var(--spec-right, 1rem);
   left: auto;
+}
+
+/* a player's place so far, beside their seed */
+table.standings th[scope="col"]:nth-child(2),
+table.standings td.st-rank {
+  width: 1%;
+  padding-inline: 0.4rem 0.8rem;
+  white-space: nowrap;
+  text-align: center;
+}
+table.standings td.st-rank {
+  font-weight: 700;
+}
+table.standings th[scope="col"]:nth-child(3) {
+  text-align: left;
+}
+table.standings td:nth-child(3) {
+  text-align: left;
+}
+
+/* (with Seed and Rank both, the table stays on the card: names are cut short before it overflows) */
+table.standings .bk-who {
+  max-width: 9.6rem;
+}
+table.standings {
+  font-size: 1.3rem;
+}
+table.standings .st-status {
+  gap: 0.2rem;
+}
+table.standings .bk-who b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+table.standings td,
+table.standings th {
+  padding-inline: 0.3rem;
+}
+
+/* on a narrow screen the status is its icon alone (its word stays for screen readers) */
+@media (max-width: 480px) {
+  .st-status-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* A double elimination: both brackets in one scroller, a row each, their columns in line */
+.bracket.double {
+  flex-direction: column;
+  gap: 1.2rem;
+}
+.bk-row {
+  display: flex;
+  gap: 5.6rem;
+  position: relative;
+  z-index: 1;
+}
+.bk-row > .bracket-round {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+/* each bracket's name stays at the left edge as the rows scroll under it */
+.bracket-section .bk-row-title {
+  position: sticky;
+  left: 0;
+  align-self: flex-start;
+  /* (clear of the round names that stand over each column's top match) */
+  margin: 0.4rem 0 4.4rem;
+  font: 800 1.7rem/1.2 var(--round);
+  color: var(--fw-text);
+}
+
+/* a record's holder, on a line of their own under the number: avatar and name */
+.record-card .record-holder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0 0 0.2rem;
+  font-size: 1.5rem;
+}
+.record-holder .ico {
+  flex: none;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+/* (a card that opens its holder's profile) */
+button.record-card {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  transition: transform 0.28s var(--spring);
+}
+button.record-card:active {
+  transform: scale(0.97);
+}
+
+/* a best that is the all-time record: a yellow trophy and the words, at the card's foot */
+.record-card .record-alltime {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0;
+  font: 700 1.3rem/1.2 var(--text);
+  color: var(--ct);
+  white-space: nowrap;
+}
+.record-alltime .ico {
+  flex: none;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+
+/* Compare Players: two boxes, half the width each; the other side is picked from a list */
+.profile-versus > .boxed {
+  min-width: 0;
+  width: 100%;
+  position: relative;
+}
+.profile-versus .profile-pick b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-versus select.cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+/* (a stat too long for its column goes onto a second line) */
+.profile-compare .match-table :is(th, td) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Compare Players' table: a narrow Stat column, rows closer together, and the lines between
+   rows fainter than the one under the heading */
+.profile-compare .match-table {
+  table-layout: fixed;
+}
+.profile-compare .match-table thead th:first-child {
+  width: 30%;
+}
+.profile-compare .match-table :is(th, td) {
+  padding-block: 0.45rem;
+}
+.profile-compare .match-table tbody :is(th, td) {
+  border-bottom-color: color-mix(in srgb, var(--c) 30%, transparent);
+}
+.profile-compare .match-table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+section.panel.profile-compare {
+  padding-block: 0.6rem 0.4rem;
+}
+section.panel.profile-compare .table-wrap {
+  margin-top: 0;
+}
+
+/* Every stats card (yours, another player's, and their rule activations) in the Compare
+   Players card's style: smaller type, a narrow stat column, rows close together, centered
+   numbers, a full-strength line under the heading and faint ones between rows */
+section.panel.stats-card {
+  padding-block: 1rem 0.4rem;
+}
+.stats-card > h2 {
+  margin-bottom: 0.4rem;
+  font-size: 1.7rem;
+  text-align: center;
+}
+.stats-card .table-wrap {
+  margin-top: 0;
+}
+.stats-card table {
+  font-size: 1.3rem;
+}
+.stats-card :is(th, td) {
+  padding: 0.45rem 0.3rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+  vertical-align: middle;
+}
+.stats-card tbody th {
+  color: var(--c);
+  font-weight: 700;
+}
+.stats-card tbody :is(th, td) {
+  border-bottom-color: color-mix(in srgb, var(--c) 30%, transparent);
+}
+.stats-card tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.stats-card > p {
+  font-size: 1.2rem;
+  text-align: center;
+}
+/* (as in Compare Players: the stat column narrower than the numbers beside it) */
+.stats-card table {
+  table-layout: fixed;
+}
+.stats-card thead th:first-child {
+  width: 44%;
+}
+.stats-card.rule-activations thead th:first-child {
+  width: 40%;
 }

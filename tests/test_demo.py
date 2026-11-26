@@ -31,15 +31,20 @@ class DemoTablesTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GOLFBOT_DEBUG": "1"}):
             with TestClient(create_app(Store())) as client:
                 client.get('/api/session')
-                cups = sorted(client.get('/api/tournaments').json(), key=lambda cup: cup['entrants'])
-                self.assertEqual([(cup['name'], cup['status'], cup['entrants']) for cup in cups], [('Demo Cup', 'live', 8), ('Demo Open', 'live', 32)])
+                cups = {cup['name']: cup for cup in client.get('/api/tournaments').json()}
+                self.assertEqual({name: (cup['status'], cup['entrants'], cup['format']) for name, cup in cups.items()},
+                                 {'Demo Cup': ('live', 5, 'single'), 'Demo Open': ('live', 32, 'single'),
+                                  'Demo Double': ('live', 8, 'double'), 'Demo Round Robin': ('live', 6, 'round_robin')})
+                cups = [cups['Demo Cup'], cups['Demo Open']]
                 big = client.get(f"/api/tournaments/{cups[1]['id']}").json()
                 self.assertEqual(len({entrant['name'] for entrant in big['entrants']}), 32)
                 self.assertEqual(sum(match['status'] == 'live' for match in big['matches']), 16)
                 view = client.get(f"/api/tournaments/{cups[0]['id']}").json()
-                self.assertEqual({entrant['name'] for entrant in view['entrants']},
-                                 {'Ace', 'Birdie', 'Bogey', 'Caddie', 'Eagle', 'Fairway', 'Mulligan', 'Golfbot'})
-                self.assertEqual(sum(match['status'] == 'live' for match in view['matches']), 4)
+                # (five players: the top three seeds have byes; the 4th and 5th seeds play, and so do
+                # the 2nd and 3rd, whose byes have already put them through)
+                self.assertEqual({entrant['name'] for entrant in view['entrants']}, {'Ace', 'Birdie', 'Bogey', 'Caddie', 'Eagle'})
+                self.assertEqual(sum(match['note'] == 'bye' for match in view['matches']), 3)
+                self.assertEqual(sum(match['status'] == 'live' for match in view['matches']), 2)
                 self.assertEqual(client.get('/api/tournament-history').json(), [])
 
     def test_a_finished_series_stays_on_watch_a_minute_with_its_winner(self):

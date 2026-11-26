@@ -2558,7 +2558,9 @@ function playerStatsSheet(player) {
       // (the name at the table is the one they are playing under)
       profile.label = profile.label || state.names[player];
       profile.avatar = profile.avatar || state.avatars?.[player] || null;
-      holder.innerHTML = profileHtml(profile, stats, { accent: color, tone: color, heading: sectionTitle, extra: seriesTally(player, player === state.viewer && !state.spectator) });
+      const opts = { accent: color, tone: color, heading: sectionTitle, extra: seriesTally(player, player === state.viewer && !state.spectator) };
+      holder.innerHTML = profileHtml(profile, stats, opts);
+      profileShown = { profile, stats, opts };
       sheetRoot.querySelector(".profile-sheet .sheet-head h2")?.replaceChildren();
     })
     .catch((error) => {
@@ -3105,7 +3107,7 @@ function statsTable(entries, scope, title, color) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${entries.length > 1 ? e(entry.profile.label) : "Value"}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope], entry)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section><section class="panel ${color} rule-activations"><h2>Rule Activations${entries.length === 1 && Array.isArray(entries[0][scope].rule_activations) ? ` · ${entries[0][scope].known_activation_games} games` : ""}</h2><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope, entries.length > 1)).join("")}</div></section>`;
+  return `<section class="panel ${color} stats-card"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${entries.length > 1 ? e(entry.profile.label) : "Value"}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope], entry)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section><section class="panel ${color} rule-activations stats-card"><h2>Rule Activations${entries.length === 1 && Array.isArray(entries[0][scope].rule_activations) ? ` · ${entries[0][scope].known_activation_games} games` : ""}</h2><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope, entries.length > 1)).join("")}</div></section>`;
 }
 const RULE_EXAMPLES = {
   royal_pairs: [["Queen pair earns one bonus swap", ["QH",null,null,"QS",null,null]], ["Jack pair earns one bonus swap", ["JH",null,null,"JS",null,null]]],
@@ -3257,7 +3259,7 @@ function leaderboardBody(tab, result) {
       </${tag}>`;
     })
     .join("");
-  return `${hero}<div class="list leader-list">${list}</div>${intro}`;
+  return `${hero}<div class="list leader-list">${list}</div>`;
 }
 /** Time in games, as a number and its unit: hours once there's an hour of it, else minutes. */
 function timeParts(seconds) {
@@ -3293,12 +3295,18 @@ function recordCards(records = {}, personal = {}) {
     const tied = record && String(value) === String(recordValue);
     return `<div class="record-pr"><span class="record-pr-value">${stickerText(String(value), { split: true, key: `record-pr:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-pu:${key}` }) : ""}</span><span class="record-pr-text">${tied ? "Ties the record" : text}</span></div>`;
   };
-  const card = (key, color, symbol, title, record, value, unit, detail, empty, note = "", mine = () => "") =>
-    `<div class="record-slot ${color}" style="--i:${key}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${
+  // A record held by a player names them on a line of their own under the number, with their
+  // avatar, and the card opens their profile; the line under that says what they did.
+  const card = (key, color, symbol, title, record, value, unit, detail, empty, note = "", mine = () => "") => {
+    const holder = record?.id && record.label ? record.id : null;
+    const line = record?.id && record.label ? `<p class="record-holder">${icon(avatarIcon(record.avatar || (record.id === "bot:golfbot" ? "golfbot" : null)), 22, { idle: false })}<strong>${who(record)}</strong></p>` : "";
+    const tag = holder ? "button" : "section";
+    return `<div class="record-slot ${color}" style="--i:${key}"><${tag}${holder ? ` type="button" data-stats-player="${e(holder)}" aria-label="${e(title)}: ${e(record.label)}'s profile"` : ""} class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${
       record
-        ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div><p>${detail}</p>`
+        ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div>${line}<p>${line ? detail.replace(/^<strong>[\s\S]*?<\/strong>\s*/, "") : detail}</p>`
         : `<p class="hint dark">${empty}</p>`
-    }${note ? `<p class="record-note">${note}</p>` : ""}</section>${mine(value)}</div>`;
+    }${note ? `<p class="record-note">${note}</p>` : ""}</${tag}>${mine(value)}</div>`;
+  };
   const days = (at) => Math.max(0, Math.floor((Date.now() / 1000 - at) / 86400));
   const { ai_vs_players: ai, luck, gospel, spectacle, recruit, upset } = records;
   // lowest total wins, so whoever has fewer points is ahead

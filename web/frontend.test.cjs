@@ -55,7 +55,7 @@ test('Aces PvP ranks by MMR, escapes names, formats fractional win rate; it load
   // the leader's card and a ranked row for each player, with MMR (still settling: "?") and the series W–D–L
   assert.match(html,/class="panel c-p3 stat-hero leader-hero"/);assert.match(html,/class="list-item board-row c-p3"/);
   assert.match(html,/1,210\?<small>MMR<\/small>/);assert.match(html,/Series 3–1–2/);assert.match(html,/series W–D–L/);
-  assert.match(html,/Games 11–2–9/);assert.match(html,/\? = still settling/);assert.doesNotMatch(html,/Elo/);
+  assert.match(html,/Games 11–2–9/);assert.doesNotMatch(html,/still settling|leader-foot/);assert.doesNotMatch(html,/Elo/);
   assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
   h.run('acesView="solo"');assert.match(h.run('acesPaneHtml()'),/No solo streaks yet/);
   // the views sit above the tab bar, the one showing marked
@@ -87,7 +87,7 @@ test('PVP ranks by MMR from series, with games counted apart; Solo is all time',
   assert.doesNotMatch(pvp,/1,090/);assert.doesNotMatch(pvp,/Patch 1\.4\.0/);assert.doesNotMatch(pvp,/still settling/);
   assert.match(h.run('leaderboardBody("pvp",{pvp:[]})'),/Finish a Ranked series to get on the board/);
   const solo=h.run('leaderboardBody("solo",{patch:"1.3.0",solo:[{id:"account:1",label:"Ann",best_streak:9,current_streak:2,wins:20,draws:1,losses:5,win_rate:.77}]})');
-  assert.match(solo,/All time/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);assert.doesNotMatch(solo,/MMR/);
+  assert.doesNotMatch(solo,/Ranked by best solo streak/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);assert.doesNotMatch(solo,/MMR/);
 });
 
 test('records show the biggest yapper, the longest 1v1 game, the bogey monster and the party',()=>{
@@ -374,7 +374,8 @@ test('a name tag at the table opens that player\'s profile in a sheet of their c
   assert.match(html,/class="sheet c-s1 profile-sheet"|class="sheet c-p2 profile-sheet"|class="sheet [a-z0-9-]+ profile-sheet"/);assert.match(html,/data-profile-sheet="browser:abc"/);
   assert.doesNotMatch(html,/Leaderboard|Advanced stats|Full stats|View stats/);
   const urls=h.requests.slice(before).map(r=>r.url);
-  assert.equal(urls.length,2);assert.ok(urls.includes('/golf/api/profile?player=browser%3Aabc'));assert.ok(urls.some((url)=>url.startsWith('/golf/api/stats?player=browser%3Aabc')));
+  // (and the all-time records, the first time, to mark the ones they hold)
+  assert.equal(urls.filter((url)=>!url.endsWith('/api/leaderboards')).length,2);assert.ok(urls.includes('/golf/api/profile?player=browser%3Aabc'));assert.ok(urls.some((url)=>url.startsWith('/golf/api/stats?player=browser%3Aabc')));
   // (a seat with no player id has only the table's own tally)
   const count=h.requests.length;h.run('state.player_ids=[null,null];playerStatsSheet(1)');
   assert.equal(h.requests.length,count);assert.match(h.nodes.get('sheet').innerHTML,/class="sheet [a-z0-9-]+ profile-sheet"/);
@@ -690,12 +691,12 @@ test('the records added in 1.4.0 each have a card',()=>{
     spectacle:{count:4,players:["Ann","Bob <b>"],scores:[14,6],label:"Bob"},
     recruit:{id:"account:3",label:"Lily",at:Date.now()/1000-3*86400},
     upset:{id:"account:2",label:"Bob",opponent:"Ann",gap:230,ratings:[950,1180],points:[14,6],winner:1}})`);
-  assert.match(html,/CPU vs\. all players/);assert.match(html,/Golfbot<\/strong> is behind everyone put together: 25,673 pts to the players' 24,846 over 2,173 games/);
-  assert.match(html,/Luck of the draw/);assert.doesNotMatch(html,/988|1012/);assert.match(html,/Ann<\/strong> gets to go first 66\.7% of the time \(14 of 21 games\)… because of course they do!/);
+  assert.match(html,/CPU vs\. all players/);assert.match(html,/Golfbot<\/strong><\/p><p>is behind everyone put together: 25,673 pts to the players' 24,846 over 2,173 games/);
+  assert.match(html,/Luck of the draw/);assert.doesNotMatch(html,/988|1012/);assert.match(html,/Ann<\/strong><\/p><p>gets to go first 66\.7% of the time \(14 of 21 games\)… because of course they do!/);
   assert.match(html,/Spreading the gospel/);assert.match(html,/through invite links/);
   assert.match(html,/Quite the spectacle/);assert.match(html,/Ann vs Bob &lt;b&gt;<\/strong> finished 14 to 6/);
-  assert.match(html,/Newest recruit/);assert.match(html,/Lily<\/strong> is the newest Golf account/);assert.match(html,/days ago/);
-  assert.match(html,/David vs\. Goliath/);assert.match(html,/Bob<\/strong> \(950\) won a series against Ann \(1,180\), 6 to 14/);
+  assert.match(html,/Newest recruit/);assert.match(html,/Lily<\/strong><\/p><p>is the newest Golf account/);assert.match(html,/days ago/);
+  assert.match(html,/David vs\. Goliath/);assert.match(html,/Bob<\/strong><\/p><p>\(950\) won a series against Ann \(1,180\), 6 to 14/);
   // the comeback modifier says what it leaves out
   assert.match(html,/in the most comeback wins<\/p><p class="record-note">Leaves out Poisoned Card\./);
   assert.match(html,/Highest MMR/);assert.doesNotMatch(html,/Elo/);
@@ -714,7 +715,7 @@ test('advanced stats show both ratings and the first-turn rows',()=>{
   assert.match(html,/Win rate not going first<\/th><td>33\.3% <small>\(1 of 3\)/);
   assert.doesNotMatch(html,/recorded since patch 1\.4\.0/);
   // (the rule activations are a card of their own, after the stats)
-  assert.match(html,/<\/section><section class="panel [^"]*rule-activations"><h2>Rule Activations[^<]*<\/h2>/);assert.doesNotMatch(html,/View rule activation|no activation records|Indented rows/);
+  assert.match(html,/<\/section><section class="panel [^"]*rule-activations stats-card"><h2>Rule Activations[^<]*<\/h2>/);assert.doesNotMatch(html,/View rule activation|no activation records|Indented rows/);
   // head to head has no ratings rows: they belong to the player, not the pairing
   assert.doesNotMatch(h.run(`statsTable([{profile:{label:"@ann"},ratings:{series:{rating:1,rd:1,wins:0,draws:0,losses:0},game:{rating:1,rd:1,wins:0,draws:0,losses:0}},head_to_head:${stats}}],"head_to_head","Head to head","c-p1")`),/MMR/);
 });

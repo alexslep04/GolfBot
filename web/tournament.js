@@ -221,10 +221,34 @@ function matchAction(view, match, wide = false) {
     ? `<button type="button" class="${cls} c-p1" data-tournament-play="${e(match.room_id)}">${glyph("play.fill", 14)} Play</button>`
     : `<button type="button" class="${cls} c-s4" data-watch="${e(match.room_id)}">${glyph("eye.fill", 14)} Watch${match.live?.watchers ? ` · ${match.live.watchers}` : ""}</button>`;
 }
-/** A player's color in a tournament: one of the eight seat colors by their seed, the
- * same in every match and in the standings (with more than eight, colors repeat). */
+/** A player's color in a tournament: one of the eight seat colors, dealt out at random (the
+ * same deal every time for that tournament, so it never changes as you look), without
+ * repeats until all eight are used, then again from a fresh shuffle. */
+const cupColors = new Map(); // tournament id -> {entrant id: color}
 function entrantColor(entrant, fallback = 0) {
-  return SEAT_COLORS[((entrant?.seed || fallback + 1) - 1) % SEAT_COLORS.length];
+  const view = tournament;
+  if (!view?.entrants || !entrant?.id) return SEAT_COLORS[fallback % SEAT_COLORS.length];
+  let dealt = cupColors.get(view.id);
+  if (!dealt || !(entrant.id in dealt)) {
+    // (a little random number generator seeded from the tournament's id)
+    let seed = [...String(view.id)].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0, 2166136261);
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    const order = [...view.entrants].sort((a, b) => (a.seed ?? 999) - (b.seed ?? 999) || String(a.id).localeCompare(String(b.id)));
+    dealt = {};
+    let deck = [];
+    for (const one of order) {
+      if (!deck.length) {
+        deck = [...SEAT_COLORS];
+        for (let i = deck.length - 1; i > 0; i--) {
+          const j = Math.floor(random() * (i + 1));
+          [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+      }
+      dealt[one.id] = deck.pop();
+    }
+    cupColors.set(view.id, dealt);
+  }
+  return dealt[entrant.id] || SEAT_COLORS[fallback % SEAT_COLORS.length];
 }
 /** An entrant's MMR, where it says something (a player's, or a demo player's; an AI's is a placeholder). */
 function entrantMmr(entrant) {
@@ -243,7 +267,7 @@ function matchCard(view, match, roundName = "") {
       : match.status === "done"
         ? ["c-p1", { forfeit: "Forfeit", awarded: "Awarded", bye: "Bye" }[match.note] || (match.winner === null ? "Drawn" : "Match finished")]
         : known
-          ? ["c-s4", "Starting Soon"]
+          ? ["c-fw", "Starting Soon"]
           : ["c-fw", "Still Seeding"];
   const rows = matchPlayers(view, match)
     .map((player, place) => {
@@ -261,30 +285,35 @@ function matchCard(view, match, roundName = "") {
   return `<${tag}${open ? ` type="button"` : ""} class="bk-match boxed ${color} ${match.status}" data-match="${e(match.id)}"${open} aria-label="${e(match.label)}">${roundName ? `<span class="bk-round-name" aria-hidden="true">${e(roundName)}</span>` : ""}<span class="box-label">${label}</span>${rows}</${tag}>`;
 }
 function bracketHtml(view) {
-  const section = (bracket, title) => {
+  // a bracket's rounds as columns (the grand final, from its own bracket, a column after them all)
+  const columns = (bracket, also = []) => {
     // a place where two byes "met" is only scaffolding: leave it out
-    const matches = view.matches.filter((match) => match.bracket === bracket && !match.players.every((id) => id === "bye"));
-    if (!matches.length) return "";
-    const rounds = [...new Set(matches.map((match) => match.round))].sort((a, b) => a - b);
-    return `<section class="bracket-section">${title ? `<h3>${title}</h3>` : ""}<div class="bracket" role="group" aria-label="${title || "Bracket"}"><svg class="bk-arrows" aria-hidden="true"></svg>${rounds
+    const matches = view.matches.filter((match) => (match.bracket === bracket || also.includes(match.bracket)) && !match.players.every((id) => id === "bye"));
+    const column = (match) => (match.bracket === bracket ? match.round : 1000 + match.round);
+    const rounds = [...new Set(matches.map(column))].sort((a, b) => a - b);
+    return rounds
       .map((round) => {
-        const list = matches.filter((match) => match.round === round);
+        const list = matches.filter((match) => column(match) === round);
         // (the round's name over its topmost match)
         return `<div class="bracket-round" aria-label="${e(list[0].label)}">${list.map((match, i) => matchCard(view, match, i === 0 ? list[0].label : "")).join("")}</div>`;
       })
-      .join("")}</div></section>`;
+      .join("");
   };
-  if (view.format !== "round_robin") return section("W", view.format === "double" ? "Winners bracket" : "") + section("L", "Losers bracket") + section("F", "Grand final");
+  if (view.format === "single") return `<section class="bracket-section"><div class="bracket" role="group" aria-label="Bracket"><svg class="bk-arrows" aria-hidden="true"></svg>${columns("W")}</div></section>`;
+  if (view.format === "double")
+    // Both brackets in one scroller, one over the other, so they move as one: the winners'
+    // (with the grand final at its end) on top, the losers' under it.
+    return `<section class="bracket-section"><div class="bracket double" role="group" aria-label="Bracket"><svg class="bk-arrows" aria-hidden="true"></svg><h3 class="bk-row-title">Winners bracket</h3><div class="bk-row">${columns("W", ["F"])}</div><h3 class="bk-row-title">Losers bracket</h3><div class="bk-row">${columns("L")}</div></div></section>`;
+  // A round robin: a column a round, side by side as a bracket's are (it scrolls the same
+  // way, with the same round bar), but nobody moves on from a match, so no arrows.
   const rounds = [...new Set(view.matches.map((match) => match.round))].sort((a, b) => a - b);
-  return rounds
+  return `<section class="bracket-section"><div class="bracket robin" role="group" aria-label="Rounds">${rounds
     .map((round) => {
       const out = entrantOf(view, view.sitting_out?.[round]);
-      return `<section class="bracket-section"><h3>Round ${round}${out ? `<small> · ${e(out.name)} sits out</small>` : ""}</h3><div class="bracket robin">${view.matches
-        .filter((match) => match.round === round)
-        .map((match) => matchCard(view, match))
-        .join("")}</div></section>`;
+      const list = view.matches.filter((match) => match.round === round);
+      return `<div class="bracket-round" aria-label="Round ${round}">${list.map((match, i) => matchCard(view, match, i === 0 ? `Round ${round}` : "")).join("")}${out ? `<p class="robin-out">${e(out.name)} sits out</p>` : ""}</div>`;
     })
-    .join("");
+    .join("")}</div></section>`;
 }
 /** Where an entrant stands now: the winner, playing, waiting for their next match, or out. */
 function entrantStatus(view, entrant) {
@@ -299,7 +328,19 @@ function entrantStatus(view, entrant) {
 }
 function standingsHtml(view) {
   const robin = view.format === "round_robin";
-  const rows = view.standings
+  // Where each has placed so far: their place in the standings, those level on record
+  // sharing it (1st, 2nd, =3rd...)
+  const record = (row) => (view.champion === row.id ? "champion" : robin ? `${row.score}|${row.points}` : `${row.losses}|${row.wins}|${row.draws}`);
+  const placed = new Map();
+  view.standings.forEach((row, i) => {
+    const prev = view.standings[i - 1];
+    placed.set(row.id, prev && record(prev) === record(row) ? placed.get(prev.id) : i + 1);
+  });
+  const ordinal = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"}`;
+  // (listed by where each has placed, those level by seed; each with their seed beside it)
+  const seedOf = (row) => entrantOf(view, row.id)?.seed ?? 999;
+  const rows = [...view.standings]
+    .sort((a, b) => (placed.get(a.id) || 0) - (placed.get(b.id) || 0) || seedOf(a) - seedOf(b))
     .map((row, rank) => {
       const entrant = entrantOf(view, row.id);
       if (!entrant) return "";
@@ -309,10 +350,10 @@ function standingsHtml(view) {
       // (each player opens their profile; an AI in the bracket is Golfbot)
       const player = entrant.player_id || (entrant.ai ? "bot:golfbot" : null);
       const tag = player ? "button" : "span";
-      return `<tr class="${entrant.id === view.you.entrant ? "mine" : ""}"><th scope="row">${rank + 1}</th><td><${tag}${player ? ` type="button" data-stats-player="${e(player)}" aria-label="${e(entrant.name)}'s profile"` : ""} class="st-player ${seat}"><span class="bk-ava">${icon(avatarIcon(entrant.avatar), 20, { idle: false })}</span><span class="bk-who"><b>${entrant.id === view.you.entrant ? youStar() : ""}${e(entrant.name)}${entrant.ai && !mmr ? ` <span class="bk-ai">CPU</span>` : ""}</b>${mmr ? `<small>${mmr}</small>` : ""}</span></${tag}></td><td>${row.wins}-${row.losses}-${row.draws}</td><td><span class="st-status ${color}">${icon(symbol, 18, { idle: false })}${status}</span></td></tr>`;
+      return `<tr class="${entrant.id === view.you.entrant ? "mine" : ""}"><th scope="row">${entrant.seed ?? rank + 1}</th><td class="st-rank">${ordinal(placed.get(row.id) || rank + 1)}</td><td><${tag}${player ? ` type="button" data-stats-player="${e(player)}" aria-label="${e(entrant.name)}'s profile"` : ""} class="st-player ${seat}"><span class="bk-ava">${icon(avatarIcon(entrant.avatar), 20, { idle: false })}</span><span class="bk-who"><b>${entrant.id === view.you.entrant ? youStar() : ""}${e(entrant.name)}</b>${mmr ? `<small>${mmr}</small>` : entrant.ai ? `<small class="bk-ai">CPU</small>` : ""}</span></${tag}></td><td>${row.wins}-${row.losses}-${row.draws}</td><td><span class="st-status ${color}" title="${status}">${icon(symbol, 18, { idle: false })}<span class="st-status-text">${status}</span></span></td></tr>`;
     })
     .join("");
-  return `<div class="boxed c-fw standings-card"><div class="table-wrap"><table class="standings"><thead><tr><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">W-L-D</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>${robin ? `<p class="hint dark">Ranked by matches won (a draw counts half), then fewest card points.</p>` : ""}`;
+  return `<div class="boxed c-fw standings-card"><div class="table-wrap"><table class="standings"><thead><tr><th scope="col">Seed</th><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">W-L-D</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>${robin ? `<p class="hint dark">Ranked by matches won (a draw counts half), then fewest card points.</p>` : ""}`;
 }
 function tournamentDashboard(view) {
   const me = entrantOf(view, view.you.entrant);
@@ -358,14 +399,18 @@ function tournamentDashboard(view) {
    the bracket is scrolled the bar follows the round in view. */
 /** The main bracket's rounds, each with its name (Quarterfinal, Semifinal, Final...). */
 function bracketRounds(view) {
-  if (view.format === "round_robin") return [];
+  if (view.format === "round_robin")
+    return [...new Set(view.matches.map((match) => match.round))].sort((a, b) => a - b).map((round) => ({ round, label: `Round ${round}` }));
   const main = view.matches.filter((match) => match.bracket === "W" && !match.players.every((id) => id === "bye"));
-  return [...new Set(main.map((match) => match.round))].sort((a, b) => a - b).map((round) => ({ round, label: main.find((match) => match.round === round).label }));
+  const rounds = [...new Set(main.map((match) => match.round))].sort((a, b) => a - b).map((round) => ({ round, label: main.find((match) => match.round === round).label }));
+  // (a double elimination's grand final is the winners bracket's last column)
+  if (view.matches.some((match) => match.bracket === "F")) rounds.push({ round: rounds.length + 1, label: "Grand final" });
+  return rounds;
 }
 /** A round's short name, for the bar: One, Two..., Quarters, Semis, Finals. */
 const ROUND_WORDS = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
 function roundShort(label) {
-  const named = { Quarterfinal: "Quarters", Semifinal: "Semis", Final: "Finals" }[label];
+  const named = { Quarterfinal: "Quarters", Semifinal: "Semis", Final: "Finals", "Winners final": "Final", "Grand final": "Grand" }[label];
   if (named) return named;
   const number = /^Round (\d+)$/.exec(label)?.[1];
   return number ? ROUND_WORDS[number - 1] || number : label;
@@ -475,7 +520,10 @@ function drawBracketArrows(view = tournament) {
       const match = view.matches.find((m) => m.id === card.dataset.match);
       if (!match || match.status !== "done" || match.winner == null) continue;
       const id = match.players[match.winner];
-      const next = view.matches.find((m) => m.bracket === match.bracket && m.round === match.round + 1 && m.players.includes(id));
+      const next =
+        view.matches.find((m) => m.bracket === match.bracket && m.round === match.round + 1 && m.players.includes(id)) ||
+        // (out of either bracket's last round, on into the grand final)
+        (match.bracket !== "F" ? view.matches.find((m) => m.bracket === "F" && m.players.includes(id)) : null);
       const from = card.querySelector(`.bk-player[data-place="${match.winner}"]`);
       const target = next && bracket.querySelector(`.bk-match[data-match="${CSS.escape(next.id)}"]`);
       const to = target?.querySelector(`.bk-player[data-place="${next.players.indexOf(id)}"]`);
@@ -498,12 +546,46 @@ function drawBracketArrows(view = tournament) {
       const head = `M${x2 - 6} ${y2 - 6} L${x2} ${y2} L${x2 - 6} ${y2 + 6}`;
       // (its color: the winner's, as their row has it)
       const seat = [...from.classList].find((name) => name.startsWith("c-s")) || "c-fw";
-      paths.push(`<g class="${seat}" data-from="${e(match.id)}"><path class="edge" d="${line}"/><path class="edge" d="${head}"/><path class="ink" d="${line}"/><path class="ink" d="${head}"/></g>`);
+      const rough = (d) => roughStroke(svg, d);
+      const [l, h] = [rough(line), rough(head)];
+      paths.push(`<g class="${seat}" data-from="${e(match.id)}"><path class="edge" d="${l}"/><path class="edge" d="${h}"/><path class="ink" d="${l}"/><path class="ink" d="${h}"/></g>`);
     }
     svg.setAttribute("width", bracket.scrollWidth);
     svg.setAttribute("height", bracket.scrollHeight);
     svg.innerHTML = paths.join("");
   }
+}
+/**
+ * An open line with the stickers' rough paper grain: walked every half pixel or so, each
+ * point nudged by the same noise the icons are roughened with (GRAIN, in ui.js).
+ */
+function roughStroke(svg, d) {
+  if (typeof grainNoise !== "function" || !svg?.ownerDocument?.createElementNS) return d;
+  const probe = svg.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path");
+  probe.setAttribute("d", d);
+  svg.appendChild(probe);
+  let out = d;
+  try {
+    const length = probe.getTotalLength?.();
+    if (length) {
+      const step = GRAIN.step,
+        steps = Math.max(2, Math.ceil(length / step));
+      const points = [];
+      for (let i = 0; i <= steps; i++) {
+        const { x, y } = probe.getPointAtLength((length * i) / steps);
+        // (the two ends stay put, so the line still meets its card and its head)
+        const keep = i === 0 || i === steps;
+        const u = x / GRAIN.wavelength,
+          v = y / GRAIN.wavelength;
+        const dx = keep ? 0 : (grainNoise(u, v, 11) * 0.72 + grainNoise(u * 2.1, v * 2.1, 13) * 0.28) * GRAIN.amplitude;
+        const dy = keep ? 0 : (grainNoise(u, v, 17) * 0.72 + grainNoise(u * 2.1, v * 2.1, 19) * 0.28) * GRAIN.amplitude;
+        points.push(`${(x + dx).toFixed(1)} ${(y + dy).toFixed(1)}`);
+      }
+      out = `M${points[0]} L${points.slice(1).join(" ")}`;
+    }
+  } catch {}
+  probe.remove();
+  return out;
 }
 if (typeof addEventListener === "function")
   addEventListener("resize", () => {
@@ -512,7 +594,7 @@ if (typeof addEventListener === "function")
     fitRoundBar();
   });
 /** The bracket's columns: a round's lies under the first section's (the winners'). */
-const roundColumns = () => [...(root.querySelector(".bracket")?.querySelectorAll(":scope > .bracket-round") || [])];
+const roundColumns = () => [...(root.querySelector(".bracket")?.querySelectorAll(":scope > .bracket-round, :scope > .bk-row:first-of-type > .bracket-round") || [])];
 function showRound(at) {
   const bracket = root.querySelector(".bracket"),
     column = roundColumns()[at];
