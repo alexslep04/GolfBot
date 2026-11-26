@@ -303,7 +303,7 @@ function bracketHtml(view) {
   if (view.format === "double")
     // Both brackets in one scroller, one over the other, so they move as one: the winners'
     // (with the grand final at its end) on top, the losers' under it.
-    return `<section class="bracket-section"><div class="bracket double" role="group" aria-label="Bracket"><svg class="bk-arrows" aria-hidden="true"></svg><h3 class="bk-row-title">Winners bracket</h3><div class="bk-row">${columns("W", ["F"])}</div><h3 class="bk-row-title">Losers bracket</h3><div class="bk-row">${columns("L")}</div></div></section>`;
+    return `<section class="bracket-section"><div class="bracket double" role="group" aria-label="Bracket"><svg class="bk-arrows" aria-hidden="true"></svg><h3 class="bk-row-title c-p1" aria-label="Winners bracket">${stickerText("Winners bracket", { split: true, key: "bk-title:W" })}</h3><div class="bk-row">${columns("W", ["F"])}</div><h3 class="bk-row-title c-p1" aria-label="Losers bracket">${stickerText("Losers bracket", { split: true, key: "bk-title:L" })}</h3><div class="bk-row">${columns("L")}</div></div></section>`;
   // A round robin: a column a round, side by side as a bracket's are (it scrolls the same
   // way, with the same round bar), but nobody moves on from a match, so no arrows.
   const rounds = [...new Set(view.matches.map((match) => match.round))].sort((a, b) => a - b);
@@ -364,7 +364,7 @@ function tournamentDashboard(view) {
   const banner =
     view.status === "finished"
       ? // (as the big buttons are drawn: the winner's name between two trophies, what they won under it)
-        `<section class="btn c-p3 solve-btn cup-won" role="status"><span class="cup-won-trophy">${tilted("trophy.fill", 34, { key: "cup-won-l" })}</span><span>${champion ? `${champion.id === me?.id ? youStar() : ""}${e(champion.name)}` : "Nobody"}<span class="sub">${champion ? "Wins the Tournament" : "No winner this time"}</span></span><span class="cup-won-trophy">${tilted("trophy.fill", 34, { key: "cup-won-r", mirror: true })}</span></section>`
+        `<section class="btn c-p3 solve-btn cup-won" role="status"><span class="cup-won-trophy">${tilted("trophy.fill", 34, { key: "cup-won-l" })}</span><span>${champion ? `${champion.id === me?.id ? youStar() : ""}${e(champion.name)}` : "Nobody"}<span class="sub">${champion ? "Wins the Tournament!" : "No winner this time"}</span></span><span class="cup-won-trophy">${tilted("trophy.fill", 34, { key: "cup-won-r", mirror: true })}</span></section>`
       : "";
   const mine = !me
     ? ""
@@ -522,8 +522,9 @@ function drawBracketArrows(view = tournament) {
       const id = match.players[match.winner];
       const next =
         view.matches.find((m) => m.bracket === match.bracket && m.round === match.round + 1 && m.players.includes(id)) ||
-        // (out of either bracket's last round, on into the grand final)
-        (match.bracket !== "F" ? view.matches.find((m) => m.bracket === "F" && m.players.includes(id)) : null);
+        // (out of the winners bracket's last round, on into the grand final; the losers
+        // final's winner has no arrow up to it: it would run the height of the bracket)
+        (match.bracket === "W" ? view.matches.find((m) => m.bracket === "F" && m.players.includes(id)) : null);
       const from = card.querySelector(`.bk-player[data-place="${match.winner}"]`);
       const target = next && bracket.querySelector(`.bk-match[data-match="${CSS.escape(next.id)}"]`);
       const to = target?.querySelector(`.bk-player[data-place="${next.players.indexOf(id)}"]`);

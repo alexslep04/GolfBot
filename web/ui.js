@@ -364,10 +364,21 @@ const THEMES = [
   ["golf", "Original", "#c4efab"],
   ["poker", "Poker", "#021b14"], // the dark room around the table
   ["night", "Night Golf", "#0f2018"],
+  ["pool", "Pool", "#a8ecea"], // a bright day at the pool
   ["focus", "Focus", "#000000", "debug"], // one dark gray on black; fewer icons
   // a theme marked "debug" is offered only on a debug server (and a saved
   // choice of one falls back to Original anywhere else)
 ].filter((theme) => theme[3] !== "debug" || document.documentElement.dataset?.debug !== undefined);
+// What a flag holds back until it is earned (the flags are FLAGS in tabs.js; who
+// has earned which, the server's flags.py). What this device last heard it has
+// unlocked is kept, so a theme earned shows from the first page on.
+const FLAG_LOCKED = { word: ["rushing", "dragging"], theme: ["poker", "pool"] };
+let myFlags = { earned: [], emotes: [], themes: [] };
+try {
+  myFlags = { ...myFlags, ...JSON.parse(localStorage.getItem("golf-flags") || "{}") };
+} catch {}
+/** Whether an emote ("word") or theme is yours to use: none holds it back, or you have earned the flag that does. */
+const flagUnlocked = (kind, id) => !FLAG_LOCKED[kind].includes(id) || (kind === "word" ? myFlags.emotes : myFlags.themes).includes(id);
 /**
  * Every setting is saved together, so a saved emote bar may be one that was
  * never chosen. For a short while the bar started with only five sayings: one
@@ -404,7 +415,8 @@ function applyPrefs() {
   html.toggle("no-tips", prefs.hideTips);
   html.toggle("contrast-cards", !!prefs.contrastCards);
   html.toggle("reduce-motion", !!prefs.reduceMotion);
-  const theme = THEMES.find(([key]) => key === prefs.theme) || THEMES[0];
+  // (a theme its flag holds back, not yet earned here: Original)
+  const theme = THEMES.find(([key]) => key === prefs.theme && flagUnlocked("theme", key)) || THEMES[0];
   if (theme === THEMES[0]) delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme[0];
   // the browser's own chrome (status bar, overscroll) takes the table's color
@@ -708,3 +720,6 @@ function logoHtml() {
     `<span class="lg" style="width:${width / 10}rem"><span class="stk idle" data-t="${char}" style="--fill:${fill};--stroke:${stroke};transform:rotate(${tilt}deg);${shadowVars(tilt)}${idleStyle(`logo:${char}`)}">${char}</span></span>`;
   return `<a class="logo${logoReady ? "" : " pending"}" href="." data-nav="home" aria-label="Golf home">${letter("G", 62.797, "var(--p1b)", "var(--p1)", -4)}${letter("o", 45, "var(--p3b)", "var(--p3)", 0)}<span class="lg club"><span class="club-box idle" style="${idleStyle("logo:club")}">${LOGO_CLUB}</span></span>${letter("f", 42.571, "var(--fw3)", "var(--fw)", 8)}</a>`;
 }
+
+/** A Daily Puzzle margin (Golfbot's points minus yours) with its sign: +5, 0, -3. */
+const puzzleMargin = (n) => (n > 0 ? `+${n}` : String(n));

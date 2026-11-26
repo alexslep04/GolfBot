@@ -23,6 +23,13 @@ let homeTab = "play",
   acesView = "records",
   startOpen = false; // Play's Start a Game list is open
 const tabIndex = (key) => HOME_TABS.findIndex((tab) => tab.key === key);
+/* The pages that lie side by side, tapped and swiped between, with the bar at the foot of
+   the screen: the home screen's tabs, or Match history's lists. Both are the very same
+   pages, pager and bar (all below); `deck` says which set is up, and is the name of the
+   page it is on ("home" or "history"). */
+let deck = "home";
+const onDeck = () => page === deck;
+const deckTab = () => (deck === "history" ? historyTab : homeTab);
 const tabPath = (tab) => (tab === "aces" && acesView !== "records" ? `/aces/${acesView}` : HOME_TABS[tabIndex(tab)].path);
 /** What each tab last loaded, so going back to one shows it at once (and only redraws what changed). */
 const homeData = { puzzle: null, friends: null, matches: null, matchesNext: null, games: null, cups: null, boards: null, myStats: null };
@@ -70,8 +77,9 @@ function agoShort(at) {
  */
 function homePage(tab = homeTab) {
   if (tabIndex(tab) < 0) tab = "play";
-  const shell = page === "home" && root.querySelector("[data-home]");
+  const shell = page === "home" && deck === "home" && root.querySelector("[data-home]");
   const from = shell ? homeTab : null;
+  deck = "home";
   homeTab = tab;
   // (coming back from a game or another page, Start a Game is closed again)
   if (tab !== "play" || !shell) startOpen = false;
@@ -127,7 +135,7 @@ function whenHomeQuiet(key, work) {
 function runQuietWork() {
   quietTimer = 0;
   if (!quietWork.size) return void (quietCalm = 0);
-  if (page === "home") {
+  if (onDeck()) {
     if (homeBusy()) {
       quietCalm = 0;
       return void (quietTimer = setTimeout(runQuietWork, 60));
@@ -137,7 +145,7 @@ function runQuietWork() {
   const [key, work] = quietWork.entries().next().value;
   quietWork.delete(key);
   work();
-  if (quietWork.size) quietTimer = setTimeout(runQuietWork, page === "home" ? 34 : 0);
+  if (quietWork.size) quietTimer = setTimeout(runQuietWork, onDeck() ? 34 : 0);
   else quietCalm = 0;
 }
 /* ---------- a phone saving its battery ----------
@@ -179,7 +187,8 @@ document.addEventListener("visibilitychange", () => document.visibilityState ===
    in the stage, laid out but unseen, so bringing it in costs no building. A page
    taken from the park may be out of date; it is drawn again from what is known
    once everything has come to rest. */
-const pageKey = (p) => (p.tab === "aces" ? `aces:${p.view}` : p.tab);
+// (one page a tab: Aces' views are changed inside its page, under the strip that stays)
+const pageKey = (p) => p.tab;
 const LIVE_PANE = ".tab-pane:not(.leaving):not(.neighbor):not(.parked):not(.staged)";
 /** Put a page away: unseen and out of the layout's way, but kept. */
 function parkPane(el) {
@@ -200,6 +209,8 @@ function takePane(stage, p, cls = "") {
     el.stale = true;
     el.getAnimations?.().forEach((animation) => animation.cancel());
     clearPane(el);
+    // (an Aces page put by on another of its views is drawn again on the one showing)
+    if (p.tab === "aces" && el.querySelector?.("[data-aces]")?.dataset.aces !== p.view) el.innerHTML = homePageHtml(p);
   } else {
     el = document.createElement("section");
     el.dataset.pane = p.tab;
@@ -245,7 +256,7 @@ function stagePane(el, direction) {
  * the one showing, for a swipe (or a tap on a neighboring tab).
  */
 function restage() {
-  if (page !== "home" || homeBusy()) return;
+  if (!onDeck() || homeBusy()) return;
   const stage = root.querySelector("[data-tab-stage]");
   if (!stage?.getBoundingClientRect || !stage.querySelector(LIVE_PANE)) return;
   const pages = homePages(),
@@ -270,7 +281,10 @@ function restage() {
 }
 const waitAtMost = (ms, promise) => Promise.race([promise, new Promise((done) => setTimeout(done, ms))]);
 /** Whether what a tab shows has been fetched at least once. */
-const tabLoaded = (tab) => ({ play: !!homeData.puzzle && !!homeData.matches, watch: !!homeData.games, aces: !!homeData.boards, you: !!homeData.boards })[tab] ?? true;
+const tabLoaded = (tab) =>
+  deck === "history" ? historyLoaded(tab) : ({ play: !!homeData.puzzle && !!homeData.matches, watch: !!homeData.games, aces: !!homeData.boards, you: !!homeData.boards })[tab] ?? true;
+/** Fetch what a page shows (its tab's, or its list's). */
+const deckLoad = (tab) => (deck === "history" ? loadHistoryList(tab) : loadTab(tab, true));
 const framesFrom = (count) => new Promise((done) => {
   const step = () => (count-- > 0 ? requestAnimationFrame(step) : done());
   step();
@@ -301,7 +315,7 @@ async function revealPage(stage, p) {
   }
   homeMoving();
   homeBusyFor(420);
-  const still = () => page === "home" && stage.isConnected && pageKey(homePages()[homePageAt()]) === key;
+  const still = () => onDeck() && stage.isConnected && pageKey(homePages()[homePageAt()]) === key;
   const waiting = () => [...stage.children].find((pane) => pane.dataset.key === key && pane.classList.contains("staged"));
   revealing++;
   try {
@@ -319,7 +333,7 @@ async function revealPage(stage, p) {
     // Loaded: the page waits for what it shows (the old page stays up meanwhile, and a
     // fetch that hangs is given up on after a couple of seconds), and is drawn with it.
     if (!tabLoaded(p.tab)) {
-      await waitAtMost(2500, loadTab(p.tab, true));
+      await waitAtMost(2500, deckLoad(p.tab));
       if (!still()) return;
       next = waiting() || next;
       if (next.isConnected) {
@@ -414,7 +428,7 @@ function freshenPane(el) {
 /** One by one, in quiet moments, the pages not yet built are built and parked. */
 function warmPanes() {
   const next = () => {
-    if (page !== "home") return;
+    if (!onDeck()) return;
     const stage = root.querySelector("[data-tab-stage]");
     if (!stage) return;
     if (homeBusy()) return void setTimeout(next, 250);
@@ -471,9 +485,9 @@ let slideQueued = 0;
 function queueSlide() {
   const slide = () => {
     slideQueued = 0;
-    if (page !== "home") return;
+    if (!onDeck()) return;
     const pane = root.querySelector(`[data-tab-stage] ${LIVE_PANE}`);
-    if (pane?.dataset.pane !== homeTab) slideToTab(pane?.dataset.pane || homeTab, homeTab);
+    if (pane?.dataset.pane !== deckTab()) slideToTab(pane?.dataset.pane || deckTab(), deckTab());
   };
   if (reducedMotion.matches || !root.animate || typeof requestAnimationFrame !== "function") return slide();
   if (!slideQueued) slideQueued = afterPaint(slide) || 1;
@@ -492,6 +506,7 @@ function afterPane(tab) {
     loadPreviousNames();
   }
   mountGoogleSignIn(); // (over any Sign in button on it)
+  if (tab === "flags" || tab === "you") loadMyFlags();
   if (tab === "play") watchMatchesEnd();
 }
 function slideToTab(from, to) {
@@ -504,35 +519,43 @@ function slideToTab(from, to) {
 function dockHtml(tab) {
   return `<div class="dock-extra" data-dock-extra="${dockExtraKind(tab)}">${dockExtraHtml(tab)}</div>${tabBarHtml(tab)}`;
 }
-const dockExtraKind = (tab) => (tab === "play" ? "start" : tab === "aces" ? "aces" : "");
+const dockExtraKind = (tab) => (tab === "play" ? "start" : "");
 function dockExtraHtml(tab) {
   if (tab === "play") return startGameHtml();
-  if (tab === "aces") return acesTabsHtml();
   return "";
 }
-/**
- * The tab bar: an icon for each tab (the one showing a little bigger, with its
- * name under it), and one pair of arrows that stand either side of the tab
- * showing and travel with it when it changes.
- */
-function tabBarHtml(tab) {
-  const at = tabIndex(tab);
+/* ---------- the navigation bar ----------
+   One bar, drawn and moved the same way wherever it is used: the home screen's tab
+   bar, and the bar at the foot of Match history. An icon for each item (the one
+   showing a little bigger, with its name under it), and one pair of arrows that stand
+   either side of it and travel with it when it changes.
+   `items`: [{key, label, symbol, color}]; `kind`: what its buttons are called in the
+   page's data (data-<kind>-tab on each item, data-<kind>-step on the arrows). */
+function navBarHtml(items, at, { kind, label, noun = "tab", badges = () => "" }) {
   const arrow = (direction) => {
-    const off = direction < 0 ? at === 0 : at === HOME_TABS.length - 1; // (no tab that way)
-    return `<button type="button" class="tab-arrow ${direction < 0 ? "prev" : "next"} ${HOME_TABS[at].color}${off ? " off" : ""}" data-home-step="${direction}" aria-label="${direction < 0 ? "Previous" : "Next"} tab"${off ? " disabled" : ""}>${icon(direction < 0 ? "chevron.left" : "chevron.right", 20, { idle: false, sw: 4 })}</button>`;
+    const off = direction < 0 ? at === 0 : at === items.length - 1; // (nothing that way)
+    return `<button type="button" class="tab-arrow ${direction < 0 ? "prev" : "next"} ${items[at].color}${off ? " off" : ""}" data-${kind}-step="${direction}" aria-label="${direction < 0 ? "Previous" : "Next"} ${noun}"${off ? " disabled" : ""}>${icon(direction < 0 ? "chevron.left" : "chevron.right", 20, { idle: false, sw: 4 })}</button>`;
   };
-  return `<nav class="tab-bar c-fw" aria-label="Golf">${HOME_TABS.map((item, i) => {
+  return `<nav class="tab-bar c-fw" data-nav-bar="${kind}" aria-label="${e(label)}">${items.map((item, i) => {
     const on = i === at;
-    return `<button type="button" class="tab-btn ${item.color}${on ? " on" : ""}" data-home-tab="${item.key}" aria-current="${on ? "page" : "false"}"><span class="tab-ico">${tilted(item.symbol, 34, { key: `tab:${item.key}`, tilt: tabTilt(i, tabIndex(tab)), sw: 3.6 })}</span><span class="tab-label">${item.label}</span>${item.key === "watch" ? `<span id="spectate-count" class="badge" hidden></span>` : ""}${item.key === "play" ? `<span id="friend-requests" class="badge left" hidden></span><span id="queue-count-tab" class="badge" hidden></span>` : ""}</button>`;
+    return `<button type="button" class="tab-btn ${item.color}${on ? " on" : ""}" data-${kind}-tab="${item.key}" aria-current="${on ? "page" : "false"}"><span class="tab-ico">${tilted(item.symbol, 34, { key: `${kind}:${item.key}`, tilt: tabTilt(i, at), sw: 3.6 })}</span><span class="tab-label">${item.label}</span>${badges(item)}</button>`;
   }).join("")}${arrow(-1)}${arrow(1)}</nav>`;
 }
-/** Stand the arrows either side of the icon of the tab showing (where the bar's layout has it). */
-function placeTabArrows() {
-  const bar = root.querySelector(".tab-bar");
+/** The home screen's tab bar. */
+function tabBarHtml(tab) {
+  return navBarHtml(HOME_TABS, tabIndex(tab), {
+    kind: "home",
+    label: "Golf",
+    badges: (item) => (item.key === "watch" ? `<span id="spectate-count" class="badge" hidden></span>` : item.key === "play" ? `<span id="friend-requests" class="badge left" hidden></span><span id="queue-count-tab" class="badge" hidden></span>` : ""),
+  });
+}
+/** Stand a bar's arrows either side of the icon of the item showing (where its layout has it). */
+function placeNavArrows(bar) {
   const ico = bar?.querySelector(".tab-btn.on .tab-ico");
   if (!ico) return;
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
-  const button = ico.closest(".tab-btn");
+  const button = ico.closest?.(".tab-btn");
+  if (!button) return;
   const x = button.offsetLeft + ico.offsetLeft + ico.offsetWidth / 2,
     y = button.offsetTop + ico.offsetTop + ico.offsetHeight / 2;
   // (clear of the icon at the size it is shown, a fifth bigger than it is laid out)
@@ -543,24 +566,26 @@ function placeTabArrows() {
     arrow.style.top = `${y.toFixed(1)}px`;
   }
 }
+/** Every bar on the page, arrows placed. */
+function placeTabArrows() {
+  root.querySelectorAll?.(".tab-bar").forEach?.(placeNavArrows);
+}
 window.addEventListener("resize", () => {
-  if (page !== "home") return;
   placeTabArrows();
-  whenHomeQuiet("stage", restage); // (the pages in waiting move out with the screen's edge)
+  if (onDeck()) whenHomeQuiet("stage", restage); // (the pages in waiting move out with the screen's edge)
 });
 /**
- * The bar takes up its new arrangement, and everything flows to it from where it
- * was: the icons slide along as the tab showing takes its extra room, and the
- * arrows travel across to stand beside it. (It can be changed again mid-flow:
- * everything sets off from wherever it had got to.)
+ * A bar takes up its new arrangement (item `at` of `items` showing), and everything
+ * flows to it from where it was: the icons slide along as the item showing takes its
+ * extra room, and the arrows travel across to stand beside it. (It can be changed
+ * again mid-flow: everything sets off from wherever it had got to.) `moving()`: told
+ * how long the flow takes, for a page that holds still meanwhile.
  */
-function flowTabBar(tab) {
-  const bar = root.querySelector(".tab-bar");
+function flowNavBar(bar, items, at, moving = () => {}) {
   if (!bar) return;
-  const at = tabIndex(tab);
-  const buttons = [...bar.querySelectorAll("[data-home-tab]")],
+  const buttons = [...bar.querySelectorAll(".tab-btn")],
     arrows = [...bar.querySelectorAll(".tab-arrow")];
-  // each icon leans by how far it is from the tab now on (turning there smoothly: see .tab-ico .tilt)
+  // each icon leans by how far it is from the item now on (turning there smoothly: see .tab-ico .tilt)
   buttons.forEach((button, i) => {
     const tilt = tabTilt(i, at);
     const holder = button.querySelector(".tab-ico .tilt"),
@@ -574,7 +599,7 @@ function flowTabBar(tab) {
       sticker.style.setProperty("--shy", y);
     }
   });
-  const moving = !reducedMotion.matches && !!bar.animate;
+  const animated = !reducedMotion.matches && !!bar.animate;
   // where something is seen to be just now, within the bar
   const seen = (el) => {
     const box = bar.getBoundingClientRect(),
@@ -586,26 +611,26 @@ function flowTabBar(tab) {
     arrowsWere = arrows.map(seen);
   // (the colors each arrow is drawn in just now, to fade from)
   const inkWas = arrows.map((arrow) => {
-    const path = moving && arrow.querySelector(".ico:not(.ghost) path");
+    const path = animated && arrow.querySelector(".ico:not(.ghost) path");
     const style = path && getComputedStyle(path);
     return style ? [style.fill, style.stroke] : null;
   });
-  const colorWas = arrows.map((arrow) => HOME_TABS.find((item) => arrow.classList.contains(item.color))?.color);
+  const colors = [...new Set(items.map((item) => item.color))];
+  const colorWas = arrows.map((arrow) => colors.find((color) => arrow.classList.contains(color)));
   buttons.forEach((button, i) => {
     button.classList.toggle("on", i === at);
     button.setAttribute("aria-current", i === at ? "page" : "false");
   });
   arrows.forEach((arrow) => {
-    const off = arrow.classList.contains("prev") ? at === 0 : at === HOME_TABS.length - 1;
-    arrow.classList.remove(...HOME_TABS.map((item) => item.color));
-    arrow.classList.add(HOME_TABS[at].color);
+    const off = arrow.classList.contains("prev") ? at === 0 : at === items.length - 1;
+    arrow.classList.remove(...colors);
+    arrow.classList.add(items[at].color);
     arrow.classList.toggle("off", off);
     arrow.disabled = off;
   });
-  placeTabArrows();
-  if (!moving) return;
-  homeBusyFor(660);
-  homeMoving();
+  placeNavArrows(bar);
+  if (!animated) return;
+  moving(660);
   const flow = { duration: 640, easing: "cubic-bezier(0.4, 0, 0.1, 1)" };
   // (the arrows go ahead: they are across well before the icons have settled)
   const dart = { duration: 340, easing: "cubic-bezier(0.22, 1, 0.36, 1)" };
@@ -617,7 +642,7 @@ function flowTabBar(tab) {
   };
   // (every measurement is taken before anything is set moving, so the bar is laid out once)
   const shifts = buttons.map((button, i) => iconsWere[i] - (button.offsetLeft + icons[i].offsetLeft + icons[i].offsetWidth / 2));
-  // each tab moves as one piece: its icon, its name and any count on it
+  // each item moves as one piece: its icon, its name and any count on it
   buttons.forEach((button, i) => glide(button, shifts[i]));
   arrows.forEach((arrow, i) => glide(arrow, arrowsWere[i][0] - parseFloat(arrow.style.left), arrowsWere[i][1] - parseFloat(arrow.style.top), dart, "translate(-50%, -50%)"));
   // An arrow changes color by cross-fading: a copy in the old colors lies over it and fades
@@ -626,13 +651,20 @@ function flowTabBar(tab) {
   arrows.forEach((arrow, i) => {
     arrow.querySelectorAll(".ico.ghost").forEach((ghost) => ghost.remove());
     const drawn = arrow.querySelector(".ico");
-    if (!drawn || !inkWas[i] || colorWas[i] === HOME_TABS[at].color) return;
+    if (!drawn || !inkWas[i] || colorWas[i] === items[at].color) return;
     const ghost = drawn.cloneNode(true);
     ghost.classList.add("ghost");
     ghost.style.setProperty("--fill", inkWas[i][0]);
     ghost.style.setProperty("--stroke", inkWas[i][1]);
     drawn.after(ghost);
     ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 420, easing: "ease-in-out", fill: "forwards" }).onfinish = () => ghost.remove();
+  });
+}
+/** The home screen's tab bar flows to `tab` (and the home screen holds still meanwhile). */
+function flowTabBar(tab) {
+  flowNavBar(root.querySelector('[data-nav-bar="home"]'), HOME_TABS, tabIndex(tab), (ms) => {
+    homeBusyFor(ms);
+    homeMoving();
   });
 }
 /** The bar after a tab change: it flows to the new tab, and the strip above it (Start a Game, Aces' views) swaps. */
@@ -683,31 +715,28 @@ function stepTab(direction) {
   if (next) homePage(next.key);
 }
 /**
- * A sideways swipe or scroll: the next tab that way. On Aces it first moves
- * through Records, Solo and PvP (and on past Records, back to Watch).
+ * A sideways swipe or scroll: the next tab that way (Aces' views are not among them:
+ * those are picked on its strip).
  */
 function homeStep(direction) {
-  if (homeTab === "aces") {
-    const at = ACES_VIEWS.findIndex((view) => view.key === acesView) + direction;
-    if (at >= 0 && at < ACES_VIEWS.length) return setAcesView(ACES_VIEWS[at].key);
-  }
   stepTab(direction);
 }
 /** Draw a tab's pane again from what has loaded (only the parts that changed are touched). */
 function redrawPane(tab) {
-  if (page !== "home" || homeTab !== tab) return;
+  if (!onDeck() || deckTab() !== tab) return;
   const pane = root.querySelector(`[data-tab-stage] ${LIVE_PANE}[data-pane="${tab}"]`);
   if (!pane) return;
   const template = document.createElement("template");
-  template.innerHTML = paneHtml(tab);
+  template.innerHTML = homePageHtml({ tab, view: acesView });
   // (Watch is patched card by card, so what changed can animate)
   if (tab === "watch" && template.content && patchWatch(pane, template.content)) return;
   if (template.content) morphChildren(pane, template.content);
-  else pane.innerHTML = paneHtml(tab);
+  else pane.innerHTML = homePageHtml({ tab, view: acesView });
   if (tab === "you") {
     // (patching the page clears where the avatar wheel had put each avatar)
     layoutWheel(root.querySelector(".avatar-strip"), true);
     loadPreviousNames();
+    paintDeckPick(); // (and what was picked up in Your Deck)
   }
   mountGoogleSignIn();
   if (tab === "play") watchMatchesEnd();
@@ -809,16 +838,21 @@ setInterval(() => {
 
 /* ---------- scrolling sideways between tabs ----------
    The home screen's pages lie side by side: Flags, You, Play, Watch, then
-   Aces' Records, Solo and PvP. A finger dragged sideways (or two fingers on a
+   Aces (whichever of its views is showing). A finger dragged sideways (or two fingers on a
    trackpad) carries the page with it, the next one coming in alongside; each
    fades and blurs the further it is from the middle. Half way across, the
    page coming in becomes the one showing (the bar follows); let go and it
    springs to rest. It can be caught again at any moment, mid-spring included.
    One gesture turns one page at most; past the first and last it only gives. */
-const homePages = () => HOME_TABS.flatMap((tab) => (tab.key === "aces" ? ACES_VIEWS.map((view) => ({ tab: "aces", view: view.key })) : [{ tab: tab.key }]));
-const homePageAt = () => homePages().findIndex((p) => p.tab === homeTab && (p.tab !== "aces" || p.view === acesView));
-/** A page of the home screen, drawn as it would be (an Aces view other than the one showing, too). */
+// (Aces is one page among them: the view showing. Its other views are reached only from
+// the strip at its top, or by tapping Aces on the tab bar again, never by a swipe.)
+// (on Match history: its lists, PvP, Tournaments and Solo)
+const homePages = () =>
+  deck === "history" ? LIST_TABS.map((item) => ({ tab: item.key })) : HOME_TABS.map((tab) => (tab.key === "aces" ? { tab: "aces", view: acesView } : { tab: tab.key }));
+const homePageAt = () => homePages().findIndex((p) => p.tab === deckTab());
+/** A page of the home screen (or of Match history), drawn as it would be (an Aces view other than the one showing, too). */
 function homePageHtml(p) {
+  if (deck === "history") return historyPaneHtml(p.tab);
   if (p.tab !== "aces") return paneHtml(p.tab);
   const was = acesView;
   acesView = p.view;
@@ -841,7 +875,7 @@ function resetPager() {
     const item = pager[side],
       direction = side === "next" ? 1 : -1;
     // (a page still beside the one showing stays in waiting where it is)
-    const beside = item && page === "home" && item.el.isConnected && homePages()[homePageAt() + direction];
+    const beside = item && onDeck() && item.el.isConnected && homePages()[homePageAt() + direction];
     if (beside && pageKey(beside) === item.el.dataset.key) stagePane(item.el, direction);
     else parkPane(item?.el);
     pager[side] = null;
@@ -854,7 +888,7 @@ function resetPager() {
 }
 /** Take hold of the pages (wherever they are, a spring in flight included). False when there is nothing to hold. */
 function beginPager() {
-  if (page !== "home") return false;
+  if (!onDeck()) return false;
   const stage = root.querySelector("[data-tab-stage]");
   if (!stage) return false;
   if (pager.stage !== stage || !pagerLive()) {
@@ -990,6 +1024,7 @@ function finishPager() {
 }
 /** The page carried in is now the one showing: the bar, the address and its data follow. */
 function adoptHomePage(p) {
+  if (deck === "history") return adoptHistoryList(p);
   if (p.tab === "aces") acesView = p.view;
   homeTab = p.tab;
   startOpen = false;
@@ -1024,10 +1059,13 @@ function adoptHomePage(p) {
 }
 /** Whether a sideways gesture starting on `target` is not the pages' to take (`how`: "wheel", "touch" or "mouse"). */
 const pagerBlocked = (target, how) =>
-  page !== "home" || startOpen || !sheetRoot.hidden || !root.querySelector("[data-home]") || !!document.querySelector("dialog[open]") ||
-  // anything that scrolls sideways itself keeps the gesture; so does text being edited, and
-  // an emote a mouse could be picking up (a finger holds an emote first, so its swipes are free)
-  !!target.closest?.(how === "wheel" ? ".avatar-strip, .table-wrap" : how === "mouse" ? ".avatar-strip, .table-wrap, input:not(.haptic-switch), [data-emote-item]" : ".avatar-strip, .table-wrap, input:not(.haptic-switch)");
+  !onDeck() || (deck === "home" && startOpen) || !sheetRoot.hidden || !root.querySelector("[data-home]") || !!document.querySelector("dialog[open]") ||
+  // anything that scrolls sideways itself keeps the gesture (a table only when it is too wide
+  // for its card); so does text being edited, and an emote a mouse could be picking up (a
+  // finger holds an emote first, so its swipes are free)
+  scrollsSideways(target.closest?.(".table-wrap")) ||
+  !!target.closest?.(how === "wheel" ? ".avatar-strip" : how === "mouse" ? ".avatar-strip, input:not(.haptic-switch), [data-emote-item]" : ".avatar-strip, input:not(.haptic-switch)");
+const scrollsSideways = (el) => !!el && el.scrollWidth > el.clientWidth + 1;
 /** How fast the last stretch of a gesture went, in px/ms, from its [time, position] samples. */
 function sampleSpeed(samples, now) {
   const recent = samples.filter(([at]) => now - at < 120);
@@ -1043,7 +1081,7 @@ document.addEventListener(
   "touchstart",
   (event) => {
     touchPage = null;
-    if (page === "home") {
+    if (onDeck()) {
       // (A finger on the glass counts as busy, so work put off waits for it. The stickers
       // are not stopped for it: stopping every sticker's drift and starting it again made
       // Safari draw them afresh, and they flickered as the page was scrolled. They are
@@ -1225,6 +1263,8 @@ async function homeClick(button, data, event) {
   }
   if (data.homeTab) {
     if (data.homeTab !== homeTab) homePage(data.homeTab);
+    // Aces tapped again: on to its next view (Records, Solo, PvP, and round again)
+    else if (homeTab === "aces") setAcesView(ACES_VIEWS[(ACES_VIEWS.findIndex((view) => view.key === acesView) + 1) % ACES_VIEWS.length].key);
     else {
       // the tab already showing: back to its top (and Watch looks for games again)
       window.scrollTo({ top: 0, behavior: reducedMotion.matches ? "instant" : "smooth" });
@@ -1234,6 +1274,14 @@ async function homeClick(button, data, event) {
   }
   if (data.acesView) {
     setAcesView(data.acesView);
+    return true;
+  }
+  if (data.youView) {
+    setYouView(data.youView);
+    return true;
+  }
+  if ("deckPick" in data) {
+    deckTap(button);
     return true;
   }
   if ("startToggle" in data) {
@@ -1264,6 +1312,8 @@ async function homeClick(button, data, event) {
   if ("profileBack" in data) {
     // (back to the tournament it was opened from, or to the home tab)
     if (profileBack?.tournament) tournamentPage(profileBack.tournament);
+    else if (profileBack === "history") historyPage();
+    else if (profileBack === "resume") navigate("resume");
     else home(profileBack);
     return true;
   }
@@ -1303,21 +1353,26 @@ async function homeClick(button, data, event) {
 
 /* ---------- Play ---------- */
 function playPaneHtml() {
-  const resume = session.room_id
-    ? `<button type="button" class="btn c-p1 resume-btn" data-nav="resume">${tilted("play.fill", 30)}<span>Resume your table</span></button>`
-    : "";
   const credit = `<p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p>`;
-  return `<div class="tab-body play-body">${resume}${patchChip()}${puzzleHtml()}${friendsHtml()}${matchesHtml()}${credit}</div>`;
+  return `<div class="tab-body play-body">${patchChip()}${puzzleHtml()}${friendsHtml()}${matchesHtml()}${credit}</div>`;
 }
-/** The Best Scores rows (or, with none yet, a line saying so). */
-function puzzleRowsHtml(info) {
+/**
+ * The Best Margins rows (or, with none yet, a line saying so). `ranked` puts each
+ * player's place before them (tied margins share one, as "Best today · #2" counts);
+ * `from` draws only the rows from there on (the rest are already in the list).
+ */
+function puzzleRowsHtml(info, size = 19, { ranked = false, from = 0 } = {}) {
   if (!info.board.length) return `<p class="pb-empty">No scores yet.<br>Be the first!</p>`;
+  const places = info.board.map((row, i, all) => all.findIndex((other) => other.score === row.score) + 1);
   return info.board
-    .map(
-      (row, i) =>
-        // first place in yellow, the rest in green: avatar and score alike
-        `<div class="pb-row${i === 0 ? " first" : ""}" style="--i:${Math.min(i, 6)}"><span class="pb-ava">${icon(avatarIcon(row.avatar), 19, { idle: false })}</span><span class="pb-name">${row.mine ? youStar() : row.friend ? friendMark() : ""}${e(row.name)}</span><span class="pb-score">${stickerText(`${row.score}pts`, { key: `pb:${i}` })}</span></div>`,
-    )
+    .map((row, i) => {
+      if (i < from) return "";
+      // first place in gold, the rest in the card's color: avatar and score alike;
+      // each row opens that player's profile
+      const tag = row.id ? "button" : "div";
+      const attrs = row.id ? ` type="button" data-stats-player="${e(row.id)}" aria-label="${ranked ? `${places[i]}. ` : ""}${e(row.name)}'s profile"` : "";
+      return `<${tag}${attrs} class="pb-row${i === 0 ? " first" : ""}${ranked ? " ranked" : ""}" style="--i:${Math.min(i, 6)}">${ranked ? `<span class="pb-rank">${places[i]}</span>` : ""}<span class="pb-ava">${icon(avatarIcon(row.avatar), size, { idle: false })}</span><span class="pb-name">${row.mine ? youStar() : row.friend ? friendMark() : ""}${e(row.name)}${row.mmr != null ? `<small class="pb-mmr">${statNumber(row.mmr)}${row.provisional ? "?" : ""}</small>` : ""}</span><span class="pb-score">${stickerText(puzzleMargin(row.score), { key: `pb:${i}` })}${ranked ? stickerText("pts", { cls: "pts", key: `pb-pts:${i}` }) : ""}</span></${tag}>`;
+    })
     .join("");
 }
 /* More of the day's scores are fetched as the list is scrolled toward its end. */
@@ -1335,7 +1390,7 @@ async function morePuzzleScores(list) {
     info.board = next.board;
     info.players = next.players;
     // (only the new rows are added: the list keeps its place)
-    if (list.isConnected) (list.querySelector(".pb-list") || list).insertAdjacentHTML("beforeend", puzzleRowsHtml({ board: next.board }).split('<div class="pb-row').slice(had + 1).map((row) => `<div class="pb-row${row}`).join(""));
+    if (list.isConnected) (list.querySelector(".pb-list") || list).insertAdjacentHTML("beforeend", puzzleRowsHtml({ board: next.board }, 19, { from: had }));
   } catch {
     // (tried again the next time the end comes into view)
   } finally {
@@ -1351,19 +1406,20 @@ document.addEventListener(
   },
   true,
 );
-/** Today's puzzle: the starting hand, the best scores so far, and the button to play it. */
+/** Today's puzzle: the starting hand, the best margins so far, and the button to play it. */
 function puzzleHtml() {
   const info = homeData.puzzle;
   if (!info) return `<section class="home-section puzzle-section">${tabTitle("Daily Puzzle", "", "puzzle")}<div class="loading">Dealing today's puzzle…</div></section>`;
   const hand = exampleHand(info.hand.map((slot) => (slot.card ? slot.card.label + slot.card.suit : null)));
   // every score fetched so far, a set gap apart, in a list that scrolls inside the card
   // (more are fetched as its end comes into view: see morePuzzleScores)
-  const board = boxed("c-p1", "Best Scores", `<div class="pb-scroll" data-pb-list><div class="pb-list${info.board.length ? "" : " empty"}">${puzzleRowsHtml(info)}</div></div>`, "puzzle-board");
+  const board = boxed("c-p1", "Best Margins", `<div class="pb-scroll" data-pb-list><div class="pb-list${info.board.length ? "" : " empty"}">${puzzleRowsHtml(info)}</div></div>`, "puzzle-board");
   // how you have done today sits under the title, as a tab's subtitle does
-  const mine = info.best == null ? "" : `Your best: ${info.best} pts${info.rank ? ` · #${info.rank}` : ""} · can you do better?`;
-  const sub = "Get the lowest score vs GolfBot";
-  return `<section class="home-section puzzle-section">${tabTitle(`Daily Puzzle #${info.number}`, e(mine), "puzzle")}<div class="puzzle-row"><div class="puzzle-hand">${hand}</div>${board}</div>
-    <button type="button" class="btn c-p1 solve-btn" data-puzzle-start>${tilted("puzzlepiece.fill", 30)}<span>Solve Puzzle<span class="sub">${e(sub)}</span></span>${tilted("puzzlepiece.fill", 30, { mirror: true })}</button></section>`;
+  const mine = info.best == null ? "" : `Your best: ${puzzleMargin(info.best)}${info.rank ? ` · #${info.rank}` : ""} · can you do better?`;
+  // (before your first finish, what the puzzle asks of you)
+  const tagline = `In ${info.moves ?? 5} moves, get the biggest margin vs PuzzleBot`;
+  return `<section class="home-section puzzle-section">${tabTitle(`Daily Puzzle #${info.number}`, e(mine || tagline), "puzzle")}<div class="puzzle-row"><div class="puzzle-hand">${hand}</div>${board}</div>
+    <button type="button" class="btn c-p1 solve-btn" data-puzzle-start>${tilted("puzzlepiece.fill", 30)}<span>Solve Puzzle</span>${tilted("puzzlepiece.fill", 30, { mirror: true })}</button></section>`;
 }
 async function startPuzzle() {
   const epoch = tableEpoch;
@@ -1374,10 +1430,10 @@ async function startPuzzle() {
 /** Every best score today (the panel only has room for four). */
 async function puzzleBoardSheet() {
   const info = await api("/api/puzzle?limit=50");
-  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="Best scores">
+  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="Best margins">
     <div class="sheet-head"><h2>Puzzle #${info.number}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    <p class="hint dark">Today's best scores, lowest first. Everyone plays the same deal; it changes at midnight.</p>
-    <div class="list leader-list">${info.board.map((row, i) => `<div class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.mine ? " mine" : ""}" style="--i:${i}"><span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "pz-first" }) : stickerText(String(i + 1), { key: `pz-rank:${i}` })}</span><span class="pb-ava">${icon(avatarIcon(row.avatar), 26, { idle: false })}</span><div class="grow"><strong>${row.mine ? youStar() : row.friend ? friendMark() : ""}${e(row.name)}</strong><small>${row.attempts} ${row.attempts === 1 ? "attempt" : "attempts"}</small></div><b class="rate">${row.score}<small>pts</small></b></div>`).join("") || `<p class="hint dark">No scores yet today.</p>`}</div>
+    <p class="hint dark">Today's biggest margins: PuzzleBot's points minus yours, so higher is better. Everyone plays the same deal; it changes at midnight.</p>
+    <div class="list leader-list">${info.board.map((row, i) => `<div class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.mine ? " mine" : ""}" style="--i:${i}"><span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "pz-first" }) : stickerText(String(i + 1), { key: `pz-rank:${i}` })}</span><span class="pb-ava">${icon(avatarIcon(row.avatar), 26, { idle: false })}</span><div class="grow"><strong>${row.mine ? youStar() : row.friend ? friendMark() : ""}${e(row.name)}</strong><small>${row.attempts} ${row.attempts === 1 ? "attempt" : "attempts"}</small></div><b class="rate">${puzzleMargin(row.score)}</b></div>`).join("") || `<p class="hint dark">No margins yet today.</p>`}</div>
   </section>`);
 }
 /** Your friends and what they are up to, busiest first. */
@@ -1523,18 +1579,24 @@ function startGameHtml() {
   const queued = ["waiting", "offer"].includes(presenceState.queue?.status);
   return `<div class="start-game${startOpen ? " open" : ""}" data-start-game>
     <div class="start-modes" id="start-modes" ${startOpen ? "" : "hidden"}>
-      ${mode('data-nav="friends"', "c-p1", "figure.2", "Play with Friends", "or Pass &amp; Play", `<span id="lobby-count" class="badge" hidden></span>`)}
+      ${session.room_id ? mode('data-nav="resume"', "c-fw", "play.fill", "Resume your table", "Pick up where you left off") : ""}
+      ${mode('data-nav="friends"', "c-p1", "figure.2", "Play with Friends", "Host or join a table", `<span id="lobby-count" class="badge" hidden></span>`)}
       ${mode("data-queue-toggle", "c-p3", "sparkles", "Play Ranked", 'id="queue-sub"', `<span id="queue-count" class="badge" hidden></span>`)}
       ${mode('data-nav="solo"', "c-p2", "dumbbell.fill", "Play Solo", "Test your skills vs Golfbot")}
       ${mode('data-nav="rules"', "c-p4", "brain.fill", "Learn Rules", "See how every rule plays")}
+      ${mode('data-nav="passplay"', "c-s7 c-passplay", "person.2.fill", "Pass &amp; Play", "Share one device")}
       ${document.documentElement.dataset?.debug !== undefined ? mode("data-debug-bots", "c-fw", "ladybug.fill", "Debug Table", "You and seven bots") : ""}
     </div>
-    <button type="button" class="btn start-btn c-p3${startOpen ? " dimmed" : ""}" data-start-toggle aria-expanded="${startOpen}" aria-controls="start-modes">${startOpen ? `<span>Close</span>` : `${twin("figure.golf")[0]}<span>Start a Game${queued ? `<span class="sub">${e(queueLabel())}</span>` : ""}</span>${twin("figure.golf")[1]}${QUEUE_BADGE}`}</button>
+    <button type="button" class="btn start-btn c-p3${startOpen ? " dimmed" : ""}" data-start-toggle aria-expanded="${startOpen}" aria-controls="start-modes">${startOpen ? `<span>Close</span>` : `${twin("figure.golf")[0]}<span>Start a Game${queued ? `<span class="sub">${e(queueLabel())}</span>` : ""}</span>${twin("figure.golf")[1]}${startCorner()}`}</button>
   </div>`;
 }
 /** Start a Game says when you are in the Ranked queue (a match found shows on the pill up top). */
 // how many are waiting in the Ranked queue, on Start a Game's corner (and on the Play tab's icon)
 const QUEUE_BADGE = `<span id="queue-count-start" class="badge" hidden></span>`;
+// Start a Game's corner: a play mark when you have a table to go back to (Resume is
+// in the list it opens), beside the Ranked queue's count
+const startCorner = () =>
+  `<span class="start-corner">${session.room_id ? `<span class="resume-badge c-fw" role="img" aria-label="You have a table to resume">${tilted("play.fill", 30, { key: "resume-badge" })}</span>` : ""}${QUEUE_BADGE}</span>`;
 function renderStartLabel() {
   const button = root.querySelector(".start-btn");
   if (!button || startOpen) return;
@@ -1542,7 +1604,7 @@ function renderStartLabel() {
   const sub = button.querySelector(".sub");
   if ((sub?.textContent || "") === label) return;
   const twin = [tilted("figure.golf", 30), tilted("figure.golf", 30, { mirror: true })];
-  button.innerHTML = `${twin[0]}<span>Start a Game${label ? `<span class="sub">${e(label)}</span>` : ""}</span>${twin[1]}${QUEUE_BADGE}`;
+  button.innerHTML = `${twin[0]}<span>Start a Game${label ? `<span class="sub">${e(label)}</span>` : ""}</span>${twin[1]}${startCorner()}`;
   // (the badge just redrawn gets its count back)
   const waiting = presenceState.queue_size || 0;
   setCount("queue-count-start", waiting, `${waiting} ${waiting === 1 ? "player" : "players"} in queue`);
@@ -1776,7 +1838,7 @@ function patchWatchCard(card, fresh, moving) {
 function acesTabsHtml() {
   // (one arrow for the strip, over the view showing: it slides across when the view changes)
   const at = Math.max(0, ACES_VIEWS.findIndex((view) => view.key === acesView));
-  return `<nav class="aces-tabs boxed c-fw" aria-label="Aces" style="--at:${at}"><span class="aces-pointer c-p2" aria-hidden="true">${icon("chevron.down", 15, { idle: false, sw: 4.2 })}</span>${ACES_VIEWS.map((view, i) => `<button type="button" class="aces-tab${view.key === acesView ? " on c-p2" : ""}" data-aces-view="${view.key}" aria-pressed="${view.key === acesView}">${tilted(view.symbol, 26, { key: `aces:${view.key}`, tilt: [-6, 0, 6][i] })}<span>${view.label}</span></button>`).join("")}</nav>`;
+  return `<nav class="aces-tabs top-tabs c-fw" aria-label="Aces" style="--at:${at}"><span class="aces-pointer c-p2" aria-hidden="true">${icon("chevron.up", 15, { idle: false, sw: 4.2 })}</span>${ACES_VIEWS.map((view, i) => `<button type="button" class="aces-tab${view.key === acesView ? " on c-p2" : ""}" data-aces-view="${view.key}" aria-pressed="${view.key === acesView}">${tilted(view.symbol, 26, { key: `aces:${view.key}`, tilt: [-6, 0, 6][i] })}<span>${view.label}</span></button>`).join("")}</nav>`;
 }
 function acesPaneHtml() {
   const boards = homeData.boards;
@@ -1785,15 +1847,16 @@ function acesPaneHtml() {
     solo: tabTitle("Solo Streaks", "The longest win streaks against Golfbot", "aces-solo"),
     pvp: tabTitle("PvP Rankings", "Ranked by MMR from Ranked series", "aces-pvp"),
   }[acesView];
-  if (!boards) return `<div class="tab-body aces-body" data-aces="${acesView}">${head}<div class="loading">Loading…</div></div>`;
+  // (the strip of views at the top of each, under the logo: it moves with its page)
+  if (!boards) return `<div class="tab-body aces-body" data-aces="${acesView}">${acesTabsHtml()}${head}<div class="loading">Loading…</div></div>`;
   const body = acesView === "records" ? recordsBody(boards.records, boards.personal) : leaderboardBody(acesView, boards);
-  return `<div class="tab-body aces-body" data-aces="${acesView}">${head}<div class="leader-body">${body}</div></div>`;
+  return `<div class="tab-body aces-body" data-aces="${acesView}">${acesTabsHtml()}${head}<div class="leader-body">${body}</div></div>`;
 }
 /** Aces is showing `view`: its button on the strip lights up. */
 function markAcesView(view) {
   acesView = view;
   // the arrow slides across to the view now showing (from wherever it had got to)
-  const strip = root.querySelector(".aces-tabs"),
+  const strip = root.querySelector(`[data-tab-stage] ${LIVE_PANE}[data-pane="aces"] .aces-tabs`),
     pointer = strip?.querySelector(".aces-pointer");
   if (pointer) {
     const was = pointer.getBoundingClientRect().left;
@@ -1803,34 +1866,223 @@ function markAcesView(view) {
     if (Math.abs(dx) > 0.5 && pointer.animate && !reducedMotion.matches)
       pointer.slide = pointer.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
   }
-  root.querySelectorAll("[data-aces-view]").forEach((button) => {
+  root.querySelectorAll(`[data-tab-stage] ${LIVE_PANE}[data-pane="aces"] [data-aces-view]`).forEach((button) => {
     const on = button.dataset.acesView === view;
     button.classList.toggle("on", on);
     button.classList.toggle("c-p2", on);
     button.setAttribute("aria-pressed", String(on));
   });
 }
+/** Show Aces' `view`: the strip stays where it is, its arrow sliding across, and what is
+ *  under it changes in place, the new view coming in from the side it lies on. */
 function setAcesView(view) {
   if (view === acesView) return;
+  const direction = Math.sign(ACES_VIEWS.findIndex((item) => item.key === view) - ACES_VIEWS.findIndex((item) => item.key === acesView));
   markAcesView(view);
   history.replaceState({}, "", appPath(tabPath("aces")));
   resetPager();
-  const old = root.querySelector(`${LIVE_PANE}[data-pane="aces"]`);
-  if (!old) return;
-  // the view's own page takes this one's place (which is kept for next time)
-  revealPage(old.parentNode, { tab: "aces", view });
+  const body = root.querySelector(`[data-tab-stage] ${LIVE_PANE}[data-pane="aces"] .aces-body`);
   if (!homeData.boards) loadTab("aces");
+  if (!body) return;
+  const template = document.createElement("template");
+  template.innerHTML = acesPaneHtml();
+  const fresh = template.content?.firstElementChild;
+  if (!fresh) return;
+  body.dataset.aces = view;
+  // (everything but the strip goes, and the new view's parts take its place)
+  [...body.children].forEach((el) => !el.matches(".aces-tabs") && el.remove());
+  const parts = [...fresh.children].filter((el) => !el.matches(".aces-tabs"));
+  body.append(...parts);
+  window.scrollTo({ top: 0, behavior: "instant" });
+  if (!reducedMotion.matches && body.animate)
+    parts.forEach((el) => el.animate([{ translate: `${direction * 2.4}rem 0`, opacity: 0 }, { translate: "0 0", opacity: 1 }], { duration: 360, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }));
+  whenHomeQuiet("stage", restage);
 }
 
 /* ---------- You ---------- */
+// the You tab's two views, picked on the strip at its top
+const YOU_VIEWS = [
+  { key: "profile", label: "Profile", symbol: "person.crop.circle.fill" },
+  { key: "deck", label: "Your Deck", symbol: "rectangle.stack.fill" },
+];
+let youView = "profile";
+function youTabsHtml() {
+  const at = Math.max(0, YOU_VIEWS.findIndex((view) => view.key === youView));
+  return `<nav class="aces-tabs top-tabs you-tabs c-fw" aria-label="You" style="--at:${at}"><span class="aces-pointer c-p1" aria-hidden="true">${icon("chevron.up", 15, { idle: false, sw: 4.2 })}</span>${YOU_VIEWS.map((view, i) => `<button type="button" class="aces-tab${view.key === youView ? " on c-p1" : ""}" data-you-view="${view.key}" aria-pressed="${view.key === youView}">${tilted(view.symbol, 26, { key: `you:${view.key}`, tilt: [-6, 6][i] })}<span>${view.label}</span></button>`).join("")}</nav>`;
+}
 function youPaneHtml() {
+  return `<div class="tab-body you-body">${youTabsHtml()}<div class="you-view" data-you-shown="${youView}">${youView === "deck" ? deckHtml() : youProfileHtml()}</div></div>`;
+}
+/** Show the You tab's `view`: the arrow slides across to it, and the view below it is drawn in. */
+function setYouView(view) {
+  if (view === youView) return;
+  youView = view;
+  const strip = root.querySelector(`${LIVE_PANE}[data-pane="you"] .you-tabs`),
+    pointer = strip?.querySelector(".aces-pointer");
+  if (pointer) {
+    const was = pointer.getBoundingClientRect().left;
+    strip.style.setProperty("--at", Math.max(0, YOU_VIEWS.findIndex((item) => item.key === view)));
+    const dx = was - pointer.getBoundingClientRect().left;
+    pointer.slide?.cancel();
+    if (Math.abs(dx) > 0.5 && pointer.animate && !reducedMotion.matches)
+      pointer.slide = pointer.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+  }
+  strip?.querySelectorAll("[data-you-view]").forEach((button) => {
+    const on = button.dataset.youView === view;
+    button.classList.toggle("on", on);
+    button.classList.toggle("c-p1", on);
+    button.setAttribute("aria-pressed", String(on));
+  });
+  const shown = root.querySelector(`${LIVE_PANE}[data-pane="you"] [data-you-shown]`);
+  if (!shown) return;
+  shown.dataset.youShown = view;
+  deckPick = null;
+  shown.innerHTML = view === "deck" ? deckHtml() : youProfileHtml();
+  if (view === "profile") afterPane("you");
+  shown.animate?.([{ opacity: 0, translate: "0 0.8rem" }, { opacity: 1, translate: "0 0" }], { duration: 300, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+}
+
+/* Your Deck: every card in its suit, as you see it at the table, 5 to a row; under
+   each suit, a dashed box of the designs for it you have collected. Tap one and it
+   swaps with the design that card wears now (the ordinary face too, once replaced). */
+const DECK_SUITS = ["S", "H", "D", "C"];
+const DECK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+function deckCardHtml(label, suit, skin, { button = false, key, swappable = button } = {}) {
+  const card = { label, suit };
+  const face = `<span class="card"><span class="card-flip">${faceHtml(card, false, skin || false)}</span></span>`;
+  const name = `${cardName(card)}${skin ? `, ${skin.name}` : ""}`;
+  // (a card that can swap with its other designs, or they with it: where it lies, the deck or the box)
+  const slot = button ? "box" : "deck";
+  const drag = swappable ? ` data-deck-card="${label + suit}" data-deck-slot="${slot}"` : "";
+  // (picked up, or one the card picked up can swap with: drawn so, whenever the page is drawn)
+  const [pickCard, pickSlot] = deckPickedAs();
+  const mark = !swappable || !pickCard ? "" : key === deckPick ? " selected" : pickCard === label + suit && pickSlot !== slot ? " target" : "";
+  // (a card that can be swapped is picked up with a tap, as at the table)
+  return button
+    ? `<button type="button" class="example-card deck-card is-face${mark}" data-deck-pick data-deck-equip="${label + suit}:${skin ? skin.id : ""}" data-deck-key="${key}"${drag} aria-label="${e(skin ? skin.name : "Classic")} ${e(cardName(card))}, collected">${face}${skin ? `<span class="deck-name">${e(skin.name)}</span>` : `<span class="deck-name">Classic</span>`}</button>`
+    : swappable
+      ? `<button type="button" class="example-card deck-card is-face${mark}" data-deck-pick data-deck-key="${key}"${drag} aria-label="${e(name)}, in your deck">${face}</button>`
+      : `<span class="example-card deck-card is-face" role="img" data-deck-key="${key}" aria-label="${e(name)}">${face}</span>`;
+}
+function deckHtml() {
+  const suits = DECK_SUITS.map((suit, i) => {
+    const plural = SUIT_NAME[suit][0].toUpperCase() + SUIT_NAME[suit].slice(1);
+    const cards = DECK_LABELS.map((label) => {
+      const skin = equippedSkin(label + suit);
+      const others = CARD_SKINS.some((one) => one.card === label + suit);
+      return deckCardHtml(label, suit, skin, { key: skin ? skin.id : `classic:${label}${suit}`, swappable: others });
+    }).join("");
+    // (what waits in the box: every design of this suit not being worn, and the ordinary
+    // face of each card wearing one)
+    const spare = DECK_LABELS.flatMap((label) => {
+      const worn = equippedSkin(label + suit);
+      const free = CARD_SKINS.filter((skin) => skin.card === label + suit && skin !== worn).map((skin) => deckCardHtml(label, suit, skin, { button: true, key: skin.id }));
+      return worn ? [deckCardHtml(label, suit, null, { button: true, key: `classic:${label}${suit}` }), ...free] : free;
+    });
+    return `<section class="deck-suit suit-${suit}">
+      <h2 class="deck-suit-head">${tilted(SUIT_ICON[suit], 26, { key: `deck:${suit}`, tilt: [-6, 4, -4, 6][i] })}<span>${e(plural)}</span></h2>
+      <div class="deck-grid">${cards}</div>
+      <section class="emote-box off deck-box"><span class="box-label">Collected ${e(plural)}</span>${spare.length ? `<div class="deck-grid">${spare.join("")}</div>` : `<p class="emote-all">No custom ${e(plural.toLowerCase())} collected yet.</p>`}</section>
+    </section>`;
+  }).join("");
+  return `${tabTitle("Your Deck", "Tap a card, then the card to swap it with", "you-deck")}${suits}`;
+}
+/** Wear a collected design: it swaps places with the one on that card, each sliding to where it goes. */
+function swapDeckCard(choice) {
+  const [card, id] = choice.split(":");
+  const shown = root.querySelector(`${LIVE_PANE}[data-pane="you"] [data-you-shown="deck"]`);
+  if (!shown) return;
+  // (where each card is drawn: one being carried, where it has been carried to)
+  const center = (el) => {
+    const r = (el.querySelector(".card") || el).getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  };
+  const was = new Map([...shown.querySelectorAll("[data-deck-key]")].map((el) => [el.dataset.deckKey, center(el)]));
+  equipSkin(card, id || null);
+  deckPick = null;
+  shown.innerHTML = deckHtml();
+  haptic("snap");
+  if (reducedMotion.matches) return;
+  for (const el of shown.querySelectorAll("[data-deck-key]")) {
+    const from = was.get(el.dataset.deckKey);
+    if (!from || !el.animate) continue;
+    const now = center(el);
+    const dx = from[0] - now[0],
+      dy = from[1] - now[1];
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)
+      el.animate([{ translate: `${dx}px ${dy}px`, scale: "1.08", zIndex: 2 }, { translate: "0 0", scale: "1", zIndex: 2 }], { duration: 520, easing: "cubic-bezier(0.34, 1.3, 0.64, 1)" });
+  }
+}
+/* Tapping in Your Deck, as at the table: a card tapped is picked up (it lifts, in a
+   dashed outline), the cards it can swap with show "Swap", and tapping one of those
+   swaps the two. Tapping it again, or tapping anywhere else, puts it back down; a
+   scroll does not, so the box of designs can be scrolled to with the card still held.
+   What is picked up is kept by its key, not by its element: the page can be drawn
+   again meanwhile (its data loading, a sideways swipe) and it is picked up again there. */
+let deckPick = null; // the data-deck-key of the card picked up
+/** [card, "deck" or "box"] of the card picked up, from its key (a design's id, or "classic:AS"). */
+function deckPickedAs() {
+  if (!deckPick) return [null, null];
+  if (deckPick.startsWith("classic:")) {
+    const card = deckPick.slice(8);
+    return [card, equippedSkin(card) ? "box" : "deck"];
+  }
+  const skin = cardSkin(deckPick);
+  return skin ? [skin.card, equippedSkin(skin.card) === skin ? "deck" : "box"] : [null, null];
+}
+const deckScope = () => root.querySelector(`${LIVE_PANE}[data-pane="you"] [data-you-shown="deck"]`);
+/** Whether `a` and `b` can swap: the same card, one in the deck and one in the box. */
+const deckPartners = (a, b) => !!a && !!b && a.dataset.deckCard === b.dataset.deckCard && a.dataset.deckSlot !== b.dataset.deckSlot;
+/** Show what is picked up as it stands: lifted and outlined, its partners marked "Swap". */
+function paintDeckPick() {
+  const scope = deckScope();
+  if (!scope) return;
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+  const picked = deckPick ? scope.querySelector(`[data-deck-key="${deckPick}"]`) : null;
+  if (deckPick && !picked) deckPick = null; // (it is not there any more: swapped in elsewhere)
+  for (const el of scope.querySelectorAll("[data-deck-pick]")) {
+    const on = el === picked;
+    if (on !== el.classList.contains("selected")) motionFor(el).to(on ? { scale: 1.07, lift: 0.8, y: -0.6 * rem } : { scale: 1, lift: 0, y: 0 });
+    el.classList.toggle("selected", on);
+    el.classList.toggle("target", !on && deckPartners(picked, el));
+  }
+}
+function deckTap(el) {
+  const scope = deckScope();
+  if (!scope?.contains(el)) return;
+  const picked = deckPick ? scope.querySelector(`[data-deck-key="${deckPick}"]`) : null;
+  if (picked === el) {
+    deckPick = null;
+    return paintDeckPick();
+  }
+  if (deckPartners(picked, el)) {
+    // (the design is whichever of the two lay in the box)
+    const design = el.dataset.deckSlot === "box" ? el : picked;
+    deckPick = null;
+    return swapDeckCard(design.dataset.deckEquip);
+  }
+  deckPick = el.dataset.deckKey;
+  paintDeckPick();
+  haptic("tap");
+}
+// a tap anywhere but a card in the deck puts the picked-up one down (a scroll is no tap)
+// (iPhone haptics click a hidden switch from script for each tick, the tap that picked the
+// card up included: those clicks are no tap of the player's)
+document.addEventListener("click", (event) => {
+  if (!event.isTrusted || event.target.closest?.(".haptic-probe")) return;
+  if (deckPick && !event.target.closest?.("[data-deck-pick]")) {
+    deckPick = null;
+    paintDeckPick();
+  }
+});
+function youProfileHtml() {
   const unique = session.account?.unique_name;
   const account = session.account
     ? unique
       ? `<button type="button" class="btn small c-p1 you-signin" data-account-sheet>${tilted("person.crop.circle.fill", 22)}<span>@${e(unique)}<span class="sub">Your account</span></span></button>`
       : `<button type="button" class="btn small c-p1 you-signin" data-unique-name>${tilted("person.crop.circle.fill", 22)}<span>Choose your unique name<span class="sub">Your games are kept under it</span></span></button>`
     : signInButton("small c-p1 you-signin", `${tilted("person.crop.circle.fill", 22)}<span>Sign in<span class="sub">Keep your stats and add friends</span></span>`);
-  return `<div class="tab-body you-body">
+  return `
     <form id="display-name-form" class="stack profile-form you-profile">
       ${avatarPicker()}
       ${field("Your Display Name", `<input id="account-display-name" name="display_name" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam", "c-p1")}
@@ -1841,8 +2093,7 @@ function youPaneHtml() {
     ${emoteEditHtml()}
     ${tabTitle("Personal Records", "", "you-records")}
     ${personalRecordsHtml(homeData.boards?.personal)}
-    ${myStatsHtml()}
-  </div>`;
+    ${myStatsHtml()}`;
 }
 /** Your own best at each record, as cards like the Records tab's. */
 /** A player's own bests as [color, symbol, title, [value, unit, when, note]], leaving out those they have none of. */
@@ -1917,18 +2168,27 @@ async function loadMyStats() {
 }
 
 /* ---------- Flags ---------- */
-/* Achievements to earn. None can be earned yet: this is the shape of the tab,
-   with the first ideas for flags; their tracking and rewards come later. */
+/* Achievements to earn. The server works out who has earned which (flags.py),
+   from the games they have played; each unlocks a text emote or a theme. */
 const FLAGS = [
-  { name: "10-10-10", reward: "theme", theme: "night", detail: "Activate the V10 Engine rule 20 times in game." },
-  { name: "Ten in a row", reward: "word", detail: "Achieve a 10-game win streak in Solo play." },
-  { name: "Devilish Tendencies", reward: "word", detail: "Activate the Angel Numbers' 666s rule in game." },
-  { name: "Unstoppable", reward: "face", emote: "cackling", detail: "Achieve a 10-game win streak in PvP play." },
+  { name: "Wait for my cue...", reward: "word", word: "rushing", detail: "Finish a PvP game where your only moves are flips of your own cards. No swaps. No Go Fish draws." },
+  { name: "Here we go...", reward: "word", word: "dragging", detail: "Finish a PvP game where you draw 5 Go Fish cards in a row and discard them all. No swaps. No flips of your own cards." },
   { name: "Let's Go Gambling!", reward: "theme", theme: "poker", detail: "Activate the Angel Numbers' 777s rule in game." },
-  { name: "Fairway Queen", reward: "card", detail: "Coming soon!" },
-  { name: "Crazy 8s", reward: "word", detail: "Activate the Angel Numbers' 888s rule in game." },
-  { name: "Guardian Angel", reward: "face", emote: "shocked", detail: "Activate the Angel Numbers' 999s rule in game." },
+  { name: "Adult swim", reward: "theme", theme: "pool", detail: "Play 50 solo games in a row against Golfbot." },
 ];
+/** The flags you have earned, and what they have unlocked (myFlags, in ui.js), as the server has them. */
+async function loadMyFlags() {
+  try {
+    myFlags = await api("/api/flags");
+  } catch {
+    return;
+  }
+  try {
+    localStorage.setItem("golf-flags", JSON.stringify(myFlags));
+  } catch {}
+  applyPrefs(); // (a theme earned, or no longer: shown as it should be)
+  if (page === "home" && homeTab === "flags") redrawPane("flags");
+}
 const FLAG_REWARDS = { theme: "Theme", word: "Text Emote", face: "Face Emote", card: "Individual Card Skin" };
 /** Cards in two columns, each only as tall as what is on it; they alternate between the columns, so they still read across. */
 function hugColumns(cards) {
@@ -1966,7 +2226,7 @@ function flagCardsHtml({ rewards = true, earned = new Set(), only = false, earne
   return hugColumns(cards);
 }
 function flagsPaneHtml() {
-  return `<div class="tab-body flags-body">${tabTitle("Your Flags", "Complete flags to unlock new items... and bragging rights!", "flags")}${flagCardsHtml()}</div>`;
+  return `<div class="tab-body flags-body">${tabTitle("Your Flags", "Complete flags to unlock new items... and bragging rights!", "flags")}${flagCardsHtml({ earned: new Set(myFlags.earned) })}</div>`;
 }
 
 /* ---------- another player's profile ----------
@@ -1974,8 +2234,6 @@ function flagsPaneHtml() {
    yours under each), and their flags. A page of its own when opened from the home
    screen (a leaderboard row, a record); at the table, the same thing in a sheet,
    in that player's seat color. */
-/** "Nathan's" (or "Jess'"). */
-const possessive = (name) => `${name}${/s$/i.test(name) ? "'" : "'s"}`;
 /**
  * The profile's contents. `profile` is /api/profile's answer, `stats` /api/stats'
  * (the player, and the viewer to compare with), `accent` the color class for the
@@ -2005,7 +2263,8 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
   // (section titles are in the player's own color: their seat's at the table, blue on their page)
   const tint = `seat ${accent}`;
   const bot = String(profile.id).startsWith("bot:");
-  const avatar = profile.avatar || (bot ? "golfbot" : null);
+  const puzzleBot = profile.id === "bot:puzzlebot";
+  const avatar = profile.avatar || (puzzleBot ? "puzzlebot" : bot ? "golfbot" : null);
   const mmr = profile.mmr == null ? null : `${statNumber(profile.mmr)}${profile.provisional ? "?" : ""}`;
   const where = { in_game: "in a game", puzzle: "solving the puzzle", online: "online now" }[profile.status] || (profile.last_seen ? `active ${agoShort(profile.last_seen)}` : "");
   const sub = [profile.unique_name ? `@${e(profile.unique_name)}` : "", where].filter(Boolean).join(" · ");
@@ -2025,6 +2284,11 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
   // (Golfbot's numbers are from its games against people)
   const vs = profile.personal?.vs_people;
   const botTime = timeParts(profile.personal?.most_time?.seconds || 0);
+  const tries = (n) => (n === 1 ? "try" : "tries");
+  const puzzle = profile.puzzle || { attempts: 0, players: 0, today: 0 };
+  // (PuzzleBot's record is the Daily Puzzle's: how often it has been taken on)
+  if (puzzleBot)
+    return `<div class="profile-body">${head}${extra}<div class="list leader-list profile-rows">${row("c-p1", "puzzlepiece.fill", "Puzzle Attempts", statNumber(puzzle.attempts), tries(puzzle.attempts))}${row("c-p3", "calendar", "Attempts Today", statNumber(puzzle.today), tries(puzzle.today))}${row("c-p2", "person.2.fill", "Players Faced", statNumber(puzzle.players), puzzle.players === 1 ? "player" : "players")}</div></div>`;
   const rows = bot
     ? vs
       ? `<div class="list leader-list profile-rows">${row("c-p3", "person.2.fill", "Record vs People", `${statNumber(vs.wins)}–${statNumber(vs.draws)}–${statNumber(vs.losses)}`, "")}${row("c-s4", "trophy.fill", "Win Rate", statPercent(vs.games ? vs.wins / vs.games : 0), "")}${row("c-p2", "flame.fill", "Best Win Streak", statNumber(profile.personal?.pvp_streak?.streak || 0), wins(profile.personal?.pvp_streak?.streak || 0))}${row("c-p4", "hourglass", "Time Played", botTime[0], botTime[1])}</div>`
@@ -2075,12 +2339,14 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
     profile.self
       ? ""
       : `${heading("Compare Players", "", "profile-compare", tint)}<div class="profile-versus">${boxed(tone, handle, `<span class="profile-pick">${avatar ? icon(avatarIcon(avatar), 22, { idle: false }) : icon("person.fill", 20, { idle: false })}<b>${handle}</b></span>`)}${boxed(tone, "Other Player", `<span class="profile-pick">${icon(avatarIcon(other.avatar), 22, { idle: false })}<b>${e(other.label)}</b>${glyph("chevron.down", 14)}</span><select class="cover" data-profile-opponent aria-label="Compare with">${choices.map((choice) => `<option value="${e(choice.id)}" ${choice.id === other.id ? "selected" : ""}>${e(choice.label)}</option>`).join("")}</select>`)}</div><section class="panel ${tone} profile-compare"><div class="table-wrap"><table class="match-table"><thead><tr><th scope="col">Stat</th><th scope="col">${handle}</th><th scope="col">${other.id === myPlayerId() ? who(you, "You") : e(other.label)}</th></tr></thead><tbody>${lines.map(([label, read]) => `<tr><th scope="row">${label}</th><td>${read(entry)}</td><td>${read(theirs)}</td></tr>`).join("")}</tbody></table></div></section>`;
-  const records = `${heading(`${possessive(name)} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
+  // (headed "Their Records", "Their Flags": yours, at the table, "Your")
+  const whose = profile.self ? "Your" : "Their";
+  const records = `${heading(`${whose} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
   // another player's flags: only the ones they have completed, in their own color
   const earned = new Set(profile.flags || []);
   const flags = bot
     ? ""
-    : `${heading(`${possessive(name)} Flags`, "", "profile-flags", tint)}${earned.size ? flagCardsHtml({ rewards: false, earned, only: true, earnedColor: accent }) : `<p class="hint dark you-empty">${e(name)} hasn't completed any flags yet.</p>`}`;
+    : `${heading(`${whose} Flags`, "", "profile-flags", tint)}${earned.size ? flagCardsHtml({ rewards: false, earned, only: true, earnedColor: accent }) : `<p class="hint dark you-empty">${e(name)} hasn't completed any flags yet.</p>`}`;
   // (`extra`: at the table, what is being played, above their numbers)
   return `<div class="profile-body">${head}${extra}${rows}${compare}${records}${flags}</div>`;
 }
@@ -2100,7 +2366,7 @@ let profileBack = "home"; // where the profile page's Back leads
 /** Another player's profile, as a page of its own (your own is the You tab). */
 async function profilePage(id) {
   if (!id || id === myPlayerId()) return home("you");
-  profileBack = page === "home" ? homeTab : page === "tournament" && tournament?.id ? { tournament: tournament.id } : "play";
+  profileBack = page === "home" ? homeTab : page === "history" ? "history" : page === "tournament" && tournament?.id ? { tournament: tournament.id } : page === "room" ? "resume" : "play";
   document.title = "Player · Golf";
   history.replaceState({}, "", appPath(`/player/${encodeURIComponent(id)}`));
   show("profile", `<div class="page scroll profile-page">${pageHead("data-profile-back")}<div data-profile-holder><div class="loading">Loading…</div></div></div>`);

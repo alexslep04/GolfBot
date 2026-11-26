@@ -1,13 +1,14 @@
 from contextlib import ExitStack
-from datetime import date
+from datetime import date, timedelta
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 import puzzle
-from game import GolfGame, rules_from
+from game import PUZZLE_MOVES, GolfGame, rules_from
 from match_history import MatchHistory
-from match_settings import house_rules
+from match_settings import HOUSE_KEYS, house_rules
 from server import Store, create_app
 
 
@@ -35,12 +36,13 @@ def play_out(game, flip_every=3):
 class PuzzleGameTests(unittest.TestCase):
     def test_a_day_deals_the_same_puzzle_every_time_and_days_differ(self):
         day = date(2026, 12, 1)
-        first, second = puzzle.new_puzzle(day), puzzle.new_puzzle(day)
+        spec = puzzle.candidates(day, 1)[0]
+        first, second = puzzle.new_puzzle(spec), puzzle.new_puzzle(spec)
         self.assertEqual([s.card for s in first.players[0]], [s.card for s in second.players[0]])
         self.assertEqual(first.draw_pile, second.draw_pile)
         self.assertEqual([[s.card for s in hand] for hand in first.players], [[s.card for s in hand] for hand in second.players])
         self.assertEqual([[s.visible for s in hand] for hand in first.players], [[s.visible for s in hand] for hand in second.players])
-        self.assertNotEqual(first.draw_pile, puzzle.new_puzzle(date(2026, 12, 2)).draw_pile)
+        self.assertNotEqual(first.draw_pile, puzzle.new_puzzle(puzzle.candidates(date(2026, 12, 2), 1)[0]).draw_pile)
         self.assertEqual(puzzle.puzzle_number(puzzle.FIRST_DAY), 1)
 
     def test_a_hand_against_golfbot_two_cards_up_each_and_you_play_first(self):
@@ -49,36 +51,146 @@ class PuzzleGameTests(unittest.TestCase):
         self.assertEqual((game.visible_count(0), game.visible_count(1)), (2, 2))
         self.assertEqual(len(game.draw_pile), 52 - 13)
 
-    def test_it_ends_as_a_hand_does_once_someone_has_every_card_up_and_the_other_has_had_a_last_turn(self):
-        game = play_out(GolfGame(seed=11, rules=rules_from(house_rules()), puzzle=True), flip_every=1)
+    def test_it_runs_a_set_number_of_moves_each_and_ends_with_golfbots_last(self):
+        for flip_every in (1, 3):
+            game = GolfGame(seed=11, rules=rules_from(house_rules()), puzzle=True)
+            self.assertEqual(game.puzzle_moves_left, PUZZLE_MOVES)
+            # (turning every card up early, as flipping each turn does, does not end it)
+            game = play_out(game, flip_every=flip_every)
+            self.assertEqual((game.phase, game.turns, game.puzzle_moves_left), ("over", 2 * PUZZLE_MOVES, 0))
+            self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
+        self.assertIsNone(GolfGame(seed=11).puzzle_moves_left)
+
+    def test_a_puzzle_may_set_its_own_moves_and_cards_face_up(self):
+        for moves, face_up in ((3, 0), (7, 4)):
+            game = GolfGame(seed=5, rules=rules_from(house_rules()), puzzle=True, puzzle_moves=moves, puzzle_face_up=face_up)
+            self.assertEqual((game.visible_count(0), game.visible_count(1), game.puzzle_moves_left), (face_up, face_up, moves))
+            game = play_out(game)
+            self.assertEqual((game.phase, game.turns), ("over", 2 * moves))
+        with self.assertRaises(ValueError):
+            GolfGame(seed=5, puzzle=True, puzzle_moves=0)
+
+    def test_a_row_the_last_reveal_completes_earns_its_angel_number(self):
+        # (a puzzle ends on its moves, not by going out: the cards turned up at the end count in full)
+        game = GolfGame(seed=5, rules=rules_from({"angel_numbers": True}), puzzle=True, puzzle_moves=1)
+        sixes = [card for card in game.draw_pile if card.rank == 6][:3]
+        game.draw_pile = [card for card in game.draw_pile if card not in sixes]
+        for index, card in zip((3, 4, 5), sixes):
+            game.players[0][index].card, game.players[0][index].visible = card, index == 3
+        game.draw()
+        game.discard()
+        game.opponent_turn()
         self.assertEqual(game.phase, "over")
-        self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
+        self.assertIn(6, game.angels_earned[0])
+        self.assertIn("angel_numbers", game.activated_rules[0])
+        # (666: PuzzleBot's score six times what it would be)
+        earned, game.angels_earned[0] = game.angels_earned[0], set()
+        plain = game.score(1)
+        game.angels_earned[0] = earned
+        self.assertEqual(game.score(1), plain * 6)
 
     def test_the_deck_is_never_reshuffled(self):
-        # (were it to run out, the hand would end there; Golfbot finishes long before)
+        # (were it to run out, the hand would end there; the set moves end it long before)
         game = GolfGame(seed=11, rules=rules_from(house_rules()), puzzle=True)
         game.draw_pile = []
         with self.assertRaises(ValueError):
             game.draw()
 
 
+class PuzzleMakingTests(unittest.TestCase):
+    def test_every_theme_comes_round_and_never_two_days_running(self):
+        days = [puzzle.FIRST_DAY + timedelta(days=i) for i in range(4 * len(puzzle.THEMES))]
+        themes = [puzzle.theme_for(day).key for day in days]
+        for start in range(0, len(themes), len(puzzle.THEMES)):
+            self.assertEqual(set(themes[start:start + len(puzzle.THEMES)]), set(puzzle.BY_KEY))
+        self.assertTrue(all(a != b for a, b in zip(themes, themes[1:])))
+        # (the same day, the same theme: it is worked out, not remembered)
+        self.assertEqual(puzzle.theme_for(days[20]), puzzle.theme_for(days[20]))
+
+    def test_themes_mix_house_and_other_rules_and_twists_on_the_deal(self):
+        self.assertTrue(any(theme.rules - HOUSE_KEYS for theme in puzzle.THEMES))
+        self.assertTrue(any(0 in theme.face_up for theme in puzzle.THEMES))
+        self.assertGreater(len({moves for theme in puzzle.THEMES for moves in theme.moves}), 2)
+        for theme in puzzle.THEMES:
+            self.assertLessEqual(theme.rules, puzzle.ALL_RULES)
+            # (nobody goes out in a puzzle: Poisoned Card would never come into it as a theme)
+            self.assertTrue("poisoned_card" not in theme.rules or theme.rules >= HOUSE_KEYS)
+
+    def test_the_candidates_are_the_days_theme(self):
+        day = date(2026, 12, 9)
+        theme = puzzle.theme_for(day)
+        options = puzzle.candidates(day, 5)
+        self.assertEqual(len({option["seed"] for option in options}), 5)
+        for option in options:
+            # (the Jack and Queen swaps are in every puzzle)
+            self.assertEqual((option["theme"], set(option["rules"])), (theme.key, set(theme.rules) | {"royal_pairs"}))
+            self.assertIn(option["moves"], theme.moves)
+            self.assertIn(option["face_up"], theme.face_up)
+            game = puzzle.new_puzzle(option)
+            self.assertEqual({key for key, _ in puzzle.RULE_OPTIONS if getattr(game.rules, key)}, set(theme.rules) | {"royal_pairs"})
+            self.assertEqual(game.visible_count(0), option["face_up"])
+        self.assertEqual(puzzle.candidates(day, 5), options)
+
+    def test_the_deal_kept_rewards_thinking_ahead_and_brings_the_rules_in(self):
+        day = date(2026, 12, 2)  # (Royal Court)
+        rules = sorted(puzzle.theme_for(day).rules)
+        flat = {"careful": 2, "greedy": 1, "fired": [], "bot_fired": [], "greedy_fired": []}
+        deep = {"careful": 12, "greedy": -10, "fired": [], "bot_fired": [], "greedy_fired": []}
+        royal = {"careful": 6, "greedy": 0, "fired": rules[:2], "bot_fired": [], "greedy_fired": []}
+        easy = {"careful": 30, "greedy": 25, "fired": [], "bot_fired": [], "greedy_fired": []}
+        canned = [flat, None, deep, easy, royal]
+        spec = puzzle.generate(day, 5, evaluate_with=lambda _, options: canned[:len(options)])
+        # (the theme's rules in your hand count for more than thinking ahead alone)
+        self.assertEqual(spec["metrics"], royal)
+        self.assertEqual(spec["seed"], puzzle.candidates(day, 5)[4]["seed"])
+        self.assertGreater(puzzle.fun(puzzle.candidates(day, 1)[0], deep), puzzle.fun(puzzle.candidates(day, 1)[0], flat))
+        option = puzzle.candidates(day, 1)[0]
+        self.assertGreater(puzzle.fun(option, royal), puzzle.fun(option, flat))
+        self.assertGreater(puzzle.fun(option, flat), puzzle.fun(option, easy))
+        # (one candidate: taken as it is, nothing played out)
+        self.assertIsNone(puzzle.generate(day, 1)["metrics"])
+
+    def test_a_deal_is_played_out_both_ways(self):
+        spec = {**puzzle.candidates(date(2026, 12, 1), 1)[0], "moves": 2}
+        metrics = puzzle.evaluate(spec)
+        self.assertEqual(set(metrics), {"careful", "greedy", "fired", "bot_fired", "greedy_fired"})
+        self.assertTrue(all(isinstance(metrics[key], int) for key in ("careful", "greedy")))
+
+    def test_a_days_puzzle_is_kept_once_made(self):
+        scores = puzzle.PuzzleScores(MatchHistory())
+        day = date(2026, 12, 1)
+        self.assertIsNone(scores.saved_spec(day))
+        made = puzzle.generate(day, 1)
+        self.assertEqual(scores.save_spec(day, made), made)
+        # (the first kept stands)
+        self.assertEqual(scores.save_spec(day, {**made, "seed": 1}), made)
+
+
 class PuzzleScoreTests(unittest.TestCase):
-    def test_best_scores_rank_lowest_first_and_attempts_add_up(self):
+    def test_best_margins_rank_biggest_first_and_attempts_add_up(self):
         scores = puzzle.PuzzleScores(MatchHistory())
         day = date(2026, 12, 1)
         scores.attempt(day, "a", "Ann", "dog")
-        self.assertTrue(scores.finish(day, "a", "Ann", "dog", 12, now=1))
+        self.assertTrue(scores.finish(day, "a", "Ann", "dog", -4, now=1))
         scores.attempt(day, "a", "Ann", "dog")
-        self.assertFalse(scores.finish(day, "a", "Ann", "dog", 15, now=2))
-        self.assertTrue(scores.finish(day, "b", "Bo", "cat", -4, now=3))
-        self.assertEqual([(row["name"], row["score"]) for row in scores.board(day)], [("Bo", -4), ("Ann", 12)])
-        self.assertEqual(scores.mine(day, "a"), {"best": 12, "attempts": 2, "rank": 2})
+        self.assertFalse(scores.finish(day, "a", "Ann", "dog", -7, now=2))
+        self.assertTrue(scores.finish(day, "b", "Bo", "cat", 12, now=3))
+        self.assertEqual([(row["name"], row["score"]) for row in scores.board(day)], [("Bo", 12), ("Ann", -4)])
+        self.assertEqual(scores.mine(day, "a"), {"best": -4, "attempts": 2, "rank": 2})
         self.assertEqual(scores.mine(day, "nobody"), {"best": None, "attempts": 0, "rank": None})
         self.assertEqual(scores.board(date(2026, 12, 2)), [])
+        # PuzzleBot's record: every attempt against it, all time and today, and by how many players
+        scores.attempt(date(2026, 12, 2), "a", "Ann", "dog")
+        self.assertEqual(scores.totals(day), {"attempts": 4, "players": 2, "today": 3})
+        self.assertEqual(scores.totals(date(2026, 12, 2))["today"], 1)
 
 
 class PuzzleServerTests(unittest.TestCase):
     def setUp(self):
+        # (a House rules day: its theme decides what the hand below has to deal with)
+        patcher = mock.patch.object(puzzle, 'today', return_value=date(2026, 12, 4))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.store = Store()
         self.app = create_app(self.store)
         self.context = ExitStack()
@@ -96,7 +208,7 @@ class PuzzleServerTests(unittest.TestCase):
         info = self.client.get('/api/puzzle').json()
         self.assertEqual((info['attempts'], info['best'], info['board']), (0, None, []))
         state = self.client.post('/api/puzzle').json()
-        self.assertEqual((len(state['game']['players']), state['names'][1]), (2, 'Golfbot'))
+        self.assertEqual((len(state['game']['players']), state['names'][1]), (2, 'PuzzleBot'))
         self.assertEqual(state['puzzle']['number'], info['number'])
         # the score preview is off: nothing to peek at before confirming
         self.assertFalse(state['score_preview'])
@@ -133,14 +245,20 @@ class PuzzleServerTests(unittest.TestCase):
         score = last['score']
         self.assertEqual((score, last['bot']), (room.game.score(0), room.game.score(1)))
         self.assertEqual(last['won'], score < last['bot'])
+        margin = last['bot'] - score
+        self.assertEqual(last['margin'], margin)
         # no streak, no saved match: the puzzle is its own thing
         self.assertIsNone(state['streak'])
         self.assertEqual(self.client.get('/api/history?mine=true').json()['matches'], [])
         self.assertTrue(state['puzzle']['last']['new_best'])
-        self.assertEqual(state['puzzle']['best'], score)
+        self.assertEqual(state['puzzle']['best'], margin)
         info = self.client.get('/api/puzzle').json()
-        self.assertEqual((info['best'], info['rank'], info['attempts']), (score, 1, 1))
+        self.assertEqual((info['best'], info['rank'], info['attempts']), (margin, 1, 1))
         self.assertTrue(info['board'][0]['mine'])
+        # (a guest's row opens their profile too, named as they played)
+        self.assertTrue(info['board'][0]['id'].startswith('browser:'))
+        profile = self.client.get('/api/profile', params={'player': info['board'][0]['id']}).json()
+        self.assertEqual(profile['label'], info['board'][0]['name'])
         # unlimited attempts, the same cards each time
         again = self.act(state, 'retry')
         self.assertEqual(again['status'], 'playing')
@@ -150,3 +268,21 @@ class PuzzleServerTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/spectate').json(), [])
         self.assertEqual(self.client.post(f"/api/lobbies/{state['id']}/leave").status_code, 200)
         self.assertNotIn(state['id'], self.store.rooms)
+
+
+class PuzzleRowTests(unittest.TestCase):
+    def test_a_rows_mmr_shows_once_its_player_has_played_ranked(self):
+        from server import puzzle_rows
+
+        class Ratings:
+            def ratings(self, player):
+                played = player != 'browser:new'
+                return {'series': {'rating': 1100, 'provisional': player == 'browser:fresh',
+                                   'wins': int(played), 'draws': 0, 'losses': 0}}
+
+        board = [{'player': player, 'name': 'X', 'avatar': None, 'score': 1, 'attempts': 1}
+                 for player in ('account:a', 'browser:fresh', 'browser:new')]
+        rows = puzzle_rows(board, 'account:a', progression=Ratings())
+        self.assertEqual([(row['id'], row.get('mmr'), row.get('provisional')) for row in rows],
+                         [('account:a', 1100, False), ('browser:fresh', 1100, True), ('browser:new', None, None)])
+        self.assertTrue(rows[0]['mine'])

@@ -1,5 +1,8 @@
 """Single-process, server-authoritative Golf lobbies served by FastAPI/Uvicorn."""
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
+from datetime import timedelta
+import multiprocessing
 import base64
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
@@ -37,9 +40,10 @@ from odds import odds_key, win_odds
 from accounts import Accounts, ACCOUNT_COOKIE, LOGIN_DAYS, participant, verify_google_token
 from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
-from avatars import AVATARS, BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
+from avatars import AVATARS, BOT_AVATAR, PUZZLE_BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
 from tournament import FORMAT_NAMES, MAX_ENTRANTS, Tournament
 import puzzle as daily_puzzle
+import flags as achievements
 from friends import Friends
 
 ROOT = Path(__file__).parent
@@ -68,9 +72,24 @@ class VersionedStatic(StaticFiles):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
+# Your Deck: the custom design each player has on each card ({"AS": "hole-in-one"}), by
+# player, kept while the server runs (each browser sends its own again when it opens).
+# A card in someone's hand wears their design; the top discard, the design of whoever
+# put it there; a drawn card, the drawer's.
+DECK_SKINS = {}
+DECK_CARD = re.compile(r"^(A|[2-9]|10|J|Q|K)[SHDC]$")
+DECK_SKIN = re.compile(r"^[a-z0-9-]{1,32}$")
+
+
+class Deck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    choices: dict[str, str] = Field(default_factory=dict, max_length=52)
+
+
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc", "luck", "tempo", "ranked"]
+    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc", "luck", "tempo", "ranked",
+                   "rushing", "dragging"]
 
 
 class Settings(BaseModel):
@@ -253,6 +272,8 @@ class Room:
     emote_sequence: int = 0
     # emotes each seat has sent since the last game was saved (for the Biggest yapper record)
     emote_counts: list = field(default_factory=list)
+    # each seat's moves this game, as flag codes (see flags.MOVE_CODES), saved with it
+    move_log: list = field(default_factory=list)
     participants: list = field(default_factory=lambda: [None, None])
     house_rules: bool = False
     house_version: str | None = None
@@ -462,6 +483,7 @@ class Room:
         self.round_started_at = time.time()
         self.watched_by = {token for token, sockets in self.watchers.items() if sockets}
         self.resize_seats()
+        self.move_log = [[] for _ in self.seats]
         if self.practice and self.house_rules:
             # A saved Play solo run outlives updates, so each new deal is played with
             # the House rules as they are now. Compared rule by rule, not by version:
@@ -514,7 +536,7 @@ class Room:
 
     def start_puzzle(self):
         """Deal the day's puzzle again: the same cards as every attempt."""
-        self.game = daily_puzzle.new_puzzle(self.puzzle["day"])
+        self.game = daily_puzzle.new_puzzle(self.puzzle["spec"])
         self.status, self.round_recorded, self.timeline = "playing", False, []
         self.puzzle["last"] = None
         self.round_started_at = time.time()
@@ -529,11 +551,12 @@ class Room:
         score, bot = self.game.score(0), self.game.score(1)
         self.round_recorded = True
         self.status = "finished"
-        # your own points are your score for the day, whoever took the hand
-        last = {"score": score, "bot": bot, "won": score < bot, "drawn": score == bot, "new_best": False}
+        # the day's score is the margin: Golfbot's points minus yours (+5: you won by 5)
+        margin = bot - score
+        last = {"score": score, "bot": bot, "margin": margin, "won": score < bot, "drawn": score == bot, "new_best": False}
         try:
             last["new_best"] = self.puzzle_store.finish(self.puzzle["day"], self.puzzle["player"],
-                                                        self.names[0], self.avatars[0], score)
+                                                        self.names[0], self.avatars[0], margin)
         except Exception:
             log.exception("Could not record the puzzle score at table %s", self.id)
         self.puzzle["last"] = last
@@ -563,6 +586,8 @@ class Room:
                              # time each person spent on the turns they were at the table for
                              "move_seconds": [round(seconds, 1) for seconds in self.move_seconds],
                              "move_counts": list(self.move_counts),
+                             # every seat's moves, as codes (what flags are earned by)
+                             "moves": ["".join(log) for log in self.move_log],
                              "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in range(len(self.seats))]})
         self.history[-1].update(modifier_data(self.game, visible_only=False))
@@ -615,6 +640,54 @@ class Room:
         self.save_practice()
 
 
+class PuzzleMaker:
+    """Makes each day's puzzle once (see puzzle.generate) and keeps it.
+
+    The deals are played out in processes of their own, a few at a time, so the
+    server keeps answering meanwhile; today's and tomorrow's are made ahead (see
+    keep_puzzles_made), so nobody waits on one. With one candidate (a store in
+    memory, as the tests use) the first deal is taken without playing it out."""
+    def __init__(self, scores, candidates=daily_puzzle.CANDIDATES):
+        self.scores, self.candidates = scores, candidates
+        self.specs, self.locks, self.pool = {}, {}, None
+
+    async def spec(self, day):
+        if day in self.specs:
+            return self.specs[day]
+        async with self.locks.setdefault(day, asyncio.Lock()):
+            if day not in self.specs:
+                saved = await asyncio.to_thread(self.scores.saved_spec, day)
+                if saved is None:
+                    saved = await self.make(day)
+                self.specs[day] = saved
+        return self.specs[day]
+
+    async def make(self, day):
+        options = daily_puzzle.candidates(day, self.candidates)
+        if len(options) > 1:
+            try:
+                if self.pool is None:
+                    self.pool = ProcessPoolExecutor(max_workers=min(4, max(1, (os.cpu_count() or 2) - 1)),
+                                                    mp_context=multiprocessing.get_context("spawn"))
+                loop = asyncio.get_running_loop()
+                results = await asyncio.gather(*(loop.run_in_executor(self.pool, daily_puzzle.evaluate, option)
+                                                 for option in options))
+                spec = daily_puzzle.choose(options, results)
+                log.info("Daily puzzle for %s: %s, %s moves, %s face up, %s", day, spec["theme"],
+                         spec["moves"], spec["face_up"], spec["metrics"])
+            except Exception:
+                # (not kept: the next try makes it properly)
+                log.exception("Could not make the daily puzzle for %s; dealing its first candidate", day)
+                return {**options[0], "metrics": None}
+        else:
+            spec = {**options[0], "metrics": None}
+        return await asyncio.to_thread(self.scores.save_spec, day, spec)
+
+    def close(self):
+        if self.pool is not None:
+            self.pool.shutdown(wait=False, cancel_futures=True)
+
+
 class Store:
     def __init__(self, history_path=":memory:"):
         self.sessions = {}
@@ -624,6 +697,7 @@ class Store:
         self.progression = Progression(self.history)
         self.progression.merge_stay()
         self.puzzles = daily_puzzle.PuzzleScores(self.history)
+        self.puzzle_maker = PuzzleMaker(self.puzzles, 1 if str(history_path) == ":memory:" else daily_puzzle.CANDIDATES)
         self.friends = Friends(self.history)
         self.invitations = {}
         self.tournaments = {}
@@ -831,7 +905,8 @@ def message(room, viewer):
     if game is None:
         return "The host starts with at least three players." if room.game_type == 'many' else "Waiting for a second player. The game starts when they join."
     if game.phase == "over" and room.puzzle:
-        return f"Puzzle done: you have {game.score(0)} points, Golfbot {game.score(1)}."
+        margin = game.score(1) - game.score(0)
+        return f"Puzzle done: you have {game.score(0)} points, PuzzleBot {game.score(1)}: a margin of {margin:+d}."
     if game.phase == "over":
         result = room.history[-1]
         return "Game drawn." if result["winner"] is None else f"{room.names[result['winner']]} wins this game."
@@ -890,6 +965,30 @@ async def refresh_odds(room, send):
             await send()
 
 
+def puzzle_rows(board, me, friends=(), progression=None):
+    """The day's puzzle board as a player sees it: whether each row is theirs or a
+    friend's, whose profile it opens (a guest's public id is the one the leaderboards
+    and records already show), and the MMR of anyone who has played a Ranked series
+    (with "provisional" while it is still settling)."""
+    rows = []
+    for row in board:
+        row = dict(row)
+        player = row.pop("player")
+        row["mine"] = player == me
+        row["friend"] = player in friends
+        if player.startswith(("account:", "browser:")):
+            row["id"] = player
+            if progression is not None:
+                try:
+                    series = progression.ratings(player)['series']
+                    if series['wins'] + series['draws'] + series['losses']:
+                        row["mmr"], row["provisional"] = series['rating'], series['provisional']
+                except Exception:
+                    log.exception("Could not look up the MMR of a puzzle player")
+        rows.append(row)
+    return rows
+
+
 def snapshot(room, token, watch=False):
     """The table as one seat sees it; a spectator (watch) sees the first seat's view, with no moves."""
     if token not in room.seats and not watch:
@@ -909,6 +1008,8 @@ def snapshot(room, token, watch=False):
              "points": room.points, "timeline": room.timeline,
              # who is in each seat, for opening their stats from the table
              "player_ids": [(profile or {}).get("id") for profile in room.participants],
+             # each seat's custom card designs (Your Deck), to draw their cards in
+             "skins": [DECK_SKINS.get((profile or {}).get("id")) or {} for profile in room.participants],
              "streak": room.streak if room.solo and not room.practice and not room.tournament and not room.puzzle else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [p in room.bot_seats or room.local or room.ai_match or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
@@ -929,11 +1030,11 @@ def snapshot(room, token, watch=False):
         store = room.puzzle_store
         day = room.puzzle["day"]
         state["puzzle"] = {"number": room.puzzle["number"], "day": day.isoformat(),
+                           "theme": daily_puzzle.describe(room.puzzle["spec"]),
                            "last": room.puzzle.get("last"),
                            **(store.mine(day, room.puzzle["player"]) if store else {}),
                            # (who is who stays on the server: each row just says whether it is yours)
-                           "board": [{**{k: v for k, v in row.items() if k != "player"}, "mine": row["player"] == room.puzzle["player"]}
-                                     for row in (store.board(day, 5) if store else [])]}
+                           "board": puzzle_rows(store.board(day) if store else [], room.puzzle["player"], progression=room.progression)}
         # each attempt is dealt in afresh, like a new game
         state["round"] = state["puzzle"].get("attempts") or 1
     state['void_offer'] = room.void_offer
@@ -974,6 +1075,8 @@ def snapshot(room, token, watch=False):
         "phase": game.phase, "current": game.current, "decision_player": game.decision_player,
         "first_player": game.first_player, "final_turn": game.is_final_turn, "ending": game.finisher is not None,
         "turn_order": game.turn_order, "turns": game.turns, "deck_count": game.deck_count,
+        # (a puzzle: the moves PuzzleBot has left; the hand ends with its last)
+        "bot_moves_left": game.puzzle_moves_left, "puzzle_moves": game.puzzle_moves,
         "next_up": game.next_up,
         # how many turns away each seat's next turn is (big tables: "Up in 3")
         "up_in": game.up_in,
@@ -981,6 +1084,8 @@ def snapshot(room, token, watch=False):
                       "card": card_view(slot.card) if slot.visible else None} for slot in layout] for layout in game.players],
         "draw_count": len(game.draw_pile), "discard": card_view(game.discard_pile[-1]),
         "held": card_view(game.held_card) if game.held_card else None,
+        # (whose design the top discard wears: who put it there)
+        "discard_owner": getattr(game, "discard_owner", None),
         "scores": [game.score(p, game.phase != "over") for p in range(game.player_count)],
         # Plain card points (matching columns cancel, no optional rules), from the cards anyone can see.
         # effect_totals minus this is what the rules in play have done to each hand.
@@ -1117,6 +1222,9 @@ def apply_move(room, token, move):
                     (game.bonus_swap if game.phase == "bonus" else game.guess_trade)(*refs)
                 else:
                     game.swap(move.index)
+            # (the move went through: it goes in the seat's log for the flags)
+            if room.move_log and seat < len(room.move_log) and move.action in achievements.MOVE_CODES:
+                room.move_log[seat].append(achievements.MOVE_CODES[move.action])
     room.track_scores()
     room.pending_reaction = bot_reaction(room, game, before)
     room.record_result()
@@ -1212,13 +1320,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             store.history.interrupt_open_matches()
             monitor = asyncio.create_task(monitor_tables())
             demos = asyncio.create_task(keep_demo_tables()) if debug_mode() else None
+            puzzles = asyncio.create_task(keep_puzzles_made())
             try:
                 yield
             finally:
                 monitor.cancel()
+                puzzles.cancel()
                 if demos:
                     demos.cancel()
-                await asyncio.gather(monitor, *([demos] if demos else []), return_exceptions=True)
+                await asyncio.gather(monitor, puzzles, *([demos] if demos else []), return_exceptions=True)
+                store.puzzle_maker.close()
                 for room in store.rooms.values():
                     room.save_practice()
         finally:
@@ -2050,6 +2161,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         for record in boards['records'].values():
             if isinstance(record, dict) and record.get('id') in avatars:
                 record['avatar'] = avatars[record['id']]
+        # and each ranked player's, beside their name on the boards
+        for row in boards['pvp'] + boards['solo']:
+            row.setdefault('avatar', avatars.get(row.get('id')) or (DEMO_AVATARS.get(row.get('label')) if str(row.get('id')).startswith('demo:') else None))
         # the viewer's own best at each, shown under its card
         me = 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
         boards['personal'] = await asyncio.to_thread(personal_records, results, ratings, me)
@@ -2081,6 +2195,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         except HTTPException:
             viewer = None
         profile['self'] = viewer == player
+        profile['flags'] = sorted(await asyncio.to_thread(flags_for, player))
         profile['personal'] = await asyncio.to_thread(personal_records, results, ratings, player)
         profile['mine'] = (await asyncio.to_thread(personal_records, results, ratings, viewer)
                            if viewer and viewer != player else None)
@@ -2093,6 +2208,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         profile.update(label=None, unique_name=None, avatar=None, status=None, last_seen=None, friend=None)
         if player == 'bot:golfbot':
             profile['label'], profile['avatar'] = 'Golfbot', BOT_AVATAR
+        if player == 'bot:puzzlebot':
+            # (its record is the Daily Puzzle's: every attempt made against it)
+            profile['label'], profile['avatar'] = 'PuzzleBot', PUZZLE_BOT_AVATAR
+            profile['puzzle'] = await asyncio.to_thread(store.puzzles.totals, daily_puzzle.today())
         if player.startswith('browser:'):
             # (a guest: named, with their avatar, as they last played)
             for match in results:
@@ -2101,6 +2220,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         names, looks = match.get('names') or [], match.get('avatars') or []
                         profile['label'] = seen.get('display_name') or (names[seat] if seat < len(names) else None) or profile['label']
                         profile['avatar'] = (looks[seat] if seat < len(looks) else None) or profile['avatar']
+            if not profile['label']:
+                # (one who has only played the puzzle: as they last played it)
+                seen = await asyncio.to_thread(store.puzzles.last_seen, player)
+                if seen:
+                    profile['label'], profile['avatar'] = seen
         if player.startswith('demo:'):
             # (a debug server's demo player: named, with their avatar and demo MMR)
             name = player.split(':', 1)[1].title()
@@ -2606,6 +2730,35 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         session.room_id = room.id
         return snapshot(room, session.token)
 
+    flag_cache = {}
+
+    def flags_for(player):
+        """The flags a player has earned (see flags.py), kept until another match is saved."""
+        key = (player, store.history.saves)
+        if key not in flag_cache:
+            flag_cache.clear() if len(flag_cache) > 500 else None
+            flag_cache[key] = achievements.earned(store.history.stats_results(), player)
+        return flag_cache[key]
+
+    @app.get("/api/flags")
+    async def my_flags(request: Request):
+        """The flags you have earned, and the emotes they unlock."""
+        session = session_for(request)
+        earned = await asyncio.to_thread(flags_for, puzzle_player(session))
+        return {"earned": sorted(earned), "emotes": achievements.unlocked_emotes(earned),
+                "themes": achievements.unlocked(earned, "theme")}
+
+    async def keep_puzzles_made():
+        """Today's puzzle and tomorrow's, made ahead (checked every half hour)."""
+        while True:
+            day = daily_puzzle.today()
+            for ahead in (day, day + timedelta(days=1)):
+                try:
+                    await store.puzzle_maker.spec(ahead)
+                except Exception:
+                    log.exception("Could not make the daily puzzle for %s", ahead)
+            await asyncio.sleep(1800)
+
     def puzzle_player(session):
         return 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
 
@@ -2614,16 +2767,12 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         """Today's puzzle: its number, the starting hand, the best scores, and how you have done."""
         session = session_for(request)
         day = daily_puzzle.today()
-        board = store.puzzles.board(day, limit)
+        spec = await store.puzzle_maker.spec(day)
         me = puzzle_player(session)
-        friends = friend_ids(session)
-        for row in board:
-            player = row.pop("player")
-            row["mine"] = player == me
-            row["friend"] = player in friends
+        board = puzzle_rows(store.puzzles.board(day, limit), me, friend_ids(session), store.progression)
         return {"number": daily_puzzle.puzzle_number(day), "day": day.isoformat(),
-                "hand": daily_puzzle.preview(day), "board": board,
-                "players": len(store.puzzles.board(day)), **store.puzzles.mine(day, me)}
+                "hand": daily_puzzle.preview(spec), "board": board, "theme": daily_puzzle.describe(spec),
+                "players": len(store.puzzles.board(day)), "moves": spec["moves"], **store.puzzles.mine(day, me)}
 
     @app.post("/api/puzzle")
     async def puzzle_start(request: Request):
@@ -2643,14 +2792,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         cancel_queue(session.token)
         day = daily_puzzle.today()
         number = daily_puzzle.puzzle_number(day)
-        room = Room(secrets.token_urlsafe(9), f"Daily Puzzle #{number}", daily_puzzle.puzzle_rules(), None, "host",
-                    True, [session.token, None], [session.username, "Golfbot"], ready=[False, True], wins=[0, 0],
-                    participants=[None, {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'}],
-                    departed=[False, False], avatars=[session.avatar, BOT_AVATAR],
-                    void_offered=[False, False], disconnected=[None, None], house_rules=True, house_version=HOUSE_VERSION,
+        spec = await store.puzzle_maker.spec(day)
+        house = daily_puzzle.is_house(spec)
+        room = Room(secrets.token_urlsafe(9), f"Daily Puzzle #{number}", daily_puzzle.new_puzzle(spec).rules, None, "host",
+                    True, [session.token, None], [session.username, "PuzzleBot"], ready=[False, True], wins=[0, 0],
+                    # (Golfbot itself, under the puzzle's own name, look and profile)
+                    participants=[None, {'id': 'bot:puzzlebot', 'kind': 'bot', 'display_name': 'PuzzleBot'}],
+                    departed=[False, False], avatars=[session.avatar, PUZZLE_BOT_AVATAR],
+                    void_offered=[False, False], disconnected=[None, None], house_rules=house, house_version=HOUSE_VERSION if house else None,
                     # the puzzle is to work the score out yourself: no preview before you confirm
                     score_preview=False, show_odds=False,
-                    puzzle={"day": day, "number": number, "player": puzzle_player(session)},
+                    puzzle={"day": day, "number": number, "player": puzzle_player(session), "spec": spec},
                     puzzle_store=store.puzzles)
         room.start_puzzle()
         store.rooms[room.id] = room
@@ -2838,6 +2990,24 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             kick_bot(room)
             return snapshot(room, session.token)
 
+    @app.post("/api/deck")
+    async def set_deck(body: Deck, request: Request):
+        """Your custom card designs, for the tables you sit at to draw your cards in."""
+        session = session_for(request)
+        player = puzzle_player(session)
+        choices = {card: skin for card, skin in body.choices.items() if DECK_CARD.match(card) and DECK_SKIN.match(skin)}
+        if (DECK_SKINS.get(player) or {}) == choices:
+            return {"ok": True}
+        if choices:
+            DECK_SKINS[player] = choices
+        else:
+            DECK_SKINS.pop(player, None)
+        # the tables they are at show the change
+        for room in list(store.rooms.values()):
+            if any((profile or {}).get("id") == player for profile in room.participants):
+                await broadcast(room)
+        return {"ok": True}
+
     @app.post("/api/lobbies/{room_id}/emote")
     async def send_emote(room_id: str, body: Emote, request: Request):
         session = session_for(request)
@@ -2848,6 +3018,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 raise HTTPException(403, "You do not have a seat in this lobby.")
             if room.game is None or room.status not in ("playing", "round_over", "finished"):
                 raise HTTPException(409, "Emotes are available at the game table.")
+            flag = achievements.FLAG_EMOTES.get(body.emote)
+            if flag and flag not in await asyncio.to_thread(flags_for, puzzle_player(session)):
+                raise HTTPException(403, f"Earn the flag “{flag}” to use this emote.")
             # a spectator cheers on behalf of the player they watch from, under their
             # own name and in their own row ("spectator:<slot>")
             seat = room.watch_seats.get(session.token, 0) if watching else None

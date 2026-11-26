@@ -123,12 +123,19 @@ def rules_from(values):
     return Rules(**{key: value for key, value in values.items() if key in Rules.__dataclass_fields__})
 
 
+# a puzzle hand is a set number of moves each (this many unless the puzzle says
+# otherwise): PuzzleBot's last move ends it (going out does not)
+PUZZLE_MOVES = 5
+
+
 class GolfGame:
     def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0, player_count=2, turn_order=None,
-                 puzzle=False):
+                 puzzle=False, puzzle_moves=PUZZLE_MOVES, puzzle_face_up=2):
         # a puzzle is one hand against Golfbot from a seeded deck: the player always
         # goes first, each side starts with the same two cards face up, and the deck
-        # never reshuffles (should it run out, the hand ends there)
+        # never reshuffles (should it run out, the hand ends there). It runs a set
+        # number of moves each (puzzle_moves): turning every card up does not end it
+        # early. How many cards start face up is the puzzle's too (puzzle_face_up).
         if puzzle:
             player_count, first_player, turn_order, multiplayer = 2, 0, None, False
         elif type(player_count) is not int or not 2 <= player_count <= 32 or first_player not in range(player_count):
@@ -141,6 +148,9 @@ class GolfGame:
             raise ValueError("Turn order must contain each player once.")
         self.multiplayer = multiplayer
         self.puzzle = puzzle
+        if puzzle and not (1 <= puzzle_moves <= 20 and 0 <= puzzle_face_up <= 6):
+            raise ValueError("A puzzle needs 1–20 moves each and 0–6 cards face up.")
+        self.puzzle_moves = puzzle_moves if puzzle else None
         self.first_player = first_player
         self.rules = replace(rules) if rules else Rules()
         self.rng = random.Random(seed)
@@ -149,6 +159,8 @@ class GolfGame:
         self.rng.shuffle(self.draw_pile)
         self.players = [[Slot(self.draw_pile.pop()) for _ in range(6)] for _ in range(player_count)]
         self.discard_pile = [self.draw_pile.pop()]
+        # who put the top discard there (its custom design is theirs); none for the one dealt
+        self.discard_owner = None
         self.current = first_player
         self.phase = "setup"
         self.flipped = None
@@ -158,6 +170,7 @@ class GolfGame:
         self.is_final_turn = False
         self.final_turn_queue = None
         self.turns = 0
+        self.bot_moves = 0  # (a puzzle's: moves Golfbot has made)
         self.bonus_remaining = 0
         self.used_pairs = set()
         self.used_bonus_cards = set()
@@ -178,7 +191,7 @@ class GolfGame:
         if puzzle:
             # the opening cards are part of the puzzle: the same two each, every attempt
             for hand in self.players:
-                for index in self.rng.sample(range(6), 2):
+                for index in self.rng.sample(range(6), puzzle_face_up):
                     hand[index].visible = True
             self._record_scoring_effects()
             self.phase = "choose"
@@ -244,6 +257,8 @@ class GolfGame:
         self._record_scoring_effects()
 
     def _mark_finish(self):
+        if getattr(self, "puzzle", False):
+            return  # (a puzzle runs its set moves: nobody goes out)
         if self.finisher is None:
             for player in self.players_from(self.current):
                 if self.visible_count(player) == 6:
@@ -511,6 +526,7 @@ class GolfGame:
         self.players[self.current][index] = Slot(incoming, True)
         self.held_card = None
         self.discard_pile.append(outgoing)
+        self.discard_owner = self.current
         who = f"Player {self.current + 1}"
         self.last_move = f"{who} swapped {outgoing.label}{outgoing.suit} for {incoming.label}{incoming.suit}."
         self._finish_turn()
@@ -550,6 +566,7 @@ class GolfGame:
             raise ValueError("Draw a card before discarding it.")
         card = self.held_card
         self.discard_pile.append(card)
+        self.discard_owner = self.current
         self.held_card = None
         who = f"Player {self.current + 1}"
         self.last_move = f"{who} discarded {card.label}{card.suit}."
@@ -620,6 +637,7 @@ class GolfGame:
             self.draw_pile[-1] = slot.card
         elif owner == "discard":
             self.discard_pile[-1] = slot.card
+            self.discard_owner = self.current
         else:
             self.players[owner][index] = Slot(slot.card, slot.visible)
 
@@ -648,8 +666,10 @@ class GolfGame:
 
     def _complete_turn(self):
         self.turns += 1
-        if getattr(self, "puzzle", False) and not self.draw_pile and self.finisher is None:
-            # the deck is spent: the puzzle ends here, every card turned up and scored
+        if getattr(self, "puzzle", False) and self.current == 1:
+            self.bot_moves = getattr(self, "bot_moves", 0) + 1
+        if getattr(self, "puzzle", False) and (not self.draw_pile or self.puzzle_moves_left == 0):
+            # Golfbot's last move made, or the deck spent: the puzzle ends here, every card turned up and scored
             self.finisher = None
             self.scoring_reveal = True
             self._resolve_scoring_reveal()
@@ -675,12 +695,23 @@ class GolfGame:
         if self.current == self.final_player:
             self.message = "Your FINAL turn: Flip, Draw, or Swap." if self.current == 0 else "Opponent's final turn..."
 
+    @property
+    def puzzle_moves_left(self):
+        """A puzzle's moves Golfbot has still to make (None outside a puzzle)."""
+        if not getattr(self, "puzzle", False):
+            return None
+        return max((getattr(self, "puzzle_moves", None) or PUZZLE_MOVES) - getattr(self, "bot_moves", 0), 0)
+
     def _resolve_scoring_reveal(self):
         # Reserve both players' earned swaps before either can break a pair.
         # Only Q-Q/J-J activate here; scoring reveals do not earn Angel numbers or Poison.
+        # (A puzzle is the exception: its hand ends on the clock, not by someone going
+        # out, so the rows its last reveal completes earn their Angel numbers too.)
         for layout in self.players:
             for slot in layout:
                 slot.visible = True
+        if getattr(self, "puzzle", False):
+            self._update_combos()
         self._record_scoring_effects()
         for player in self.players_from(self.current):
             self.final_bonus_queue.extend([player] * self._new_bonuses(player))
