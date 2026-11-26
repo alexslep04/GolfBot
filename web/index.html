@@ -22,6 +22,10 @@
     <link rel="stylesheet" href="static/style.css" />
     <link rel="preload" as="font" type="font/woff2" href="static/fonts/seurat-pro-b.woff2" crossorigin />
     <link rel="preload" as="font" type="font/woff2" href="static/fonts/sf-pro-rounded-bold.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="static/fonts/sf-pro-rounded-bold-rough-20.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="static/fonts/sf-pro-rounded-bold-rough-40.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="static/fonts/seurat-pro-b-rough-14.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="static/fonts/seurat-pro-b-rough-56.woff2" crossorigin />
     <link rel="preload" as="image" href="static/assets/fairway.svg" />
     <script src="static/icons.js" defer></script>
     <script src="static/ui.js" defer></script>
@@ -29,35 +33,12 @@
     <script src="static/board.js" defer></script>
     <script src="static/gamepad.js" defer></script>
     <script src="static/tournament.js" defer></script>
+    <script src="static/tabs.js" defer></script>
     <script src="static/app.js" defer></script>
   </head>
   <body>
-    <!-- Figma "texture" effect (noise size 2, radius 0.5) for vector stickers. -->
-    <svg class="svg-defs" width="0" height="0" aria-hidden="true">
-      <filter
-        id="texture"
-        x="-60%"
-        y="-40%"
-        width="220%"
-        height="180%"
-        color-interpolation-filters="sRGB"
-      >
-        <feTurbulence
-          type="fractalNoise"
-          baseFrequency="0.5"
-          numOctaves="1"
-          seed="4"
-          result="noise"
-        />
-        <feDisplacementMap
-          in="SourceGraphic"
-          in2="noise"
-          scale="1.6"
-          xChannelSelector="R"
-          yChannelSelector="G"
-        />
-      </filter>
-    </svg>
+    <!-- (The stickers' rough paper edge, once an SVG filter here, is baked into the icons
+         and fonts by tools/design/roughen.py.) -->
     <div id="backdrop" aria-hidden="true"></div>
     <main id="app" aria-live="polite">
       <div class="loading boot">Shuffling the table…</div>

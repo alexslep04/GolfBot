@@ -70,7 +70,7 @@ class TableExtrasTests(unittest.TestCase):
         room.start_round()
         self.assertTrue(room.game.rules.suited_rows)
 
-    def test_a_finished_game_leaves_the_spectate_list_but_keeps_its_spectators(self):
+    def test_a_table_between_games_stays_on_the_spectate_list_and_keeps_its_spectators(self):
         state = self.client.post('/api/solo', json={'username': 'Tester', 'practice': True}).json()
         room = self.store.rooms[state['id']]
         fan = TestClient(self.client.app)
@@ -81,7 +81,8 @@ class TableExtrasTests(unittest.TestCase):
         self.assertEqual((listed(), count()), ([room.id], 1))
         fan.post(f'/api/spectate/{room.id}').raise_for_status()
         self.finish_game(room, [1, 2])
-        self.assertEqual((listed(), count()), ([], 0))
+        # (on Watch between games, with the last one's result; the count is of games in play)
+        self.assertEqual((listed(), count()), ([room.id], 0))
         # whoever was watching is still at the table, on its final board
         self.assertEqual(fan.post('/api/spectate-follow').json()['id'], room.id)
         room.start_round()

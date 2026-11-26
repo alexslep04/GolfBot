@@ -31,14 +31,14 @@ function tournamentSetupFields() {
   const fillHint =
     draft.fill === "ai"
       ? robin
-        ? "With an odd number of players, an AI opponent joins so nobody sits out."
-        : "Empty places in the bracket go to AI opponents, who can advance and win."
+        ? "With an odd number of players, a CPU opponent joins so nobody sits out."
+        : "Empty places in the bracket go to CPU opponents, who can advance and win."
       : robin
         ? "With an odd number of players, one player sits out each round."
         : "Empty places in the bracket are byes: whoever meets one goes straight through.";
-  return `<div class="row">${selectField("Seeding", `data-draft="seeding" aria-label="Seeding"`, [["random", "Random", draft.seeding === "random"], ["mmr", "By MMR", draft.seeding === "mmr"]], null, "grow")}${selectField("Empty Places", `data-draft="fill" aria-label="Empty places"`, [["byes", "Byes", draft.fill === "byes"], ["ai", "AI opponents", draft.fill === "ai"]], null, "grow")}</div>
+  return `<div class="row">${selectField("Seeding", `data-draft="seeding" aria-label="Seeding"`, [["random", "Random", draft.seeding === "random"], ["mmr", "By MMR", draft.seeding === "mmr"]], null, "grow")}${selectField("Empty Places", `data-draft="fill" aria-label="Empty places"`, [["byes", "Byes", draft.fill === "byes"], ["ai", "CPU opponents", draft.fill === "ai"]], null, "grow")}</div>
     <p class="hint">${e(fillHint)}</p>
-    ${infoField("ranked", selectField("Ranked", `data-draft="ranked" aria-label="Ranked"`, [["off", "Off", draft.ranked !== "on"], ["on", "On", draft.ranked === "on"]], "sparkles"), draft.ranked === "on" ? "Matches between players count toward MMR, and are played on House rules. Matches against an AI never count." : "Matches don't affect anyone's MMR.")}`;
+    ${infoField("ranked", selectField("Ranked", `data-draft="ranked" aria-label="Ranked"`, [["off", "Off", draft.ranked !== "on"], ["on", "On", draft.ranked === "on"]], "sparkles"), draft.ranked === "on" ? "Matches between players count toward MMR, and are played on House rules. Matches against a CPU never count." : "Matches don't affect anyone's MMR.")}`;
 }
 function tournamentSettings() {
   return {
@@ -112,6 +112,7 @@ function stopTournament() {
   tournamentTimer = null;
 }
 async function tournamentPage(id) {
+  if (tournament?.id !== id) roundAt = 0;
   stopTournament();
   stopWatching();
   closeSocket();
@@ -162,7 +163,7 @@ function armedButton(key, attrs, cls, symbol, label, sure) {
 }
 function tournamentPills(view) {
   const settings = view.settings;
-  return `<div class="meta"><span class="pill">${e(view.format_name)}</span><span class="pill">${view.seeding === "mmr" ? "Seeded by MMR" : "Random seeds"}</span><span class="pill">${e(matchLength(settings))}</span>${view.ranked ? `<span class="pill c-p3">${glyph("sparkles", 14)} Ranked</span>` : ""}<span class="pill">${view.fill === "ai" ? "AI fills empty places" : "Byes for empty places"}</span>${rulesChip({ ...settings, name: view.name })}</div>`;
+  return `<div class="meta"><span class="pill">${e(view.format_name)}</span><span class="pill">${view.seeding === "mmr" ? "Seeded by MMR" : "Random seeds"}</span><span class="pill">${e(matchLength(settings))}</span>${view.ranked ? `<span class="pill c-p3">${glyph("sparkles", 14)} Ranked</span>` : ""}<span class="pill">${view.fill === "ai" ? "CPU fills empty places" : "Byes for empty places"}</span>${rulesChip({ ...settings, name: view.name })}</div>`;
 }
 function tournamentLobby(view) {
   const url = `${location.origin}${appPath(`/tournament/${view.id}`)}`;
@@ -171,13 +172,13 @@ function tournamentLobby(view) {
     .map((entrant, seat) => {
       const color = `c-s${seat % 8}`;
       const remove = view.you.host && entrant.id !== me ? `<button type="button" class="close-btn c-fw small-x" data-tournament-remove="${e(entrant.id)}" aria-label="Remove ${e(entrant.name)}">${icon("xmark.circle.fill", 26)}</button>` : "";
-      return `<div class="list-item ${color}">${avatarBadge(entrant.avatar, color)}<div class="grow"><strong>${entrant.id === me ? youStar() : ""}${e(entrant.name)}</strong><small>${entrant.id === view.host ? "Host" : entrant.ai ? "AI opponent" : "Player"}${entrant.ai ? "" : ` · ${statNumber(entrant.rating)} MMR`}</small></div>${remove}</div>`;
+      return `<div class="list-item ${color}">${avatarBadge(entrant.avatar, color)}<div class="grow"><strong>${entrant.id === me ? youStar() : ""}${e(entrant.name)}</strong><small>${entrant.id === view.host ? "Host" : entrant.ai ? "CPU opponent" : "Player"}${entrant.ai ? "" : ` · ${statNumber(entrant.rating)} MMR`}</small></div>${remove}</div>`;
     })
     .join("");
   const count = view.entrants.length;
   const hint = view.can_start
     ? view.fill === "ai"
-      ? "The host starts when everyone is in. AI opponents fill any places left over."
+      ? "The host starts when everyone is in. CPU opponents fill any places left over."
       : "The host starts when everyone is in."
     : "A tournament needs at least two players.";
   // the host's buttons are a table host's: Invite a Player, then Start
@@ -189,7 +190,7 @@ function tournamentLobby(view) {
       : `<div class="row"><button type="button" class="btn c-p4 grow" data-tournament-join ${count >= view.capacity ? "disabled" : ""}>${tilted("trophy.fill", 32)}<span>${padTag("y")}Join Tournament</span></button></div>`;
   // the host going Back closes the tournament, as leaving a table you host closes it
   return `<div class="page">${pageHead(view.you.host ? "data-tournament-leave" : `data-nav="friends"`)}<div class="stack wide">
-    <div class="stack"><h1 class="page-title">${e(view.name)}</h1>${tournamentPills(view)}</div>
+    <div class="stack">${tabTitle(view.name, "", "tournament")}${tournamentPills(view)}</div>
     ${me ? `<div class="share">${field("Invite Link", `<input readonly aria-label="Tournament invite link" value="${e(url)}">`, "link")}<button type="button" class="close-btn c-fw share-copy" data-copy="${e(url)}" aria-label="Copy the invite link">${icon("doc.on.doc.fill", 30)}<span>Copy</span></button></div>` : ""}
     ${!me && !profileChosen() ? `${avatarPicker(count)}${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}` : ""}
     <div class="list">${list}</div>
@@ -220,15 +221,44 @@ function matchAction(view, match, wide = false) {
     ? `<button type="button" class="${cls} c-p1" data-tournament-play="${e(match.room_id)}">${glyph("play.fill", 14)} Play</button>`
     : `<button type="button" class="${cls} c-s4" data-watch="${e(match.room_id)}">${glyph("eye.fill", 14)} Watch${match.live?.watchers ? ` · ${match.live.watchers}` : ""}</button>`;
 }
-function matchCard(view, match, titled = false) {
+/** A player's color in a tournament: one of the eight seat colors by their seed, the
+ * same in every match and in the standings (with more than eight, colors repeat). */
+function entrantColor(entrant, fallback = 0) {
+  return SEAT_COLORS[((entrant?.seed || fallback + 1) - 1) % SEAT_COLORS.length];
+}
+/** An entrant's MMR, where it says something (a player's, or a demo player's; an AI's is a placeholder). */
+function entrantMmr(entrant) {
+  return entrant && entrant.rating != null && (!entrant.ai || entrant.rating !== 1000) ? `${statNumber(entrant.rating)}MMR` : "";
+}
+/** A match in the bracket: a card in the colors of where it has got to, its two players
+ * (avatar, seed, name, MMR) with their score as stickers, the winner's avatar a trophy. */
+function matchCard(view, match, roundName = "") {
+  const known = match.players.every((id) => id && id !== "bye");
+  const unit = view.settings.series_mode === "points" ? "pts" : "wins";
+  // what the card says on its edge, and its color
+  const watching = match.live?.watchers;
+  const [color, label] =
+    match.status === "live"
+      ? ["c-s4", `${icon("binoculars.fill", 17, { idle: false, sw: 3, cls: "bk-label-ico" })} ${watching ? `${watching} spectating now` : `Live · game ${match.live?.game ?? 1}`}`]
+      : match.status === "done"
+        ? ["c-p1", { forfeit: "Forfeit", awarded: "Awarded", bye: "Bye" }[match.note] || (match.winner === null ? "Drawn" : "Match finished")]
+        : known
+          ? ["c-s4", "Starting Soon"]
+          : ["c-fw", "Still Seeding"];
   const rows = matchPlayers(view, match)
-    .map(
-      (player) =>
-        `<div class="bracket-player${player.won ? " won" : ""}${player.lost ? " lost" : ""}${player.entrant ? "" : " tbd"}${player.mine ? " mine" : ""}"><span class="seed">${player.entrant?.seed ?? ""}</span><span class="who">${player.mine ? youStar() : ""}${e(player.name)}${player.entrant?.ai ? `<small>AI</small>` : ""}</span><b>${player.won ? glyph("checkmark", 12) : ""}${e(String(player.score))}</b></div>`,
-    )
+    .map((player, place) => {
+      // (each player keeps one color the whole tournament: their seed's)
+      const seat = player.entrant ? entrantColor(player.entrant) : SEAT_COLORS[place % SEAT_COLORS.length];
+      const face = player.won ? `<span class="bk-trophy">${icon("trophy.fill", 20, { idle: false })}</span>` : icon(player.entrant ? avatarIcon(player.entrant.avatar) : "person.fill", 20, { idle: false });
+      const mmr = entrantMmr(player.entrant);
+      const score = player.entrant ? Number(player.score) || 0 : 0;
+      return `<div class="bk-player ${seat}${player.won ? " won" : ""}${player.lost ? " lost" : ""}${player.entrant ? "" : " tbd"}"${player.entrant ? ` data-entrant="${e(player.entrant.id)}"` : ""} data-place="${place}"><span class="bk-ava">${face}</span><span class="bk-who"><b>${player.entrant?.seed != null ? `<span class="bk-seed">${player.entrant.seed}</span> ` : ""}${player.mine ? youStar() : ""}${e(player.name)}${player.entrant?.ai && !mmr ? ` <span class="bk-ai">CPU</span>` : ""}</b>${mmr ? `<small>${mmr}</small>` : ""}</span><span class="wc-score bk-score">${stickerText(String(score), { split: true, idle: false })}${stickerText(unit, { cls: "pts", idle: false })}</span></div>`;
+    })
     .join("");
-  const note = match.status === "live" ? `<span class="live">Live · game ${match.live?.game ?? 1}</span>` : { forfeit: "Forfeit", awarded: "Awarded", bye: "Bye" }[match.note] || (match.status === "done" && match.winner === null ? "Drawn" : "");
-  return `<div class="bracket-match ${match.status} ${match.status === "live" ? "c-p1" : "c-fw"}">${titled || note ? `<div class="bracket-meta"><span>${titled ? e(match.label) : ""}</span><span>${note}</span></div>` : ""}${rows}${matchAction(view, match)}</div>`;
+  // a match being played opens: yours to play, anyone else's to watch
+  const open = match.status === "live" && match.room_id ? (match.id === view.you.match ? ` data-tournament-play="${e(match.room_id)}"` : ` data-watch="${e(match.room_id)}"`) : "";
+  const tag = open ? "button" : "div";
+  return `<${tag}${open ? ` type="button"` : ""} class="bk-match boxed ${color} ${match.status}" data-match="${e(match.id)}"${open} aria-label="${e(match.label)}">${roundName ? `<span class="bk-round-name" aria-hidden="true">${e(roundName)}</span>` : ""}<span class="box-label">${label}</span>${rows}</${tag}>`;
 }
 function bracketHtml(view) {
   const section = (bracket, title) => {
@@ -236,10 +266,11 @@ function bracketHtml(view) {
     const matches = view.matches.filter((match) => match.bracket === bracket && !match.players.every((id) => id === "bye"));
     if (!matches.length) return "";
     const rounds = [...new Set(matches.map((match) => match.round))].sort((a, b) => a - b);
-    return `<section class="bracket-section">${title ? `<h3>${title}</h3>` : ""}<div class="bracket" role="group" aria-label="${title || "Bracket"}">${rounds
+    return `<section class="bracket-section">${title ? `<h3>${title}</h3>` : ""}<div class="bracket" role="group" aria-label="${title || "Bracket"}"><svg class="bk-arrows" aria-hidden="true"></svg>${rounds
       .map((round) => {
         const list = matches.filter((match) => match.round === round);
-        return `<div class="bracket-round"><h4>${e(list[0].label)}</h4>${list.map((match) => matchCard(view, match)).join("")}</div>`;
+        // (the round's name over its topmost match)
+        return `<div class="bracket-round" aria-label="${e(list[0].label)}">${list.map((match, i) => matchCard(view, match, i === 0 ? list[0].label : "")).join("")}</div>`;
       })
       .join("")}</div></section>`;
   };
@@ -255,17 +286,33 @@ function bracketHtml(view) {
     })
     .join("");
 }
+/** Where an entrant stands now: the winner, playing, waiting for their next match, or out. */
+function entrantStatus(view, entrant) {
+  if (view.champion === entrant.id) return ["trophy.fill", "Winner", "c-p3"];
+  if (entrant.withdrawn) return ["xmark", "Left", "c-p2"];
+  if (entrant.out) return ["xmark", "Out", "c-p2"];
+  const theirs = view.matches.filter((match) => match.players.includes(entrant.id) && match.note !== "bye");
+  if (theirs.some((match) => match.status === "live")) return ["binoculars.fill", "Live", "c-s4"];
+  if (view.status === "finished") return ["checkmark.seal.fill", "Done", "c-fw"];
+  // (between matches, after a win or before their first: waiting for the next)
+  return ["hourglass", "Waiting", "c-fw"];
+}
 function standingsHtml(view) {
   const robin = view.format === "round_robin";
   const rows = view.standings
     .map((row, rank) => {
       const entrant = entrantOf(view, row.id);
       if (!entrant) return "";
-      const status = view.champion === row.id ? "Champion" : entrant.withdrawn ? "Left" : entrant.out ? "Out" : view.status === "finished" ? "" : "In";
-      return `<tr class="${entrant.id === view.you.entrant ? "mine" : ""}"><th scope="row">${rank + 1}</th><td>${entrant.id === view.you.entrant ? youStar() : ""}${e(entrant.name)}${entrant.ai ? ` <small>AI</small>` : ""}</td><td>${robin ? `${row.wins}–${row.draws}–${row.losses}` : `${row.wins}–${row.losses}`}</td><td>${robin ? statNumber(row.points) : status}</td></tr>`;
+      const [symbol, status, color] = entrantStatus(view, entrant);
+      const seat = entrantColor(entrant, rank);
+      const mmr = entrantMmr(entrant);
+      // (each player opens their profile; an AI in the bracket is Golfbot)
+      const player = entrant.player_id || (entrant.ai ? "bot:golfbot" : null);
+      const tag = player ? "button" : "span";
+      return `<tr class="${entrant.id === view.you.entrant ? "mine" : ""}"><th scope="row">${rank + 1}</th><td><${tag}${player ? ` type="button" data-stats-player="${e(player)}" aria-label="${e(entrant.name)}'s profile"` : ""} class="st-player ${seat}"><span class="bk-ava">${icon(avatarIcon(entrant.avatar), 20, { idle: false })}</span><span class="bk-who"><b>${entrant.id === view.you.entrant ? youStar() : ""}${e(entrant.name)}${entrant.ai && !mmr ? ` <span class="bk-ai">CPU</span>` : ""}</b>${mmr ? `<small>${mmr}</small>` : ""}</span></${tag}></td><td>${row.wins}-${row.losses}-${row.draws}</td><td><span class="st-status ${color}">${icon(symbol, 18, { idle: false })}${status}</span></td></tr>`;
     })
     .join("");
-  return `<div class="table-wrap"><table><thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col">${robin ? "W–D–L" : "W–L"}</th><th scope="col">${robin ? "Card pts" : "Status"}</th></tr></thead><tbody>${rows}</tbody></table></div>${robin ? `<p class="hint dark">Ranked by matches won (a draw counts half), then fewest card points.</p>` : ""}`;
+  return `<div class="boxed c-fw standings-card"><div class="table-wrap"><table class="standings"><thead><tr><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">W-L-D</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>${robin ? `<p class="hint dark">Ranked by matches won (a draw counts half), then fewest card points.</p>` : ""}`;
 }
 function tournamentDashboard(view) {
   const me = entrantOf(view, view.you.entrant);
@@ -275,7 +322,8 @@ function tournamentDashboard(view) {
   const total = view.matches.filter((match) => !match.players.includes("bye")).length;
   const banner =
     view.status === "finished"
-      ? `<section class="panel c-p3 stat-hero tournament-hero"><span class="leader-trophy">${tilted("trophy.fill", 48, { key: "tournament-trophy" })}</span><p><strong>${champion ? `${champion.id === me?.id ? youStar() : ""}${e(champion.name)}` : "Nobody"}</strong> ${champion ? "wins the tournament!" : "won this one."}</p></section>`
+      ? // (as the big buttons are drawn: the winner's name between two trophies, what they won under it)
+        `<section class="btn c-p3 solve-btn cup-won" role="status"><span class="cup-won-trophy">${tilted("trophy.fill", 34, { key: "cup-won-l" })}</span><span>${champion ? `${champion.id === me?.id ? youStar() : ""}${e(champion.name)}` : "Nobody"}<span class="sub">${champion ? "Wins the Tournament" : "No winner this time"}</span></span><span class="cup-won-trophy">${tilted("trophy.fill", 34, { key: "cup-won-r", mirror: true })}</span></section>`
       : "";
   const mine = !me
     ? ""
@@ -284,17 +332,6 @@ function tournamentDashboard(view) {
       : view.status === "live"
         ? `<p class="hint dark">${me.out ? "You're out of this one. Thanks for playing! You can still watch." : "Waiting for your next match. You'll be taken to it when it's ready."}</p>`
         : "";
-  const ongoing = live.length
-    ? `<section class="stack"><h2 class="section-title">Matches in play</h2><div class="list">${live
-        .map((match) => {
-          const [first, second] = matchPlayers(view, match);
-          const now = match.live?.scores ? ` · this game ${match.live.scores[0]} to ${match.live.scores[1]}` : "";
-          return `<div class="list-item c-s4"><div class="grow"><strong>${first.mine ? youStar() : ""}${e(first.name)} <span class="versus">${e(String(first.score))} – ${e(String(second.score))}</span> ${second.mine ? youStar() : ""}${e(second.name)}</strong><small>${e(match.label)} · game ${match.live?.game ?? 1}${now}</small></div>${matchAction(view, match)}</div>`;
-        })
-        .join("")}</div></section>`
-    : view.status === "live"
-      ? `<p class="hint dark">The next matches are being set up.</p>`
-      : "";
   // the host can settle a match that cannot finish by itself
   const stuck = view.you.host && view.status === "live" && live.length
     ? `<details class="tournament-host"><summary>Host tools</summary><p class="hint dark">Give a match to one player if it can't finish (someone stuck or gone).</p>${live
@@ -305,14 +342,246 @@ function tournamentDashboard(view) {
         .join("")}</details>`
     : "";
   const leave = me && !me.withdrawn && view.status === "live" && !me.out ? armedButton("leave", "data-tournament-leave", "close-btn c-p2", "rectangle.portrait.and.arrow.right", "Leave", "Sure?") : "";
-  return `<div class="page top scroll tournament-page">${pageHead(`data-nav="${tournamentBack}"`, view.name, leave)}<div class="stack wide">
+  // (how far it has got goes under its name, as a page's line under its title)
+  const progress = `${view.status === "finished" ? "Finished" : "In progress"} · ${done} of ${total} matches played · ${view.entrants.length} entrants`;
+  return `<div class="page top scroll tournament-page">${pageHead(`data-nav="${tournamentBack}"`, view.name, leave, progress)}<div class="stack wide">
     ${tournamentPills(view)}
-    <p class="hint dark">${view.status === "finished" ? "Finished" : "In progress"} · ${done} of ${total} matches played · ${view.entrants.length} entrants</p>
-    ${banner}${mine}${ongoing}
-    <section class="stack"><h2 class="section-title">${view.format === "round_robin" ? "Rounds" : "Bracket"}</h2>${bracketHtml(view)}</section>
-    <section class="stack"><h2 class="section-title">Standings</h2>${standingsHtml(view)}</section>
+    ${banner}${mine}
+    <section class="stack bracket-holder">${bracketHtml(view)}${roundTabs(view)}</section>
+    <section class="stack">${sectionTitle("Standings")}${standingsHtml(view)}</section>
     ${stuck}
     </div></div>`;
+}
+/* ---------- the round selector ----------
+   A bracket wider than the screen has a floating bar at its foot (as Match history
+   does), a button for each round: one tap brings that round's column into view, and as
+   the bracket is scrolled the bar follows the round in view. */
+/** The main bracket's rounds, each with its name (Quarterfinal, Semifinal, Final...). */
+function bracketRounds(view) {
+  if (view.format === "round_robin") return [];
+  const main = view.matches.filter((match) => match.bracket === "W" && !match.players.every((id) => id === "bye"));
+  return [...new Set(main.map((match) => match.round))].sort((a, b) => a - b).map((round) => ({ round, label: main.find((match) => match.round === round).label }));
+}
+/** A round's short name, for the bar: One, Two..., Quarters, Semis, Finals. */
+const ROUND_WORDS = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight"];
+function roundShort(label) {
+  const named = { Quarterfinal: "Quarters", Semifinal: "Semis", Final: "Finals" }[label];
+  if (named) return named;
+  const number = /^Round (\d+)$/.exec(label)?.[1];
+  return number ? ROUND_WORDS[number - 1] || number : label;
+}
+let roundAt = 0; // the round the bar shows (kept through the page's redraws as the tournament moves on)
+function roundTabs(view) {
+  const rounds = bracketRounds(view);
+  if (rounds.length < 2) return "";
+  const at = Math.min(roundAt, rounds.length - 1);
+  // (it floats at the foot of the screen while the bracket is in view, and settles under it once scrolled past)
+  return `<div class="round-dock"><nav class="aces-tabs boxed c-fw round-tabs" aria-label="Rounds" style="--at:${at};--n:${rounds.length}"><span class="aces-pointer c-p2" aria-hidden="true">${icon("chevron.down", 15, { idle: false, sw: 4.2 })}</span>${rounds
+    .map(({ round, label }, i) => `<button type="button" class="aces-tab${i === at ? " on c-p2" : ""}" data-bracket-round="${i}" aria-pressed="${i === at}" aria-label="${e(label)}"><span class="round-num">${round}</span><span>${e(roundShort(label))}</span></button>`)
+    .join("")}</nav></div>`;
+}
+/** The round now in view lights up on the bar, its arrow sliding over to it. */
+function markRound(at) {
+  roundAt = at;
+  const strip = root.querySelector(".round-tabs");
+  if (!strip || Number(strip.style.getPropertyValue("--at")) === at) return;
+  const pointer = strip.querySelector(".aces-pointer");
+  // (from wherever it is now, part-way through a slide or not: measured before that slide
+  // is stopped, so a new one carries on from the same spot rather than jumping)
+  const was = pointer.getBoundingClientRect().left;
+  pointer.slide?.cancel();
+  strip.style.setProperty("--at", at);
+  const dx = was - pointer.getBoundingClientRect().left;
+  if (Math.abs(dx) > 0.5 && pointer.animate && !reducedMotion.matches)
+    pointer.slide = pointer.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+  strip.querySelectorAll("[data-bracket-round]").forEach((button, i) => {
+    button.classList.toggle("on", i === at);
+    button.classList.toggle("c-p2", i === at);
+    button.setAttribute("aria-pressed", String(i === at));
+  });
+}
+/* ---------- arrows: each winner on to their next match ----------
+   From the winner's row of a finished match to their row in the match they play next,
+   a curve in their color in a white edge, with rounded ends and a rounded head. */
+/* ---------- the bracket changing, animated ----------
+   Between two looks at a tournament: a match that starts or ends gives a hop, a score that
+   moves pops, a winner's trophy drops in while the loser greys, a player arriving in their
+   next match slides in, and the arrow carrying them there draws itself across. */
+function bracketState() {
+  const state = new Map();
+  for (const card of root.querySelectorAll?.(".bk-match[data-match]") || [])
+    state.set(card.dataset.match, {
+      status: ["live", "done", "pending"].find((name) => card.classList.contains(name)),
+      rows: [...card.querySelectorAll(".bk-player")].map((row) => ({ entrant: row.dataset.entrant || "", score: row.querySelector(".bk-score")?.textContent || "", won: row.classList.contains("won"), lost: row.classList.contains("lost") })),
+    });
+  const arrows = new Set([...(root.querySelectorAll?.(".bk-arrows g[data-from]") || [])].map((g) => g.dataset.from));
+  return { state, arrows };
+}
+function animateBracket(before) {
+  if (!before?.state.size || reducedMotion.matches || !Element.prototype.animate) return;
+  const spring = "cubic-bezier(0.34, 1.56, 0.64, 1)";
+  for (const card of root.querySelectorAll(".bk-match[data-match]")) {
+    const was = before.state.get(card.dataset.match);
+    if (!was) continue;
+    const status = ["live", "done", "pending"].find((name) => card.classList.contains(name));
+    if (status !== was.status) card.animate([{ scale: "1" }, { scale: "1.05" }, { scale: "1" }], { duration: 520, easing: spring });
+    card.querySelectorAll(".bk-player").forEach((row, i) => {
+      const old = was.rows[i];
+      if (!old) return;
+      // someone new in this place: they slide in
+      if ((row.dataset.entrant || "") !== old.entrant) {
+        row.animate([{ translate: "-1.4rem 0", opacity: 0 }, { translate: "0 0", opacity: 1 }], { duration: 480, delay: 350, easing: spring, fill: "backwards" });
+        return;
+      }
+      const score = row.querySelector(".bk-score");
+      if (score && score.textContent !== old.score) score.animate([{ scale: "1" }, { scale: "1.35" }, { scale: "1" }], { duration: 520, easing: spring });
+      if (row.classList.contains("won") && !old.won)
+        row.querySelector(".bk-trophy")?.animate([{ scale: "0", rotate: "-40deg" }, { scale: "1.25", rotate: "8deg", offset: 0.6 }, { scale: "1", rotate: "0deg" }], { duration: 700, delay: 150, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" });
+      if (row.classList.contains("lost") && !old.lost) row.animate([{ filter: "grayscale(0)", opacity: 1 }, { filter: "grayscale(1)", opacity: 0.5 }], { duration: 700, easing: "ease-out" });
+    });
+  }
+  // a new arrow draws itself from the winner to their next match, its head arriving last
+  for (const g of root.querySelectorAll(".bk-arrows g[data-from]")) {
+    if (before.arrows.has(g.dataset.from)) continue;
+    const [edgeLine, edgeHead, inkLine, inkHead] = g.querySelectorAll("path");
+    for (const line of [edgeLine, inkLine]) {
+      const length = line?.getTotalLength?.();
+      if (!length) continue;
+      line.style.strokeDasharray = `${length}`;
+      line.animate([{ strokeDashoffset: `${length}` }, { strokeDashoffset: "0" }], { duration: 600, delay: 200, easing: "ease-in-out", fill: "backwards" }).onfinish = () => (line.style.strokeDasharray = "");
+    }
+    for (const head of [edgeHead, inkHead]) head?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, delay: 760, fill: "backwards" });
+  }
+}
+/** The round bar only where the bracket is wider than the screen (it all shows otherwise). */
+function fitRoundBar() {
+  const bracket = root.querySelector?.(".bracket"),
+    bar = root.querySelector?.(".round-dock");
+  if (!bracket || !bar) return;
+  bar.hidden = bracket.scrollWidth <= bracket.clientWidth + 1;
+}
+function drawBracketArrows(view = tournament) {
+  if (!view?.matches) return;
+  for (const bracket of root.querySelectorAll?.(".bracket:not(.robin)") || []) {
+    const svg = bracket.querySelector(":scope > .bk-arrows");
+    if (!svg || !bracket.getBoundingClientRect) continue;
+    const box = bracket.getBoundingClientRect();
+    const at = (el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left - box.left + bracket.scrollLeft, right: r.right - box.left + bracket.scrollLeft, mid: (r.top + r.bottom) / 2 - box.top + bracket.scrollTop };
+    };
+    const paths = [];
+    for (const card of bracket.querySelectorAll(".bk-match[data-match]")) {
+      const match = view.matches.find((m) => m.id === card.dataset.match);
+      if (!match || match.status !== "done" || match.winner == null) continue;
+      const id = match.players[match.winner];
+      const next = view.matches.find((m) => m.bracket === match.bracket && m.round === match.round + 1 && m.players.includes(id));
+      const from = card.querySelector(`.bk-player[data-place="${match.winner}"]`);
+      const target = next && bracket.querySelector(`.bk-match[data-match="${CSS.escape(next.id)}"]`);
+      const to = target?.querySelector(`.bk-player[data-place="${next.players.indexOf(id)}"]`);
+      if (!from || !to) continue;
+      const a = at(card), b = at(target), y1 = at(from).mid, y2 = at(to).mid;
+      // (it starts from under the middle of the winner's card, which hides it till its edge)
+      const x1 = (a.left + a.right) / 2, x2 = b.left - 9;
+      // straight lines: across, down (or up) half way between the cards, across again,
+      // with the two corners rounded
+      // (the turn a little before half way, so the last straight run is long enough that
+      // the head stands clear of the corner)
+      const span = x2 - a.right,
+        dy = y2 - y1,
+        r = Math.min(10, Math.abs(dy) / 2, span / 5),
+        xm = a.right + span * 0.4,
+        down = Math.sign(dy);
+      const line = Math.abs(dy) < 1
+        ? `M${x1} ${y1} H${x2}`
+        : `M${x1} ${y1} H${xm - r} Q${xm} ${y1} ${xm} ${y1 + down * r} V${y2 - down * r} Q${xm} ${y2} ${xm + r} ${y2} H${x2}`;
+      const head = `M${x2 - 6} ${y2 - 6} L${x2} ${y2} L${x2 - 6} ${y2 + 6}`;
+      // (its color: the winner's, as their row has it)
+      const seat = [...from.classList].find((name) => name.startsWith("c-s")) || "c-fw";
+      paths.push(`<g class="${seat}" data-from="${e(match.id)}"><path class="edge" d="${line}"/><path class="edge" d="${head}"/><path class="ink" d="${line}"/><path class="ink" d="${head}"/></g>`);
+    }
+    svg.setAttribute("width", bracket.scrollWidth);
+    svg.setAttribute("height", bracket.scrollHeight);
+    svg.innerHTML = paths.join("");
+  }
+}
+if (typeof addEventListener === "function")
+  addEventListener("resize", () => {
+    if (page !== "tournament") return;
+    drawBracketArrows();
+    fitRoundBar();
+  });
+/** The bracket's columns: a round's lies under the first section's (the winners'). */
+const roundColumns = () => [...(root.querySelector(".bracket")?.querySelectorAll(":scope > .bracket-round") || [])];
+function showRound(at) {
+  const bracket = root.querySelector(".bracket"),
+    column = roundColumns()[at];
+  if (!bracket || !column) return;
+  markRound(at);
+  // The round picked stays picked, wherever the bracket can scroll to (the last rounds may
+  // never reach the left edge): the bar follows the bracket again only once it is moved by hand.
+  bracket.picked = true;
+  bracket.scrollTo({ left: column.offsetLeft - parseFloat(getComputedStyle(bracket).paddingLeft || 0), behavior: reducedMotion.matches ? "auto" : "smooth" });
+}
+/** Which round is in view: the column nearest the bracket's left edge. */
+function followRounds() {
+  const bracket = root.querySelector(".bracket");
+  if (!bracket || bracket.followed) return;
+  bracket.followed = true;
+  let queued = 0;
+  // A mouse can drag the bracket sideways too, from anywhere on it, the cards included (a
+  // finger and a trackpad scroll it themselves). A drag is not a click: the card under it
+  // is not opened.
+  let grab = null;
+  bracket.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "mouse" || event.button > 0) return;
+    grab = { x: event.clientX, left: bracket.scrollLeft, moved: false, id: event.pointerId };
+  });
+  bracket.addEventListener("pointermove", (event) => {
+    if (!grab || event.pointerId !== grab.id) return;
+    const dx = event.clientX - grab.x;
+    if (!grab.moved && Math.abs(dx) < 6) return;
+    if (!grab.moved) {
+      grab.moved = true;
+      bracket.classList.add("grabbing");
+      try {
+        bracket.setPointerCapture(event.pointerId);
+      } catch {}
+    }
+    bracket.scrollLeft = grab.left - dx;
+  });
+  const letGo = (event) => {
+    if (!grab || event.pointerId !== grab.id) return;
+    const moved = grab.moved;
+    grab = null;
+    bracket.classList.remove("grabbing");
+    // (the click that follows a drag goes nowhere)
+    if (moved) {
+      const swallow = (click) => (click.stopPropagation(), click.preventDefault());
+      bracket.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => bracket.removeEventListener("click", swallow, { capture: true }), 0);
+    }
+  };
+  bracket.addEventListener("pointerup", letGo);
+  bracket.addEventListener("pointercancel", letGo);
+  // (a hand on the bracket: what it shows is up to the scrolling again)
+  for (const type of ["pointerdown", "touchstart", "wheel"]) bracket.addEventListener(type, () => (bracket.picked = false), { passive: true });
+  bracket.addEventListener("scrollend", follow);
+  // (once a frame at most)
+  bracket.addEventListener("scroll", () => {
+    if (!queued) queued = requestAnimationFrame(() => ((queued = 0), follow()));
+  }, { passive: true });
+  function follow() {
+    if (bracket.picked) return;
+    const columns = roundColumns();
+    if (!columns.length) return;
+    const edge = bracket.scrollLeft + parseFloat(getComputedStyle(bracket).paddingLeft || 0);
+    // (at the far end the last round, whose column may never reach the left edge)
+    const end = bracket.scrollLeft + bracket.clientWidth >= bracket.scrollWidth - 4;
+    let at = end ? columns.length - 1 : 0;
+    if (!end) columns.forEach((column, i) => Math.abs(column.offsetLeft - edge) < Math.abs(columns[at].offsetLeft - edge) && (at = i));
+    markRound(at);
+  }
 }
 function renderTournament() {
   const view = tournament;
@@ -325,11 +594,21 @@ function renderTournament() {
   // what the host has open stays open through a redraw
   const tools = !!root.querySelector?.(".tournament-host")?.open;
   const scroll = root.querySelector?.(".bracket")?.scrollLeft || 0;
+  // (what the bracket showed, to animate what has changed; nothing when it is another tournament)
+  const before = page === "tournament" && root.dataset?.cup === view.id ? bracketState() : null;
   show("tournament", view.status === "open" ? tournamentLobby(view) : tournamentDashboard(view));
   const host = root.querySelector?.(".tournament-host");
   if (host && tools) host.open = true;
   const bracket = root.querySelector?.(".bracket");
   if (bracket && scroll) bracket.scrollLeft = scroll;
+  drawBracketArrows(view);
+  fitRoundBar();
+  if (root.dataset) root.dataset.cup = view.id;
+  animateBracket(before);
+  if (bracket?.addEventListener) {
+    followRounds();
+    bracket.dispatchEvent?.(new Event("scrollend"));
+  }
   // (someone about to join picks their avatar here: the wheel opens on the one they have)
   if (view.status === "open" && !view.you.entrant && !profileChosen()) centerAvatar(false);
 }

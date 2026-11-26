@@ -45,7 +45,7 @@ def player_catalog(matches, profiles=()):
         aliases = set(players.get(player_id, {}).get('display_names', [])) | {display_name}
         players[player_id] = {'id': player_id, 'username': name, 'unique_name': unique, 'is_bot': bot,
                               'display_names': sorted(aliases), 'is_guest': not bot and not unique,
-                              'label': 'Golfbot (solo AI)' if bot else '@' + unique if unique else name + ' (guest)'}
+                              'label': 'Golfbot (solo CPU)' if bot else '@' + unique if unique else name + ' (guest)'}
 
     for match in matches:
         for seat, player_id in enumerate(identities(match)):

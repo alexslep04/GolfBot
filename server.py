@@ -18,6 +18,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from copy import copy
@@ -38,6 +39,8 @@ from match_settings import HOUSE_VERSION, house_rules
 from patches import PATCH_VERSION, PATCH_NOTES
 from avatars import AVATARS, BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
 from tournament import FORMAT_NAMES, MAX_ENTRANTS, Tournament
+import puzzle as daily_puzzle
+from friends import Friends
 
 ROOT = Path(__file__).parent
 COOKIE = "golf_session"
@@ -139,6 +142,10 @@ class Presence(Join):
     visible: bool = False  # the page is in front of the player, not in a background tab
 
 
+class FriendRequest(BaseModel):
+    unique_name: str = Field(min_length=1, max_length=25)
+
+
 class InvitePlayer(BaseModel):
     player_id: str = Field(min_length=1, max_length=32)
 
@@ -159,7 +166,7 @@ class DebugEdit(BaseModel):
 
 class Move(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    action: Literal["flip", "draw", "swap", "discard", "end_turn", "guess", "arrange", "set_rule", "set_rules", "ready", "start", "next_round", "rematch"]
+    action: Literal["flip", "draw", "swap", "discard", "end_turn", "guess", "arrange", "set_rule", "set_rules", "ready", "start", "next_round", "rematch", "retry"]
     version: StrictInt = Field(ge=0)
     index: StrictInt | None = Field(default=None, ge=0, le=5)
     refs: list[list] = Field(default_factory=list, max_length=2)
@@ -205,6 +212,7 @@ class Session:
     auth_attempts: list = field(default_factory=list)
     public_id: str = field(default_factory=lambda: secrets.token_urlsafe(12))
     online_until: float = 0
+    seen_saved: float = 0  # when this signed-in player's "last seen" was last written down
     looking_until: float = 0  # a page of theirs was last in front (presence said so) until then
     invite_times: list = field(default_factory=list)
     avatar: str = DEFAULT_AVATAR
@@ -263,6 +271,7 @@ class Room:
     streak: int = 0  # solo: games in a row the player has won against Golfbot
     pending_reaction: str | None = None
     bot_seats: list = field(default_factory=list)  # debug tables: seats the server plays itself
+    demo: bool = False  # a debug server's demo table: bots only, always playing (see keep_demo_tables)
     away: set = field(default_factory=set)  # sockets whose page is in the background
     # how long each person has spent on their turns in the game in play: seconds
     # and turns per seat, and the turn being timed now
@@ -308,6 +317,20 @@ class Room:
     forfeited: int | None = None
     # a Ranked rematch needs both players: the seats that have asked for one
     rematch_votes: set = field(default_factory=set)
+    # the Daily Puzzle: {"day": date, "number": n, "player": id, "avatar": ...,
+    # "last": the attempt just finished}; puzzle_store keeps the day's best scores
+    puzzle: dict | None = None
+    puzzle_store: object = None
+
+    @property
+    def shows_previews(self):
+        """Whether a move's score is shown before it is confirmed (always against Golfbot; never in a puzzle)."""
+        return bool(self.score_preview or (self.solo and not self.puzzle))
+
+    @property
+    def shows_odds(self):
+        """Whether win chances are shown (always against Golfbot; never in a puzzle)."""
+        return bool(self.show_odds or (self.solo and not self.puzzle))
 
     @property
     def counts_streak(self):
@@ -487,9 +510,37 @@ class Room:
         elif not self.timeline or game.turns > self.timeline[-1]["turn"]:
             self.timeline.append({"turn": game.turns, "scores": showing_scores(game), "final": False})
 
+    def start_puzzle(self):
+        """Deal the day's puzzle again: the same cards as every attempt."""
+        self.game = daily_puzzle.new_puzzle(self.puzzle["day"])
+        self.status, self.round_recorded, self.timeline = "playing", False, []
+        self.puzzle["last"] = None
+        self.round_started_at = time.time()
+        self.move_seconds, self.move_counts, self.turn_clock = [0.0, 0.0], [0, 0], None
+        self.emotes.clear()
+        try:
+            self.puzzle_store.attempt(self.puzzle["day"], self.puzzle["player"], self.names[0], self.avatars[0])
+        except Exception:
+            log.exception("Could not count a puzzle attempt at table %s", self.id)
+
+    def record_puzzle(self):
+        score, bot = self.game.score(0), self.game.score(1)
+        self.round_recorded = True
+        self.status = "finished"
+        # your own points are your score for the day, whoever took the hand
+        last = {"score": score, "bot": bot, "won": score < bot, "drawn": score == bot, "new_best": False}
+        try:
+            last["new_best"] = self.puzzle_store.finish(self.puzzle["day"], self.puzzle["player"],
+                                                        self.names[0], self.avatars[0], score)
+        except Exception:
+            log.exception("Could not record the puzzle score at table %s", self.id)
+        self.puzzle["last"] = last
+
     def record_result(self):
         if self.game is None or self.game.phase != "over" or self.round_recorded:
             return
+        if self.puzzle:
+            return self.record_puzzle()
         scores = [self.game.score(p) for p in range(len(self.seats))]
         self.game._record_scoring_effects()
         leaders = [p for p, score in enumerate(scores) if score == min(scores)]
@@ -570,6 +621,8 @@ class Store:
         self.accounts = Accounts(self.history)
         self.progression = Progression(self.history)
         self.progression.merge_stay()
+        self.puzzles = daily_puzzle.PuzzleScores(self.history)
+        self.friends = Friends(self.history)
         self.invitations = {}
         self.tournaments = {}
         self.queue = {}
@@ -624,6 +677,34 @@ RATED_GRACE = 180  # seconds a rated player may be away before it counts as leav
 
 def debug_mode():
     return os.environ.get("GOLFBOT_DEBUG", "") not in ("", "0", "false")
+
+
+# A debug server's demo players (named as the 8-bot debug table's bots are): they play
+# the demo tables on Watch, and three of them sit on the PvP leaderboard. Nothing about
+# them is saved.
+DEMO_BOTS = ["Ace", "Birdie", "Bogey", "Caddie", "Eagle", "Fairway", "Mulligan"]
+DEMO_AVATARS = {"Ace": "tree", "Birdie": "bird", "Bogey": "cat", "Caddie": "fish", "Eagle": "hare",
+                "Fairway": "tortoise", "Mulligan": "ladybug"}
+# (MMR, rating deviation, series won-drawn-lost, games won-drawn-lost)
+DEMO_RANKED = {"Ace": (1284, 74, (19, 1, 6), (61, 2, 25)), "Birdie": (1172, 88, (12, 0, 9), (44, 1, 37)),
+               "Bogey": (1046, 112, (5, 1, 7), (22, 2, 29))}
+
+
+def demo_profile(name):
+    return {'id': f'demo:{name.lower()}', 'kind': 'bot', 'display_name': name}
+
+
+def demo_mmr(profile):
+    """A demo player's MMR (None for anyone else)."""
+    name = str((profile or {}).get('display_name', ''))
+    return DEMO_RANKED[name][0] if str((profile or {}).get('id', '')).startswith('demo:') and name in DEMO_RANKED else None
+
+
+def demo_leaderboard_rows():
+    return [{'id': f'demo:{name.lower()}', 'label': name, 'mmr': mmr, 'rd': rd, 'provisional': False,
+             'wins': series[0], 'draws': series[1], 'losses': series[2], 'win_rate': series[0] / sum(series),
+             'game_rating': mmr - 20, 'games': {'wins': games[0], 'draws': games[1], 'losses': games[2]}}
+            for name, (mmr, rd, series, games) in DEMO_RANKED.items()]
 
 
 def clean_name(value):
@@ -708,7 +789,7 @@ def public_room(room):
             "players": sum(seat is not None for seat in room.seats), "solo": room.solo,
             "house_rules": room.house_rules, "house_version": room.house_version,
             "series_mode": room.series_mode, "game_type": room.game_type, "capacity": room.capacity,
-            "score_preview": room.score_preview or room.solo, "show_odds": room.show_odds or room.solo,
+            "score_preview": room.shows_previews, "show_odds": room.shows_odds,
             "patch": room.patch, "avatars": room.avatars, "practice": room.practice, "rated": room.rated,
             "rematch_votes": sorted(room.rematch_votes),
             "tournament": room.tournament, "ai_match": room.ai_match}
@@ -724,6 +805,8 @@ def message(room, viewer):
         return "The other player left. Return to the menu to find a new table."
     if game is None:
         return "The host starts with at least three players." if room.game_type == 'many' else "Waiting for a second player. The game starts when they join."
+    if game.phase == "over" and room.puzzle:
+        return f"Puzzle done: you have {game.score(0)} points, Golfbot {game.score(1)}."
     if game.phase == "over":
         result = room.history[-1]
         return "Game drawn." if result["winner"] is None else f"{room.names[result['winner']]} wins this game."
@@ -754,14 +837,14 @@ def spectator_odds(room):
     estimate, until the new one is ready (refresh_odds sends it on)."""
     game = room.game
     if (game is None or room.status != "playing" or game.phase == "over" or room.odds_game is not game
-            or not (room.show_odds or room.solo)):  # the host can turn these off
+            or not room.shows_odds):  # the host can turn these off
         return None
     return room.odds
 
 
 def odds_stale(room):
     game = room.game
-    return (game is not None and room.status == "playing" and game.phase != "over" and (room.show_odds or room.solo)
+    return (game is not None and room.status == "playing" and game.phase != "over" and room.shows_odds
             and any(room.watchers.values()) and odds_key(game) != room.odds_key)
 
 
@@ -801,7 +884,7 @@ def snapshot(room, token, watch=False):
              "points": room.points, "timeline": room.timeline,
              # who is in each seat, for opening their stats from the table
              "player_ids": [(profile or {}).get("id") for profile in room.participants],
-             "streak": room.streak if room.solo and not room.practice and not room.tournament else None,
+             "streak": room.streak if room.solo and not room.practice and not room.tournament and not room.puzzle else None,
              "round": len(room.history) + (0 if room.round_recorded else 1),
              "connected": [p in room.bot_seats or room.local or room.ai_match or (bool(room.clients.get(seat)) if seat else room.solo and p == 1) for p, seat in enumerate(room.seats)],
              "local": room.local,
@@ -817,6 +900,17 @@ def snapshot(room, token, watch=False):
         if room.counts_streak:
             profile = room.progression.profile(room.progression_players[0])
             state['streak'] = {'current': profile['current_streak'], 'best': profile['best_streak'], 'draws': profile['draws_in_row']}
+    if room.puzzle:
+        store = room.puzzle_store
+        day = room.puzzle["day"]
+        state["puzzle"] = {"number": room.puzzle["number"], "day": day.isoformat(),
+                           "last": room.puzzle.get("last"),
+                           **(store.mine(day, room.puzzle["player"]) if store else {}),
+                           # (who is who stays on the server: each row just says whether it is yours)
+                           "board": [{**{k: v for k, v in row.items() if k != "player"}, "mine": row["player"] == room.puzzle["player"]}
+                                     for row in (store.board(day, 5) if store else [])]}
+        # each attempt is dealt in afresh, like a new game
+        state["round"] = state["puzzle"].get("attempts") or 1
     state['void_offer'] = room.void_offer
     state['void_offered'] = room.void_offered
     state['resume_notice'] = room.resume_notice
@@ -869,7 +963,7 @@ def snapshot(room, token, watch=False):
         **score_view(game),
         "rule_previews": rule_preview_data(game),
         # part of the score preview, so a host who turns that off turns this off too
-        "near_rules": one_move_rules(game, viewer) if not watch and (room.score_preview or room.solo) and room.status == "playing" else [],
+        "near_rules": one_move_rules(game, viewer) if not watch and room.shows_previews and room.status == "playing" else [],
         "legal": legal, "last_move": last_move,
         "guess_target": game.guess_pending["target"] if game.phase == "guess" else None,
         "last_guess": getattr(game, "last_guess", None),
@@ -912,6 +1006,10 @@ def apply_move(room, token, move):
         if seat != 0 or room.status != "waiting" or not enough:
             raise HTTPException(409, "The host can start when the guest is ready.")
         room.start_round()
+    elif move.action == "retry":
+        if not room.puzzle:
+            raise HTTPException(409, "Only a puzzle can be tried again.")
+        room.start_puzzle()
     elif move.action == "next_round":
         if room.status != "round_over":
             raise HTTPException(409, "The next game is not available yet.")
@@ -1051,6 +1149,9 @@ def preview_move(room, token, move):
     """
     if token not in room.seats:
         raise HTTPException(403, "You do not have a seat.")
+    if not room.shows_previews:
+        # the host turned previews off (and a puzzle never has them): no peeking here either
+        raise HTTPException(403, "Score previews are off at this table.")
     game = room.game
     if game is None or room.status != "playing" or room.void_offer or move.version != room.version:
         raise HTTPException(409, "The table changed.")
@@ -1085,11 +1186,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         try:
             store.history.interrupt_open_matches()
             monitor = asyncio.create_task(monitor_tables())
+            demos = asyncio.create_task(keep_demo_tables()) if debug_mode() else None
             try:
                 yield
             finally:
                 monitor.cancel()
-                await asyncio.gather(monitor, return_exceptions=True)
+                if demos:
+                    demos.cancel()
+                await asyncio.gather(monitor, *([demos] if demos else []), return_exceptions=True)
                 for room in store.rooms.values():
                     room.save_practice()
         finally:
@@ -1101,6 +1205,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             await bot_workers.close()
             store.history.close()
     app = FastAPI(title="Golf", docs_url=None, redoc_url=None, lifespan=lifespan)
+    # text sent compressed (the icons, with their rough edges baked in, are half a megabyte as text)
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.store = store
 
     @app.middleware("http")
@@ -1371,12 +1477,107 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if room.bot_task is asyncio.current_task():
                 room.bot_task = None
 
+    DEMO_TABLES = [
+        # (name, players, best of, how a series is won, solo)
+        ("Demo: five players", ["Ace", "Birdie", "Bogey", "Caddie", "Eagle"], 5, "points", False),
+        ("Demo: one on one", ["Fairway", "Mulligan"], 3, "wins", False),
+        ("Demo: solo", ["Birdie", "Golfbot"], None, "wins", True),
+    ]
+
+    def make_demo_table(name, players, best_of, series_mode, solo):
+        seats = [f"demo-bot:{secrets.token_hex(6)}" for _ in players]
+        room = Room(secrets.token_urlsafe(9), name, parse_rules(house_rules()), best_of, "random", solo, seats, list(players),
+                    history_store=None, game_type="many" if len(players) > 2 else "1v1", series_mode=series_mode,
+                    house_rules=True, house_version=HOUSE_VERSION)
+        room.resize_seats()
+        room.demo = True
+        room.avatars = [BOT_AVATAR if player == "Golfbot" else DEMO_AVATARS.get(player) for player in players]
+        room.participants = [{'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'} if player == "Golfbot"
+                             else demo_profile(player) for player in players]
+        room.bot_seats = list(range(len(players)))
+        room.start_round()
+        room.version += 1
+        return room
+
+    # A debug server's demo tournaments: the Demo Cup (the eight demo players, best of 3)
+    # and the Demo Open (32 players, one game a match). (name, players, best of)
+    DEMO_FIELD = DEMO_BOTS + ["Golfbot", "Albatross", "Divot", "Sandy", "Putter", "Wedge", "Tee", "Driver", "Rough",
+                              "Bunker", "Hazard", "Chip", "Pitch", "Dogleg", "Fringe", "Links", "Niblick", "Spoon",
+                              "Mashie", "Iron", "Hook", "Slice", "Shank", "Yips", "Gimme"]
+    DEMO_TOURNAMENTS = [("Demo Cup", DEMO_BOTS + ["Golfbot"], 3), ("Demo Open", DEMO_FIELD[:32], 1)]
+    DEMO_LOOKS = ["tree", "bird", "dog", "cup", "fork", "club", "cat", "fish", "hare", "tortoise", "ladybug"]
+
+    def make_demo_tournament(name, players, best_of):
+        """Demo players in a single-elimination bracket, seeded by MMR. Its matches are
+        played by the quick debug bots, and it is never saved."""
+        tournament = Tournament(secrets.token_urlsafe(9), name, None, 'single', 'mmr', 'ai', False, settings={
+            'best_of': best_of, 'series_mode': 'wins', 'first': 'random', 'house_rules': True,
+            'house_version': HOUSE_VERSION, 'rules': asdict(parse_rules(house_rules())),
+            'score_preview': True, 'show_odds': True})
+        tournament.demo = True
+        for i, player in enumerate(players):
+            golfbot = player == "Golfbot"
+            # (each named as a demo player, so the standings open their profile; the ones
+            # off the leaderboard get a steady made-up rating from their place in the field)
+            tournament.add(player, avatar=BOT_AVATAR if golfbot else DEMO_AVATARS.get(player, DEMO_LOOKS[i % len(DEMO_LOOKS)]),
+                           profile={'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'} if golfbot else demo_profile(player),
+                           rating=DEMO_RANKED.get(player, (1000 if i < 8 else 1240 - (i * 37) % 360,))[0], ai=True)
+        tournament.start(ai_avatar=BOT_AVATAR)
+        return tournament
+
+    async def keep_demo_tournament():
+        """A debug server always has its demo tournaments running; a finished one stays up
+        a minute with its winner, then a fresh one is drawn."""
+        for name, players, best_of in DEMO_TOURNAMENTS:
+            tournament = next((t for t in store.tournaments.values() if getattr(t, 'demo', False) and t.name == name), None)
+            if tournament is not None and tournament.status == 'finished':
+                done = max((match.ended_at or 0 for match in tournament.matches.values()), default=0)
+                if time.time() - done < 60:
+                    tournament.touched = time.time()
+                    continue
+                store.tournaments.pop(tournament.id, None)
+                tournament = None
+            if tournament is None:
+                tournament = make_demo_tournament(name, players, best_of)
+                store.tournaments[tournament.id] = tournament
+                await advance_tournament(tournament)
+            tournament.touched = time.time()
+
+    async def keep_demo_tables():
+        """A debug server always has three demo games on Watch: five players, one on one,
+        and a solo game. Bots play them; when one's series ends, a fresh one takes its place."""
+        names = [table[0] for table in DEMO_TABLES]
+        while True:
+            try:
+                for table in DEMO_TABLES:
+                    room = next((room for room in store.rooms.values() if room.demo and room.name == table[0]), None)
+                    if room is not None and room.status == "round_over":
+                        async with room.lock:
+                            if room.status == "round_over" and time.time() - (room.history[-1].get("ended_at") or 0) > 6:
+                                room.start_round()
+                                room.version += 1
+                                await broadcast(room)
+                    elif room is not None and room.status == "finished" and time.time() - (finished_at(room) or 0) < WATCH_FINISHED_FOR + 5:
+                        pass  # (it stays on Watch a minute with its winner first)
+                    elif room is None or room.status not in ("playing", "round_over"):
+                        if room is not None:
+                            store.rooms.pop(room.id, None)
+                        room = make_demo_table(*table)
+                        store.rooms[room.id] = room
+                    room.touched = time.time()
+                    kick_bot(room)
+                await keep_demo_tournament()
+            except Exception:
+                log.exception("Could not keep the demo tables (%s)", ", ".join(names))
+            await asyncio.sleep(3)
+
     async def debug_bot_loop(room):
         """Debug tables: every seat but yours is a quick bot playing legal moves (no search)."""
         rng = random.Random()
         try:
             while True:
-                await asyncio.sleep(0.6)
+                # (a demo table plays at a watchable pace)
+                await asyncio.sleep(2.2 if room.demo else 0.6)
                 async with room.lock:
                     if room.id not in store.rooms:
                         return
@@ -1402,7 +1603,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                         room.record_result()
                         room.version += 1
                         await broadcast(room)
-                    elif not any(room.clients.values()) and time.time() - room.touched > 600:
+                    elif not room.demo and not any(room.clients.values()) and time.time() - room.touched > 600:
                         return  # nobody watching: stop until someone plays again
         except Exception:
             log.exception("Debug bots stopped at table %s", room.id)
@@ -1724,11 +1925,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     @app.get("/api/history")
     async def match_history(request: Request, offset: int = Query(default=0, ge=0),
-                            kind: Literal["pvp", "solo", "tournament"] | None = Query(default=None)):
+                            kind: Literal["pvp", "solo", "tournament"] | None = Query(default=None),
+                            mine: bool = False, limit: int = Query(default=50, ge=1, le=50)):
         """Saved matches, newest first. `kind` keeps one sort: games against Golfbot,
-        tournament matches, or everything else (tables between players)."""
-        matches = store.history.for_browser(session_for(request).token, limit=51, offset=offset, kind=kind)
-        return {"matches": matches[:50], "next_offset": offset + 50 if len(matches) > 50 else None}
+        tournament matches, or everything else (tables between players); `mine`, only your own."""
+        matches = store.history.for_browser(session_for(request).token, limit=limit + 1, offset=offset, kind=kind, mine=mine)
+        if mine:
+            # your recent matches (the Play tab) show everyone's MMR beside their name
+            for match in matches[:limit]:
+                match["mmr"] = [None if not profile or str(profile.get("id", "")).startswith("bot:") else
+                                store.progression.mmr(profile) for profile in (match.get("participants") or [])]
+        return {"matches": matches[:limit], "next_offset": offset + limit if len(matches) > limit else None}
 
     @app.get("/api/stats")
     async def player_stats(request: Request,
@@ -1770,6 +1977,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         session = session_for(request)
         # the boards show every guest as one "Guest"; records still name the player
         boards = store.progression.leaderboard(PATCH_VERSION)
+        if debug_mode():
+            # (a debug server's demo players, ranked among the real ones)
+            boards['pvp'] = sorted(boards['pvp'] + demo_leaderboard_rows(), key=lambda row: (-row['mmr'], row['id']))
         ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
         boards['records'] = await asyncio.to_thread(build_records, results, ratings, record_extras())
@@ -1789,6 +1999,51 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
         results = await asyncio.to_thread(store.history.stats_results)
         return await asyncio.to_thread(player_card, results, ratings, player, record_extras())
+
+    @app.get('/api/profile')
+    async def player_profile(request: Request, player: str = Query(max_length=64)):
+        """Another player's profile: their card (MMR, streaks, time played), who they are and
+        when they were last on, their own bests beside the viewer's, and whether the two are
+        friends."""
+        session = session_for(request)
+        ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
+        results = await asyncio.to_thread(store.history.stats_results)
+        profile = await asyncio.to_thread(player_card, results, ratings, player, record_extras())
+        try:
+            viewer = profile_for(session)['id']
+        except HTTPException:
+            viewer = None
+        profile['self'] = viewer == player
+        profile['personal'] = await asyncio.to_thread(personal_records, results, ratings, player)
+        profile['mine'] = (await asyncio.to_thread(personal_records, results, ratings, viewer)
+                           if viewer and viewer != player else None)
+        # games in a row won against Golfbot, as their own table counts them
+        with store.progression.lock:
+            row = store.progression.db.execute(
+                'SELECT current_streak, best_streak FROM progression_players WHERE patch=? AND id=?',
+                (PATCH_VERSION, player)).fetchone()
+        profile['solo_streak'], profile['best_solo_streak'] = (row[0], row[1]) if row else (0, 0)
+        profile.update(label=None, unique_name=None, avatar=None, status=None, last_seen=None, friend=None)
+        if player.startswith('demo:'):
+            # (a debug server's demo player: named, with their avatar and demo MMR)
+            name = player.split(':', 1)[1].title()
+            profile['label'], profile['avatar'] = name, DEMO_AVATARS.get(name)
+            profile['mmr'] = DEMO_RANKED.get(name, (None,))[0]
+        if player.startswith('account:'):
+            account_id = player.split(':', 1)[1]
+            account = store.accounts.by_ids([account_id]).get(account_id)
+            if account:
+                state = friend_status(account_id, store.friends.last_seen([account_id]))
+                profile.update(label=account.get('display_name'), unique_name=account.get('unique_name'),
+                               avatar=state.get('avatar'), status=state['status'], last_seen=state.get('last_seen'))
+                if not session.account:
+                    profile['friend'] = 'signin'
+                elif session.account['id'] == account_id:
+                    profile['friend'] = 'self'
+                else:
+                    mine = next((item for item in store.friends.list(session.account['id']) if item['id'] == account_id), None)
+                    profile['friend'] = mine['status'] if mine else 'none'
+        return profile
 
     @app.get("/api/lobbies")
     async def lobbies():
@@ -2006,6 +2261,94 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             players[identity] = other
         return list(players.values())
 
+    def friend_status(account_id, seen):
+        """What a friend is up to: in a game (and where to watch it), solving the puzzle, online, or last seen."""
+        now = time.time()
+        live = [other for other in store.sessions.values()
+                if other.account and other.account['id'] == account_id and other.online_until > now]
+        for other in live:
+            room = store.rooms.get(other.room_id)
+            if room and other.token in room.seats and room.status in ("playing", "round_over") and room.game:
+                if room.puzzle:
+                    return {"status": "puzzle", "avatar": other.avatar}
+                return {"status": "in_game", "avatar": other.avatar,
+                        "room_id": room.id if in_play(room) else None, "solo": room.solo}
+        if live:
+            # (online and free: they can be invited to a table)
+            return {"status": "online", "avatar": live[0].avatar, "invite_id": live[0].public_id}
+        at, avatar = seen.get(account_id, (None, None))
+        return {"status": "offline", "avatar": avatar, "last_seen": at}
+
+    def signed_in(session):
+        if not session.account or not session.account.get('unique_name'):
+            raise HTTPException(403, "Sign in and choose your unique name to add friends.")
+        return session.account['id']
+
+    @app.get('/api/friends')
+    async def friends_list(request: Request):
+        """Your friends (with what each is up to, busiest first) and the requests either way."""
+        session = session_for(request)
+        if not session.account or not session.account.get('unique_name'):
+            return {"signed_in": False, "friends": [], "incoming": [], "outgoing": []}
+        rows = store.friends.list(session.account['id'])
+        accounts = store.accounts.by_ids(row['id'] for row in rows)
+        seen = store.friends.last_seen(row['id'] for row in rows)
+        result = {"signed_in": True, "friends": [], "incoming": [], "outgoing": []}
+        for row in rows:
+            account = accounts.get(row['id'])
+            if account is None or not account.get('unique_name'):
+                continue
+            entry = {"unique_name": account['unique_name'],
+                     "display_name": account.get('display_name') or account['unique_name'],
+                     "since": row['since'],
+                     # (their player id, as boards and tables name players: so each can mark them)
+                     "id": 'account:' + row['id']}
+            if row['status'] == 'friend':
+                entry.update(friend_status(row['id'], seen))
+                try:
+                    entry["mmr"] = store.progression.mmr({'id': 'account:' + row['id']})
+                except Exception:
+                    entry["mmr"] = None
+                result["friends"].append(entry)
+            else:
+                entry["avatar"] = seen.get(row['id'], (None, None))[1]
+                result[row['status']].append(entry)
+        order = {"in_game": 0, "puzzle": 1, "online": 2, "offline": 3}
+        result["friends"].sort(key=lambda f: (order[f["status"]], -(f.get("last_seen") or 0), f["display_name"].lower()))
+        return result
+
+    @app.post('/api/friends')
+    async def friend_request(body: FriendRequest, request: Request):
+        session = session_for(request)
+        me = signed_in(session)
+        other = store.accounts.by_unique_name(body.unique_name)
+        if other is None or not other.get('unique_name'):
+            raise HTTPException(404, f"Nobody goes by @{body.unique_name.strip().lstrip('@').lower()}.")
+        try:
+            outcome = store.friends.request(me, other['id'])
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return {"outcome": outcome, "unique_name": other['unique_name']}
+
+    @app.post('/api/friends/{unique_name}/accept')
+    async def friend_accept(unique_name: str, request: Request):
+        session = session_for(request)
+        me = signed_in(session)
+        other = store.accounts.by_unique_name(unique_name)
+        if other is None or not store.friends.accept(me, other['id']):
+            raise HTTPException(404, "That friend request is no longer there.")
+        return {"outcome": "accepted"}
+
+    @app.delete('/api/friends/{unique_name}')
+    async def friend_remove(unique_name: str, request: Request):
+        """Unfriend, decline a request, or take your own back."""
+        session = session_for(request)
+        me = signed_in(session)
+        other = store.accounts.by_unique_name(unique_name)
+        if other is not None:
+            store.friends.remove(me, other['id'])
+        return {"removed": True}
+
     @app.post('/api/account/preferences')
     async def save_preferences(body: Preferences, request: Request):
         """Save a signed-in player's settings so their other devices pick them up."""
@@ -2050,6 +2393,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             set_name(session, body.username)
             choose_avatar(session, body.avatar)
         session.online_until = time.time() + 30
+        if session.account and session.seen_saved < time.time() - 60:
+            # friends see when someone was last on (written once a minute at most)
+            session.seen_saved = time.time()
+            try:
+                store.friends.seen(session.account['id'], session.avatar)
+            except Exception:
+                log.exception("Could not note when an account was seen")
         # a page in front polls every few seconds and says so (a background tab
         # does not, so this runs out soon after Golf is put away)
         if body.visible:
@@ -2074,9 +2424,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return {
             'available_lobbies': sum(not room.solo and room.has_open_seat
                                      and session.token not in room.seats for room in store.rooms.values()),
-            # games in play someone else is playing (the Spectate tile's count)
-            'spectatable_games': sum(in_play(room) and session.token not in room.seats
-                                     for room in store.rooms.values()),
+            # games in play someone else is playing, and tournaments being played (the Watch
+            # tab's count: what it lists, a tournament's matches counted once, in its card)
+            'spectatable_games': sum(in_play(room) and not room.tournament and session.token not in room.seats
+                                     for room in store.rooms.values())
+                                 + sum(tournament.status == 'live' for tournament in store.tournaments.values()),
             'players': [{'id': other.public_id, 'display_name': other.username, 'avatar': other.avatar,
                          'unique_name': (other.account or {}).get('unique_name'),
                          # (in a game against Golfbot: they can still be invited, and leave it to accept)
@@ -2173,6 +2525,57 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room.resize_seats()
         room.avatars[0] = session.avatar
         room.participants[0] = profile_for(session)
+        store.rooms[room.id] = room
+        session.room_id = room.id
+        return snapshot(room, session.token)
+
+    def puzzle_player(session):
+        return 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
+
+    @app.get("/api/puzzle")
+    async def puzzle_today(request: Request, limit: int = Query(default=5, ge=1, le=daily_puzzle.BOARD_SIZE)):
+        """Today's puzzle: its number, the starting hand, the best scores, and how you have done."""
+        session = session_for(request)
+        day = daily_puzzle.today()
+        board = store.puzzles.board(day, limit)
+        me = puzzle_player(session)
+        friends = friend_ids(session)
+        for row in board:
+            player = row.pop("player")
+            row["mine"] = player == me
+            row["friend"] = player in friends
+        return {"number": daily_puzzle.puzzle_number(day), "day": day.isoformat(),
+                "hand": daily_puzzle.preview(day), "board": board,
+                "players": len(store.puzzles.board(day)), **store.puzzles.mine(day, me)}
+
+    @app.post("/api/puzzle")
+    async def puzzle_start(request: Request):
+        """Start (or start again) today's puzzle at a table of your own."""
+        session = session_for(request)
+        old = store.rooms.get(session.room_id)
+        if old and old.puzzle and session.token in old.seats:
+            # still at the puzzle: a fresh attempt at the same table
+            async with old.lock:
+                old.start_puzzle()
+                old.version += 1
+            return snapshot(old, session.token)
+        leave_old(session, 'starting the puzzle')
+        store.cleanup()
+        if len(store.rooms) >= 200:
+            raise HTTPException(503, "The server has too many tables.")
+        cancel_queue(session.token)
+        day = daily_puzzle.today()
+        number = daily_puzzle.puzzle_number(day)
+        room = Room(secrets.token_urlsafe(9), f"Daily Puzzle #{number}", daily_puzzle.puzzle_rules(), None, "host",
+                    True, [session.token, None], [session.username, "Golfbot"], ready=[False, True], wins=[0, 0],
+                    participants=[None, {'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'}],
+                    departed=[False, False], avatars=[session.avatar, BOT_AVATAR],
+                    void_offered=[False, False], disconnected=[None, None], house_rules=True, house_version=HOUSE_VERSION,
+                    # the puzzle is to work the score out yourself: no preview before you confirm
+                    score_preview=False, show_odds=False,
+                    puzzle={"day": day, "number": number, "player": puzzle_player(session)},
+                    puzzle_store=store.puzzles)
+        room.start_puzzle()
         store.rooms[room.id] = room
         session.room_id = room.id
         return snapshot(room, session.token)
@@ -2337,7 +2740,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def preview(room_id: str, move: Move, request: Request):
         session = session_for(request)
         room = find_room(room_id)
-        if not (room.score_preview or room.solo):
+        if not room.shows_previews:
             raise HTTPException(403, "The host turned off score previews at this table.")
         try:
             return preview_move(room, session.token, move)
@@ -2386,7 +2789,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     # ---------- spectating ----------
     def watchable(room):
-        return room.game is not None and room.status in ("playing", "round_over") and not all(room.departed)
+        return not room.puzzle and room.game is not None and room.status in ("playing", "round_over") and not all(room.departed)
 
     def in_play(room):
         # what the Spectate menu offers: a game still being played. One that has
@@ -2397,17 +2800,62 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     async def spectate_list(request: Request):
         """Every game in play anyone can watch, solo games included, newest first."""
         session = session_for(request)
-        rooms = sorted((room for room in store.rooms.values() if in_play(room)),
+        friends = friend_ids(session)
+        # in play, between games of a series, or (for a minute) just finished
+        rooms = sorted((room for room in store.rooms.values() if on_watch(room)),
                        key=lambda room: room.started_at or 0, reverse=True)
         return [{**public_room(room), "round": len(room.history) + (0 if room.round_recorded else 1),
-                 "turns": room.game.turns, "scores": showing_scores(room.game),
+                 # (the game in play: once it is over its scores are in the series' points)
+                 "turns": room.game.turns, "scores": showing_scores(room.game) if room.status == "playing" and not room.round_recorded else None,
+                 "finished": room.status == "finished", "champion": room.champion if room.status == "finished" else None,
+                 "ended_at": finished_at(room),
                  "watchers": sum(bool(sockets) for sockets in room.watchers.values()),
                  "streak": solo_streak(room),
+                 # (the Watch tab's cards: how long ago it began, the series so far, everyone's MMR)
+                 "started_at": room.started_at, "wins": room.wins, "points": room.points,
+                 "mmr": spectate_mmr(room),
+                 # (each seat: whether it is one of your friends)
+                 "friends": [bool(profile and profile.get('id') in friends) for profile in room.participants],
                  "mine": session.token in room.seats} for room in rooms]
+
+    def friend_ids(session):
+        """The player ids of your friends (none when you are not signed in)."""
+        if not session.account:
+            return set()
+        try:
+            return {'account:' + row['id'] for row in store.friends.list(session.account['id']) if row['status'] == 'friend'}
+        except Exception:
+            return set()
+
+    WATCH_FINISHED_FOR = 60  # seconds a finished series stays on Watch, with its winner
+
+    def finished_at(room):
+        return room.history[-1].get('ended_at') if room.status == 'finished' and room.history else None
+
+    def on_watch(room):
+        """Whether a table is on the Watch tab: in play, between the games of a series, or a
+        series that has just finished (for a minute, showing who won)."""
+        if room.puzzle or room.game is None:
+            return False
+        if room.status == 'finished':
+            return time.time() - (finished_at(room) or 0) < WATCH_FINISHED_FOR
+        return watchable(room) and (room.status == 'round_over' or room.game.phase != 'over')
+
+    def spectate_mmr(room):
+        values = []
+        for profile in room.participants:
+            try:
+                if demo_mmr(profile) is not None:
+                    values.append(demo_mmr(profile))
+                    continue
+                values.append(store.progression.mmr(profile) if profile and profile.get('id', '').startswith('account:') else None)
+            except Exception:
+                values.append(None)
+        return values
 
     def solo_streak(room):
         """A solo player's win streak against Golfbot, as their own table shows it (None elsewhere)."""
-        if not room.solo or room.tournament:
+        if not room.solo or room.tournament or room.puzzle:
             return None
         if room.counts_streak and room.progression and room.progression_players:
             profile = room.progression.profile(room.progression_players[0])
@@ -2503,6 +2951,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 return {'left': True}
             if session.room_id == room.id:
                 session.room_id = None
+            if room.puzzle:
+                # a puzzle is nobody else's: leaving just puts it away
+                room.status, room.departed = "closed", [True, True]
+                store.rooms.pop(room.id, None)
+                return {"left": True}
             if store.queue_results.get(session.token) == room.id:
                 store.queue_results.pop(session.token, None)
             if room.status == "waiting" and seat != 0:
@@ -2726,8 +3179,19 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                          'ranked': tournament.ranked, 'entrants': len(tournament.entrants),
                          'host': host.name if host else '', 'champion': champion.name if champion else None,
                          'live': len(tournament.live()), 'settings': tournament.settings,
+                         # (the Watch tab's card: when it began, and how many are watching its matches)
+                         'started_at': tournament.started_at, 'watchers': tournament_watchers(tournament),
                          'mine': tournament.by_token(session.token) is not None, 'created_at': tournament.created_at})
         return sorted(rows, key=lambda row: (('live', 'open').index(row['status']), -row['created_at']))
+
+    def tournament_watchers(tournament):
+        """Everyone watching one of a tournament's matches now."""
+        total = 0
+        for match in tournament.live():
+            room = store.rooms.get(match.room_id) if match.room_id else None
+            if room is not None:
+                total += sum(bool(sockets) for sockets in room.watchers.values())
+        return total
 
     @app.get('/api/tournament-history')
     async def tournament_history(request: Request):
@@ -2991,6 +3455,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         room.start_round()
         room.version += 1
         match.status, match.room_id, match.started_at = 'live', room.id, time.time()
+        room.demo = getattr(tournament, 'demo', False)
         if room.ai_match:
             room.bot_task = asyncio.create_task(ai_match_loop(room))
 
@@ -3010,7 +3475,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 break
             for match in ready:
                 await start_match(tournament, match)
-        if tournament.status == 'finished' and not getattr(tournament, 'saved', False):
+        if tournament.status == 'finished' and not getattr(tournament, 'saved', False) and not getattr(tournament, 'demo', False):
             tournament.saved = True
             try:
                 store.history.save_tournament(tournament.view())
@@ -3047,7 +3512,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         rng = random.Random()
         try:
             while True:
-                await asyncio.sleep(AI_MATCH_PACE)
+                # (a demo match plays at a watchable pace)
+                await asyncio.sleep(2.2 if room.demo else AI_MATCH_PACE)
                 async with room.lock:
                     if room.id not in store.rooms or room.status not in ("playing", "round_over"):
                         return
@@ -3073,7 +3539,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     position = public_position(game)
                     position._root_actions = set(legal_actions(game))
                 try:
-                    action = await bot_workers.choose(position)
+                    # (a demo match: the quick debug bot's legal moves, not Golfbot's search)
+                    if room.demo:
+                        allowed = list(position._root_actions)
+                        moves = [action for action in allowed if action[0] != "bonus"] or allowed
+                        action = fallback_action(allowed) if rng.random() < 0.55 else (rng.choice(moves) if moves else None)
+                    else:
+                        action = await bot_workers.choose(position)
                 except Exception:
                     log.exception("AI decision failed at table %s; using a legal fallback", room.id)
                     action = None
@@ -3195,6 +3667,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.get("/stats")
     @app.get("/leaderboard")
     @app.get("/spectate")
+    # the home screen's tabs (Play is "/")
+    @app.get("/flags")
+    @app.get("/you")
+    @app.get("/watch")
+    @app.get("/aces")
+    @app.get("/aces/{view}")
+    @app.get("/player/{player_id}")
+    @app.get("/puzzle")
     @app.get("/tournament/{tournament_id}")
     @app.get("/patch-notes")
     @app.get("/notifications")

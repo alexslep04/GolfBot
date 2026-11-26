@@ -59,6 +59,9 @@ class MatchHistory:
             "house_rules": room.house_rules, "house_version": room.house_version,
             "patch": room.patch, "series_mode": room.series_mode, "game_type": room.game_type,
             "participants": room.participants,
+            # each seat's avatar (Match history draws them; older matches have none)
+            "avatars": list(getattr(room, 'avatars', None) or []),
+            "rated": bool(getattr(room, 'rated', False)),
             # a tournament match says which tournament and round it was
             "tournament": ({key: tournament.get(key) for key in ('id', 'name', 'label', 'match')}
                            if (tournament := getattr(room, 'tournament', None)) else None),
@@ -103,11 +106,15 @@ class MatchHistory:
         'pvp': "WHERE NOT COALESCE(json_extract(payload, '$.solo'), 0) AND json_extract(payload, '$.tournament') IS NULL",
     }
 
-    def for_browser(self, token, limit=100, offset=0, kind=None):
-        """List everyone's matches; identify the viewer's seat only if they played."""
+    def for_browser(self, token, limit=100, offset=0, kind=None, mine=False):
+        """List everyone's matches (or with `mine`, only this browser's); identify the viewer's seat only if they played."""
         key = browser_key(token)
+        where, params = self.KINDS.get(kind, ''), []
+        if mine:
+            where = (where + " AND " if where else "WHERE ") + "(host=? OR guest=? OR id IN (SELECT match_id FROM match_seats WHERE browser=?))"
+            params = [key, key, key]
         with self.lock:
-            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches " + self.KINDS.get(kind, '') + " ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches " + where + " ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
             viewers = {match_id: seat for match_id, seat in self.connection.execute('SELECT match_id, seat FROM match_seats WHERE browser=?', (key,))} if key else {}
         return [{**self._upgrade(json.loads(payload)), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
                 for match_id, host, guest, payload in rows]

@@ -1,4 +1,5 @@
-"""Convert exported SF Symbol PDFs into web/icons.js.
+"""Convert exported SF Symbol PDFs into tools/design/icons-smooth.js (the smooth icons;
+tools/design/roughen.py then bakes in the paper edge and writes web/icons.js).
 
 Usage: build_icons.py <pdf_dir> <out.js>   (needs `mutool` on PATH)
 

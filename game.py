@@ -124,8 +124,14 @@ def rules_from(values):
 
 
 class GolfGame:
-    def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0, player_count=2, turn_order=None):
-        if type(player_count) is not int or not 2 <= player_count <= 30 or first_player not in range(player_count):
+    def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0, player_count=2, turn_order=None,
+                 puzzle=False):
+        # a puzzle is one hand against Golfbot from a seeded deck: the player always
+        # goes first, each side starts with the same two cards face up, and the deck
+        # never reshuffles (should it run out, the hand ends there)
+        if puzzle:
+            player_count, first_player, turn_order, multiplayer = 2, 0, None, False
+        elif type(player_count) is not int or not 2 <= player_count <= 30 or first_player not in range(player_count):
             raise ValueError("Choose 2–30 players and an existing first player.")
         if player_count > 2 and not multiplayer:
             raise ValueError("Many-player games require human players.")
@@ -134,6 +140,7 @@ class GolfGame:
         if sorted(self.turn_order) != list(range(player_count)):
             raise ValueError("Turn order must contain each player once.")
         self.multiplayer = multiplayer
+        self.puzzle = puzzle
         self.first_player = first_player
         self.rules = replace(rules) if rules else Rules()
         self.rng = random.Random(seed)
@@ -168,6 +175,15 @@ class GolfGame:
         self.last_guess = None
         self.message = "Select one of your cards and Flip. Reveal two to start."
         self.last_move = "Reveal two cards each to start."
+        if puzzle:
+            # the opening cards are part of the puzzle: the same two each, every attempt
+            for hand in self.players:
+                for index in self.rng.sample(range(6), 2):
+                    hand[index].visible = True
+            self._record_scoring_effects()
+            self.phase = "choose"
+            self.message = "Your turn: Flip your card, Draw, or Swap with the discard."
+            self.last_move = "The puzzle is dealt."
 
     def set_rule(self, key, enabled):
         if self.phase != "setup" or key not in {key for key, _ in RULE_OPTIONS}:
@@ -454,6 +470,8 @@ class GolfGame:
             self.message = "Continue: Swap, Draw, or End turn." if self.phase == "revealed" else "Continue: Swap or Discard."
 
     def _draw(self):
+        if not self.draw_pile and getattr(self, "puzzle", False):
+            raise ValueError("The deck is empty.")
         if not self.draw_pile:
             top = self.discard_pile[-1]
             self.draw_pile = self.discard_pile[:-1]
@@ -630,6 +648,12 @@ class GolfGame:
 
     def _complete_turn(self):
         self.turns += 1
+        if getattr(self, "puzzle", False) and not self.draw_pile and self.finisher is None:
+            # the deck is spent: the puzzle ends here, every card turned up and scored
+            self.finisher = None
+            self.scoring_reveal = True
+            self._resolve_scoring_reveal()
+            return
         if self.finisher is not None and self.final_turn_queue is not None:
             if self.final_turn_queue:
                 self.current = self.final_turn_queue.pop(0)

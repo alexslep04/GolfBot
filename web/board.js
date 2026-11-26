@@ -518,7 +518,7 @@ function boardView() {
     }));
   const table = {};
   for (const player of [me, opp])
-    hand(player).forEach((slot, i) => (table[`${player}:${i}`] = slot));
+    if (player != null) hand(player).forEach((slot, i) => (table[`${player}:${i}`] = slot));
   table["discard:"] = { key: g.discard ? cardKey(g.discard) : "", card: g.discard };
   table["held:"] = { key: g.held ? cardKey(g.held) : "", card: g.held };
   table["draw:"] = { key: g.draw_count > 0 ? "X" : "", card: null };
@@ -730,7 +730,7 @@ function syncCards(prev, view) {
 
 /** New game: the hands are dealt out of the go-fish pile. */
 function dealIn(view) {
-  const keys = [view.opp, view.me].flatMap((player) => [0, 1, 2, 3, 4, 5].map((i) => `${player}:${i}`));
+  const keys = [view.opp, view.me].filter((player) => player != null).flatMap((player) => [0, 1, 2, 3, 4, 5].map((i) => `${player}:${i}`));
   // Hide the hands now, but aim the cards a frame later: the table is still being
   // drawn (panels, the desktop action bar), and measuring now would land every
   // card short of where its slot ends up, then snap it into place.
@@ -1024,7 +1024,7 @@ function renderTags() {
   for (const [side, player] of [
     ["me", state.viewer],
     ["opp", board.view.opp],
-  ]) {
+  ].filter(([, player]) => player != null)) {
     const enabled = (g.modifier_counts || state.modifier_counts || [])[player] ?? 0;
     const label = state.names[player] + (state.rated ? ` (${state.ratings[player]})` : "");
     const color = colorFor(player);
@@ -1643,7 +1643,7 @@ function resultTitle(mood, sentence, sub, word = { win: "You Win!", lose: "You L
       const sag = (i % 2 ? -1 : 1) * (3 + ((i * 7) % 5));
       return char === " "
         ? `<span class="gap"></span>`
-        : `<span class="stk" style="--i:${i};--sag:${sag}deg;${idleStyle(`result:${i}`)}">${e(char)}</span>`;
+        : `<span class="stk" data-t="${e(char)}" style="--i:${i};--sag:${sag}deg;${idleStyle(`result:${i}`)}">${e(char)}</span>`;
     })
     .join("");
   return `<h2 class="result-title ${mood}" style="--t:-${elapsed}s" aria-label="${e(sentence)}"><span class="word" aria-hidden="true">${letters}</span>${sub ? `<small aria-hidden="true">${e(sub)}</small>` : ""}</h2>`;
@@ -1698,7 +1698,51 @@ function settleLifted() {
     motionFor(slot).to({ x: 0, y: 0, lean: 0, scale: 1, lift: 0, rx: 0, ry: 0 });
   }
 }
+/**
+ * The Daily Puzzle's result, where a game's results come up: how you did
+ * against Golfbot, your score for the day, and Try again (the same deal).
+ */
+function renderPuzzle() {
+  const holder = board.el.querySelector("[data-summary]");
+  if (!holder) return;
+  const info = state.puzzle;
+  const last = state.status === "finished" && info.last;
+  if (!last) {
+    board.sawPlay = state.status === "playing";
+    patch("summary", holder, "", "");
+    return;
+  }
+  // (the last move is left on the table a moment before the result comes up)
+  const holdKey = `${state.id}|puzzle|${info.attempts}`;
+  if (board.summaryHold?.key !== holdKey) board.summaryHold = { key: holdKey, until: board.sawPlay ? performance.now() + RESULTS_DELAY : 0 };
+  const wait = board.summaryHold.until - performance.now();
+  if (wait > 0) {
+    patch("summary", holder, "", "");
+    clearTimeout(board.summaryTimer);
+    board.summaryTimer = setTimeout(() => {
+      if (board.el?.isConnected && board.summaryHold?.key === holdKey) renderPuzzle();
+    }, wait + 10);
+    return;
+  }
+  settleLifted();
+  const title = last.new_best ? "New best!" : last.won ? "You beat Golfbot!" : last.drawn ? "A draw!" : "Golfbot wins";
+  const versus = last.won ? `You beat Golfbot, who had ${last.bot} pts.` : last.drawn ? `Golfbot had ${last.bot} pts too.` : `Golfbot won with ${last.bot} pts.`;
+  const best = last.new_best ? `Your best today${info.rank ? `, #${info.rank} on the board` : ""}.` : `Your best today is ${info.best} pts${info.rank ? ` (#${info.rank})` : ""}.`;
+  const signature = JSON.stringify([info.attempts, info.best, last, info.rank]);
+  patch(
+    "summary",
+    holder,
+    signature,
+    () => `<section class="summary panel c-p1 puzzle-panel" role="dialog" aria-label="Puzzle result">
+        <h2 class="pz-title" aria-label="${title}">${arcText(title, "pz-done")}</h2>
+        <div class="pz-score">${stickerText(String(last.score), { split: true, key: "pz-score" })}${stickerText("pts", { cls: "pts", key: "pz-pts" })}</div>
+        <p class="pz-note">${versus} ${best} Same deal every try: can you go lower?</p>
+        <div class="pz-actions"><button type="button" class="btn small c-fw" data-leave>${tilted("house.fill", 22)}Home</button><button type="button" class="btn small c-p1 grow" data-puzzle-retry>${tilted("arrow.clockwise", 22)}Try again</button></div>
+      </section>`,
+  );
+}
 function renderSummary() {
+  if (state.puzzle) return renderPuzzle(); // (its result is told in its own panel)
   const holder = board.el.querySelector("[data-summary]");
   const over = ["round_over", "finished", "closed"].includes(state.status);
   if (!over) {
@@ -1796,7 +1840,7 @@ function renderSummary() {
     const main = state.tournament && (finished || state.spectator)
       ? wide(`data-tournament-open="${e(state.tournament.id)}"`, "trophy.fill", "Bracket", padTag("y"))
       : state.spectator
-      ? wide("disabled", "eye.fill", "Watching…")
+      ? wide("disabled", "binoculars.fill", "Watching…")
       : state.local
       ? between
         ? wide('data-action="next_round"', "checkmark.circle.fill", "Next game", padTag("y"))
@@ -2848,7 +2892,7 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} rules in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="sheet-head"><h2>${nameMark(state.player_ids?.[player], isYou(player))}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} rules in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}

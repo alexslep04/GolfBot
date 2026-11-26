@@ -363,6 +363,8 @@ function show(name, html) {
   const template = same && document.createElement("template");
   page = name;
   document.documentElement.classList.remove("in-game");
+  // (a class rather than :has() in the CSS: that had the whole screen restyled whenever anything on it changed)
+  document.documentElement.classList.toggle("home-tabbed", name === "home");
   closeSheet();
   if (template?.content) {
     template.innerHTML = html;
@@ -420,12 +422,14 @@ function topbar() {
  * logo across from it, and the page's title on its own line underneath (with
  * anything that sits beside the title, like Refresh, in `extra`).
  */
-function pageHead(backAttrs, title = "", extra = "") {
+function pageHead(backAttrs, title = "", extra = "", sub = "") {
   const bar = `<header class="topbar">${backSticker(backAttrs)}<div class="queue-slot"></div>${logoHtml()}</header>`;
-  return title || extra ? `${bar}<div class="row page-head">${title ? `<h1 class="page-title">${e(title)}</h1>` : ""}${extra}</div>` : bar;
+  // the page's name on an arch, as a home tab's is (with a line under it, if it has one);
+  // anything else at the head of the page (Refresh, Leave) sits to the right of it
+  return `${bar}${title ? titleWith(tabTitle(title, sub, `page:${title}`), extra) : extra ? `<div class="page-extra">${extra}</div>` : ""}`;
 }
-function subHeader(title, back = session?.room_id ? "resume" : "home") {
-  return pageHead(`data-nav="${back}"`, title);
+function subHeader(title, back = session?.room_id ? "resume" : "home", sub = "") {
+  return pageHead(`data-nav="${back}"`, title, "", sub);
 }
 function field(label, body, iconName, extra = "") {
   return `<label class="field ${extra}"><span class="label">${e(label)}</span>${iconName ? tilted(iconName, 24) : ""}${body}</label>`;
@@ -457,7 +461,7 @@ function emptyNote(...lines) {
   return `<div class="empty-fill"><p class="hint">${lines.map(e).join("<br>")}</p></div>`;
 }
 function refreshButton(target) {
-  return `<button type="button" class="close-btn c-fw" data-nav="${target}" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button>`;
+  return `<button type="button" class="close-btn c-fw watch-refresh" data-nav="${target}" aria-label="Refresh">${icon("arrow.clockwise", 30)}<span>${padTag("x")}Refresh</span></button>`;
 }
 
 /* ---------- presence, invitations, quickplay queue ---------- */
@@ -504,12 +508,14 @@ function renderHomeLive() {
     sub.hidden = !sub.textContent;
   }
   const waiting = presenceState.queue_size || 0;
-  setCount("queue-count", waiting, `${waiting} ${waiting === 1 ? "player" : "players"} in queue`);
+  // (on Play Ranked itself, on Start a Game while it is closed, and on the Play tab's icon)
+  for (const id of ["queue-count", "queue-count-start", "queue-count-tab"]) setCount(id, waiting, `${waiting} ${waiting === 1 ? "player" : "players"} in queue`);
   const open = presenceState.available_lobbies || 0;
   setCount("lobby-count", open, `${open} open ${open === 1 ? "table" : "tables"}`);
   // the same count on Spectate: games in play you could watch
   const watchable = presenceState.spectatable_games || 0;
   setCount("spectate-count", watchable, `${watchable} ${watchable === 1 ? "game" : "games"} to watch`);
+  renderStartLabel();
 }
 function renderQueueBanner() {
   const banner = document.getElementById("queue-banner");
@@ -1056,66 +1062,16 @@ function patchChip() {
   if (!session?.patch || seen === session.patch) return "";
   return `<button type="button" class="chip patch-chip c-p4" data-nav="patches">${icon("newspaper.fill", 20, { idle: false })}<span>Updated to ${e(session.patch.replace(/\.0$/, ""))}: see what's new</span>${glyph("chevron.right", 12)}</button>`;
 }
-/* A guest is nudged to sign in once per visit, as the site opens: a tooltip
-   pointing at the settings gear (where Profile and sign-in live) that goes
-   away by itself after 10s. It shows even where this server has no Google
-   sign-in yet; Profile then says so. */
-let signInTipShown = false;
-function signInTip() {
-  if (signInTipShown || session.account || prefs.hideTips) return;
-  const bar = document.querySelector(".page.home .topbar");
-  if (!bar) return;
-  signInTipShown = true;
-  bar.insertAdjacentHTML(
-    "beforeend",
-    // made like the Quickplay queue pill, with a Sign in sticker on its end
-    `<div class="queue-pill signin-tip" data-signin-tip><span class="queue-info" role="status"><span class="queue-text"><b>Sign in in Settings</b><small>Keep your stats and streak</small></span></span><button type="button" class="act side-act queue-leave" aria-label="Sign in"><span class="act-ico">${icon("person.crop.circle.fill", 24, { sw: 3.4 })}</span><span class="side-label">Sign in</span></button></div>`,
-  );
-  const tip = bar.querySelector("[data-signin-tip]");
-  tip.addEventListener("click", () => {
-    tip.remove();
-    accountPage();
-  });
-  setTimeout(() => {
-    tip.classList.add("leaving");
-    setTimeout(() => tip.remove(), 300);
-  }, 10000);
-}
-function home() {
+/** Back to the home screen (on `tab`; Play unless told), leaving any table or game being watched. */
+function home(tab = "play") {
   leaveAfterSignIn = null;
   stopWatching();
   setDebugTool(null);
   clearEmotes();
   emoteTable = "";
-  document.title = "Golf";
   state = null;
   closeSocket();
-  history.replaceState({}, "", appPath());
-  const twin = (name, size = 33) =>
-    [tilted(name, size), tilted(name, size, { mirror: true })];
-  const friends = twin("figure.2"),
-    quick = twin("sparkles"),
-    practice = twin("dumbbell.fill");
-  show(
-    "home",
-    `<div class="page home">${topbar()}<div class="stack">
-    ${session.room_id ? `<button type="button" class="btn c-fw" data-nav="resume">${tilted("play.fill", 30)} <span>${padTag("select")}Resume your table</span></button>` : ""}
-    ${patchChip()}
-    <button type="button" class="btn c-p1" data-nav="friends">${friends[0]}<span>${padTag("y")}Play with Friends<span class="sub">or Pass &amp; Play</span></span>${friends[1]}<span id="lobby-count" class="badge" hidden></span></button>
-    <button type="button" class="btn c-p3" data-queue-toggle>${quick[0]}<span>${padTag("x")}Ranked<span class="sub" id="queue-sub" hidden></span></span>${quick[1]}<span id="queue-count" class="badge" hidden></span></button>
-    <button type="button" class="btn c-p2" data-nav="solo">${practice[0]}<span>${padTag("lb")}Play Solo</span>${practice[1]}</button>
-    <button type="button" class="btn c-p4" data-nav="leaderboard">${tilted("medal", 33)}<span>${padTag("rb")}Leaderboard</span>${tilted("medal", 33, { mirror: true })}</button>
-    <div class="row split">
-      <button type="button" class="btn tile c-s4 grow" data-nav="spectate">${tilted("eye.fill", 33)}<span>Spectate</span><span id="spectate-count" class="badge" hidden></span></button>
-      <button type="button" class="btn tile c-fw grow" data-nav="rules">${tilted("list.bullet.clipboard.fill", 33, { tilt: 6 })}<span>Rules</span></button>
-    </div>
-    ${document.documentElement.dataset?.debug !== undefined ? `<button type="button" class="btn c-p2" data-debug-bots>${tilted("figure.2", 33)}<span>Debug: 8-bot table</span></button><button type="button" class="btn c-p4" data-nav="cards">${tilted("rectangle.stack.fill", 33)}<span>Debug: card gallery</span></button>` : ""}
-  </div><p class="credit">Designed by <a href="https://spencersteadman.com" target="_blank" rel="noopener">Spencer${textSymbol("arrow.up.right", "out-arrow")}</a> &amp; <a href="https://sleptsov.dev" target="_blank" rel="noopener">Alex${textSymbol("arrow.up.right", "out-arrow")}</a></p></div>`,
-  );
-  renderQueueBanner();
-  pollPresence();
-  signInTip();
-  patchPopup();
+  homePage(tab);
 }
 /** One setting's row: its name, and its value in a pill that lights up when on. */
 const prefRow = (key, symbol, label, value, on, lit = on, disabled = false) =>
@@ -1134,6 +1090,8 @@ function prefsHtml() {
     // stored as hideTips (so existing choices carry over), shown the positive way round
     row("hideTips", "text.bubble.fill", "Show tooltips", onOff(!prefs.hideTips), !prefs.hideTips),
     row("showOdds", "dice.fill", "Show win chances", onOff(prefs.showOdds), prefs.showOdds),
+    // (the stickers stop drifting, and screens change without sliding)
+    row("reduceMotion", "tortoise.fill", "Reduce motion", onOff(prefs.reduceMotion), !!prefs.reduceMotion),
   ];
   if (hapticsAvailable)
     rows.push(row("haptics", "hand.tap.fill", "Haptics", onOff(prefs.haptics), prefs.haptics));
@@ -1142,10 +1100,6 @@ function prefsHtml() {
     rows.push(
       row("padDrag", "gamecontroller.fill", "Controller: trigger drag", prefs.padDrag === "toggle" ? "Toggle" : "Hold", prefs.padDrag === "toggle", true),
     );
-  // under them all, the way into the emote bar's own sheet (not a switch)
-  rows.push(
-    `<button type="button" class="btn c-fw pref" data-emote-settings>${tilted("text.bubble.fill", 26)}<span class="grow">Emotes</span><b class="pref-value on">Edit</b></button>`,
-  );
   return `<h3>Preferences</h3><div class="menu-list" data-prefs>${rows.join("")}</div>`;
 }
 /* ---------- turn and Ranked queue notifications ----------
@@ -1272,7 +1226,7 @@ function settingsSheet() {
     <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="menu-list">
       ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
-      <button type="button" class="btn c-p1" data-nav="account">${tilted("person.crop.circle.fill", 26)} Profile</button>
+      <button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} Rules</button>
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p2" data-nav="notifications">${tilted("bell.fill", 26)} Notifications</button>
       ${voidOfferButton()}
@@ -1334,6 +1288,10 @@ function pickTheme(key) {
    An emote can also be dragged: along the bar, onto it or off it. Every emote
    slides to wherever a change leaves it. */
 let emotePick = null; // [kind, id] of the emote chosen on the bar
+/**
+ * The emote editor (on the You tab): one Emote Bar box and one Unequipped box,
+ * each a row of faces over a row of sayings.
+ */
 function emoteEditHtml() {
   const item = (kind, id, on) => {
     const picked = on && emotePick?.[0] === kind && emotePick[1] === id;
@@ -1341,24 +1299,23 @@ function emoteEditHtml() {
     const label = on ? `${name}${picked ? ", chosen" : ""}` : `Add ${name} to your bar`;
     return `<span class="emote-item" data-emote-item="${kind}:${id}"><button type="button" class="emote-choice${kind === "words" ? " emote-word" : ""}" data-emote-pick="${kind}:${id}" ${on ? `aria-pressed="${picked}"` : ""} aria-label="${e(label)}">${kind === "words" ? e(name) : `<img src="${appPath(`/static/emotes/${id}.png`)}" alt="" draggable="false">`}</button>${picked ? `<button type="button" class="emote-remove" data-emote-drop="${kind}:${id}" aria-label="Take ${e(name)} off your bar">${icon("xmark.circle.fill", 26, { idle: false })}</button>` : ""}</span>`;
   };
-  const part = (kind, title, none, all) => {
-    const bar = emoteBar(kind);
-    const spare = EMOTE_KINDS[kind][1].filter((id) => !bar.includes(id));
-    return `<div class="emote-edit ${kind}"><div class="emote-choices bar" role="group" aria-label="${title} bar"><span class="emote-bar-name" aria-hidden="true">${title} bar</span><span class="emote-none">${none}</span>${bar.map((id) => item(kind, id, true)).join("")}</div>
-      <div class="emote-choices" role="group" aria-label="Not on your bar"><span class="emote-none">${all}</span>${spare.map((id) => item(kind, id, false)).join("")}</div></div>`;
+  const spareOf = (kind) => EMOTE_KINDS[kind][1].filter((id) => !emoteBar(kind).includes(id));
+  const row = (kind, onBar, none) => {
+    const ids = onBar ? emoteBar(kind) : spareOf(kind);
+    return `<div class="emote-choices${onBar ? " bar" : ""} ${kind}" data-kind="${kind}" role="group" aria-label="${kind === "faces" ? "Face" : "Text"} emotes ${onBar ? "on your bar" : "not on your bar"}"><span class="emote-none">${none}</span>${ids.map((id) => item(kind, id, onBar)).join("")}</div>`;
   };
-  return `<div data-emote-edit>${part("faces", "Face emotes", "No face emotes on your bar.", "Every face emote is on your bar.")}${part("words", "Text emotes", "No text emotes on your bar.", "Every text emote is on your bar.")}<p class="hint dark sheet-note">Add, reorder, or remove emotes from your emote bar!</p></div>`;
-}
-function emotesSheet() {
-  emotePick = null;
-  openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Emotes">
-    <div class="sheet-head"><h2>Emotes</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    ${emoteEditHtml()}
-  </section>`);
+  const unequipped = spareOf("faces").length + spareOf("words").length;
+  return `<div data-emote-edit class="emote-compact">
+    <section class="emote-box on"><span class="box-label">Emote Bar</span>${row("faces", true, "No faces on your bar")}${row("words", true, "No sayings on your bar")}</section>
+    <section class="emote-box off${unequipped ? "" : " empty"}"><span class="box-label">Unequipped Emotes</span>${row("faces", false, "")}${row("words", false, "")}${unequipped ? "" : `<p class="emote-all">Every emote is on your bar.</p>`}</section>
+    <p class="hint dark emote-tip">Tap to add or swap, hold and drag to reorder.</p>
+  </div>`;
 }
 /** Change the editor; every emote but the one `held` slides from where it was to where it is now. */
+/** Where the emote editor is: the page (the You tab). */
+const emoteScope = () => root;
 function slideEmotes(change, held = null) {
-  const items = () => [...(sheetRoot.querySelectorAll?.("[data-emote-item]") || [])];
+  const items = () => [...(emoteScope().querySelectorAll?.("[data-emote-item]") || [])];
   const was = new Map(items().map((el) => [el.dataset.emoteItem, el.getBoundingClientRect()]));
   change();
   for (const el of items()) {
@@ -1378,7 +1335,7 @@ function slideEmotes(change, held = null) {
 /** Draw the editor again as the saved bars have it. */
 function redrawEmoteEdit() {
   slideEmotes(() => {
-    const holder = sheetRoot.querySelector?.("[data-emote-edit]");
+    const holder = emoteScope().querySelector?.("[data-emote-edit]");
     if (holder) holder.outerHTML = emoteEditHtml();
   });
 }
@@ -1414,8 +1371,8 @@ function dropEmote(kind, id) {
 let emoteDrag = null;
 let emoteDragEnded = 0; // when a carried emote was last let go: the click that follows is no tap
 const emoteBoxes = (kind) => {
-  const edit = sheetRoot.querySelector?.(`.emote-edit.${kind}`);
-  return [edit?.querySelector(".emote-choices.bar"), edit?.querySelector(".emote-choices:not(.bar)")];
+  const edit = emoteScope().querySelector?.("[data-emote-edit]");
+  return [edit?.querySelector(`.emote-choices.bar[data-kind="${kind}"]`), edit?.querySelector(`.emote-choices:not(.bar)[data-kind="${kind}"]`)];
 };
 function liftEmote(drag) {
   const box = drag.el.getBoundingClientRect();
@@ -1432,7 +1389,9 @@ function placeEmote(drag, x, y) {
     const r = box.getBoundingClientRect();
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
   };
-  const box = over(spare) ? spare : over(bar) ? bar : drag.el.parentElement;
+  // (on the You tab the rows share a box each: anywhere in the box puts it in that kind's row)
+  const zone = (row) => row.closest(".emote-box") || row;
+  const box = over(zone(spare)) ? spare : over(zone(bar)) ? bar : drag.el.parentElement;
   const idOf = (el) => el.dataset.emoteItem.split(":")[1];
   const others = [...box.querySelectorAll("[data-emote-item]")].filter((el) => el !== drag.el);
   let before;
@@ -1467,7 +1426,7 @@ function emoteDragEnd(event) {
 }
 document.addEventListener("pointerdown", (event) => {
   const el = event.target.closest?.("[data-emote-item]");
-  if (!el || emoteDrag || event.button > 0 || event.target.closest(".emote-remove") || !sheetRoot.contains(el)) return;
+  if (!el || emoteDrag || event.button > 0 || event.target.closest(".emote-remove") || !el.closest("[data-emote-edit]")) return;
   const [kind, id] = el.dataset.emoteItem.split(":");
   const drag = (emoteDrag = { kind, id, el, pointer: event.pointerId, x: event.clientX, y: event.clientY, active: false, moved: false, quiet: 0 });
   if (event.pointerType === "touch") drag.timer = setTimeout(() => emoteDrag === drag && liftEmote(drag), 220);
@@ -1612,6 +1571,7 @@ function gameMenuSheet() {
       <button type="button" class="btn c-p4" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
       ${voidOfferButton()}
       ${debugMenuHtml()}
+      ${state.puzzle ? `<button type="button" class="btn c-p1" data-puzzle-retry>${tilted("arrow.clockwise", 26)} Restart the puzzle</button>` : ""}
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
     </div>`}
     ${prefsHtml()}
@@ -1832,7 +1792,8 @@ function pickAvatar(id, scroll = true) {
   // a pass & play player's pick is theirs, not this device's own avatar
   if (page === "passplay" && passStep > 0) passPlayers[passStep - 1].avatar = id;
   else saveAvatar(id);
-  if (page === "account") saveProfile();
+  // (the Profile page and the You tab save it as it is picked)
+  if (document.getElementById("account-display-name")) saveProfile();
   root.querySelectorAll(".avatar").forEach((button) => {
     button.setAttribute("aria-checked", String(button.dataset.avatar === id));
   });
@@ -1984,41 +1945,6 @@ async function playSolo() {
 let watching = null, // the table being watched
   watchSeat = 0, // whose seat the spectator sees the table from (their hand at the bottom)
   followTimer = 0;
-async function spectatePage() {
-  stopWatching();
-  page = "spectate";
-  document.title = "Spectate · Golf";
-  history.replaceState({}, "", appPath("/spectate"));
-  stopTournament();
-  const [games, cups] = await Promise.all([api("/api/spectate"), loadTournaments()]);
-  if (page !== "spectate") return;
-  const others = games.filter((game) => !game.mine);
-  const kind = (game) => (game.tournament ? `${game.tournament.name} · ${game.tournament.label}` : game.solo ? "Solo" : game.game_type === "many" ? `${game.players} players` : "1v1");
-  // tournaments running now are pinned above the games (finished ones are in Match history)
-  const tournaments = tournamentRows(cups.filter((cup) => cup.status === "live"));
-  const list = others
-    .map((game) => {
-      // each player as their score tag reads at the table: name over sticker points, in their seat color
-      const players = game.names
-        .map((name, p) => `<span class="watch-player ${SEAT_COLORS[p % SEAT_COLORS.length]}"><span class="who">${e(name)}</span><span class="score">${scoreDigits(game.scores[p], `watch:${game.id}:${p}`)}</span></span>`)
-        .join("");
-      const watchers = game.watchers ? ` · ${glyph("eye.fill", 12)} ${game.watchers}` : "";
-      // against Golfbot: the player's win streak, the flame and number they see at the table
-      const run = game.streak;
-      const streak = run ? `<span class="watch-streak${run.current > 0 && run.draws !== 1 ? " hot" : ""}" style="--heat:${Math.min(run.current, 10)}" role="img" aria-label="Win streak against Golfbot: ${run.current}">${icon("flame.fill", 26, { idle: false })}${stickerText(String(run.current), { idle: false })}</span>` : "";
-      return `<button type="button" class="list-item c-s4" data-watch="${e(game.id)}" aria-label="Watch ${e(game.names.map((name, p) => `${name} ${game.scores[p]} points`).join(", "))}">${avatarBadge(game.avatars?.[0], "c-s4")}<div class="grow"><span class="watch-scores">${players}</span><small>${e(kind(game))} · Game ${game.round} · ${e(matchLength(game))}${game.house_rules ? " · House rules" : ""}${watchers}</small></div>${streak}${glyph("chevron.right", 20)}</button>`;
-    })
-    .join("");
-  show(
-    "spectate",
-    // laid out like Play with Friends' open tables: the title and Refresh, then the list
-    `<div class="page top">${pageHead(`data-nav="home"`, "Active Games", refreshButton("spectate"))}${
-      list || tournaments
-        ? `<div class="stack wide">${tournaments ? `<div class="stack"><h2 class="section-title">Tournaments</h2><div class="list">${tournaments}</div></div>` : ""}${list ? `<div class="stack">${tournaments ? `<h2 class="section-title">Games</h2>` : ""}<div class="list">${list}</div></div>` : ""}</div>`
-        : emptyNote("Nobody is playing right now.", "Check back soon!")
-    }</div>`,
-  );
-}
 async function watchGame(id) {
   const next = await api(`/api/spectate/${id}`, "POST", {});
   enterWatch(next);
@@ -2107,7 +2033,7 @@ function passPlayPage(step = passStep) {
   show(
     "passplay",
     `<div class="page">${pageHead("data-pass-back")}<div class="stack wide">
-    <h1 class="page-title pass-step ${SEAT_COLORS[p % SEAT_COLORS.length]}">Player ${p + 1} of ${passPlayers.length}</h1>
+    ${tabTitle(`Player ${p + 1} of ${passPlayers.length}`, "", "pass-step", `seat ${SEAT_COLORS[p % SEAT_COLORS.length]}`)}
     ${avatarPicker(p, player.avatar)}
     ${field("Display Name", `<input data-pass-name="${p}" maxlength="32" value="${e(player.name)}" autocomplete="off" aria-label="Player ${p + 1} display name">`, "character.cursor.ibeam", SEAT_COLORS[p % SEAT_COLORS.length])}
     </div><div class="row">${last ? entryButton("data-pass-start", "Start") : entryButton("data-pass-next", "Next player")}</div></div>`,
@@ -2269,7 +2195,7 @@ function leavePrompt(leaving) {
   // (blue leaving Practice, where your streak is kept or can be; red leaving a real table)
   const leaveSticker = `<button type="button" class="close-btn ${leaving.practice ? "c-p1" : "c-p2"}" data-leave-choice="leave">${icon("rectangle.portrait.and.arrow.right", 30)}<span>${padTag("x")}Leave</span></button>`;
   const actions = guestPractice
-    ? `<div class="dialog-actions signin-actions">${leaveSticker}<button type="button" class="btn c-p3 grow" data-leave-choice="signin">${tilted("person.crop.circle.fill", 26)}<span>${padTag("y")}Sign in</span></button></div>`
+    ? `<div class="dialog-actions signin-actions">${leaveSticker}${signInButton("c-p3 grow", `${tilted("person.crop.circle.fill", 26)}<span>${padTag("y")}Sign in</span>`, `data-leave-choice="signin"`)}</div>`
     : `<div class="dialog-actions signin-actions">${leaveSticker}<button type="button" class="btn c-fw grow" data-leave-choice="stay">${padTag("b")}Keep playing</button></div>`;
   // the sign-in version is dismissed (to keep playing) by an x in its top right corner
   const dismiss = guestPractice ? `<button type="button" class="dialog-x" data-leave-choice="stay" aria-label="Keep playing">${icon("xmark.circle.fill", 26)}</button>` : "";
@@ -2277,6 +2203,11 @@ function leavePrompt(leaving) {
   closeSheet();
   const response = new Promise(resolve => { pendingLeaveResolve = resolve; });
   dialog.showModal();
+  if (guestPractice) {
+    // signing in from here leaves the table once it is done (the game is saved to the account)
+    leaveAfterSignIn = leaving.id;
+    mountGoogleSignIn();
+  }
   return response;
 }
 function canSignInDuringPractice() {
@@ -2308,11 +2239,17 @@ async function abandonExisting({confirmed = false} = {}) {
     if (!confirmed && (ratedWarning || guestPractice)) {
       const choice = await leavePrompt(leaving);
       if (choice === "signin") {
+        // (our own button, not Google's over it: it says why, or asks Google to prompt)
         leaveAfterSignIn = roomId;
-        accountPage();
+        signIn();
         return false;
       }
-      if (choice !== "leave") return false;
+      if (choice === "signedin") return false; // Google signed them in: what follows leaves the table
+      if (choice !== "leave") {
+        leaveAfterSignIn = null;
+        return false;
+      }
+      leaveAfterSignIn = null;
     }
     await api(`/api/lobbies/${roomId}/leave`, "POST");
     if (epoch === tableEpoch && session.room_id === roomId)
@@ -2332,7 +2269,7 @@ async function friendsPage() {
   const twin = [tilted("house.fill", 34), tilted("house.fill", 34, { mirror: true })];
   show(
     "friends",
-    `<div class="page">${pageHead(`data-nav="home"`, "Open tables", refreshButton("friends"))}${
+    `<div class="page">${pageHead(`data-nav="home"`, "Open Tables", refreshButton("friends"))}${
       lobbies.length || joinable
         ? `<div class="stack wide"><div class="stack"><div class="list">${joinable}${lobbies
         .map((lobby) => {
@@ -2361,7 +2298,7 @@ async function publicLobby(id) {
   show(
     "public",
     `<div class="page">${pageHead(`data-nav="friends"`)}<div class="stack wide">
-    <div class="stack"><h1 class="page-title">${e(info.name)}</h1><div class="meta"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${rulesChip(info)}</div></div>
+    <div class="stack">${tabTitle(info.name, "", "table")}<div class="meta center"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${rulesChip(info)}</div></div>
     ${profileChosen() ? "" : `${avatarPicker(info.players)}
     ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}`}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
@@ -2383,7 +2320,7 @@ function waitingRoom() {
   show(
     "room",
     `<div class="page">${pageHead("data-leave")}<div class="stack wide">
-    <div class="stack"><h1 class="page-title">${e(state.name)}</h1><div class="meta"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${rulesChip(state)}</div></div>
+    <div class="stack">${tabTitle(state.name, "", "table")}<div class="meta center"><span class="pill">${e(matchLength(state))}</span><span class="pill">${state.players}/${state.capacity} players</span><span class="pill">${e(starter[state.first])}</span>${rulesChip(state)}</div></div>
     <div class="share">${field("Invite Link", `<input readonly aria-label="Lobby invite link" value="${e(url)}">`, "link")}<button type="button" class="close-btn c-fw share-copy" data-copy="${e(url)}" aria-label="Copy the invite link">${icon("doc.on.doc.fill", 30)}<span>Copy</span></button></div>
     <div class="list">${state.names.map((seatName, seat) => `<div class="list-item ${seatColor(seat)}">${!many && seat === 1 && state.players < 2 ? `<span class="avatar-badge ${seatColor(seat)}">${icon("person.fill", 24, { idle: false })}</span>` : avatarBadge(state.avatars?.[seat], seatColor(seat))}<div class="grow"><strong>${seat === state.viewer ? youStar() : ""}${e(seatName)}</strong><small>${seat === 0 ? "Host" : "Player " + (seat + 1)} · ${state.connected[seat] ? "connected" : !many && seat === 1 ? "seat open" : "offline"}</small></div></div>`).join("")}</div>
     <p class="hint dark">${many ? "The host starts once at least three players have joined." : "The game starts automatically when a friend joins."}</p>
@@ -2521,7 +2458,7 @@ const ruleShadow = (node, lifted) => {
 /** Each rule that moved starts where it was and glides to where it is now; the one
  * just turned on or off rides above the rest, on the sheet's own color. */
 function glideRules(before) {
-  if (!before.size || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (!before.size || reducedMotion.matches) return;
   for (const node of sheetRoot.querySelectorAll("[data-flip]")) {
     const was = before.get(node.dataset.flip);
     if (!was || !node.animate) continue;
@@ -2555,33 +2492,107 @@ function openRulesSheet(player) {
   if (sheet && at) sheet.scrollTop = at;
 }
 /** One player's points in each finished game of the series, and their sum. */
-function seriesTally(player) {
-  if (state.best_of === 1) return "";
+function seriesTally(player, everyone = false) {
   const games = state.history || [];
   const total = games.reduce((sum, game) => sum + game.scores[player], 0);
   // the series so far: wins always, and the points total when that decides it
   const wins = games.filter((game) => game.winner === player).length;
   const points = state.series_mode === "points";
-  return `<h3>This series</h3><div class="tally plain" data-series-tally>${
-    games.map((game) => `<div><span>Game ${game.round}</span><b>${game.scores[player]} pts</b></div>`).join("") ||
-    "<div><span>No games finished yet</span></div>"
-  }<div class="total"><span>Wins</span><b>${wins} ${wins === 1 ? "win" : "wins"}</b></div>${
-    points ? `<div class="total more"><span>Total</span><b>${total} pts</b></div>` : ""
-  }</div>`;
+  const single = state.best_of === 1;
+  // what is being played: how it is decided, how long it runs, which game this is, and its rules
+  const style = state.best_of === null ? "Play until you leave" : single ? "Single game" : points ? "Total points" : "Best of";
+  const length = state.best_of === null ? "No set length" : single ? "" : points ? `${state.best_of} games` : `${state.best_of} games · first to ${Math.floor(state.best_of / 2) + 1}`;
+  // which game this is, of how many (an open-ended table has no "of")
+  const number = games.length + (state.status === "playing" ? 1 : 0) || 1;
+  const heading = state.best_of === null ? `Game ${number}` : `Game ${Math.min(number, state.best_of)} of ${state.best_of}`;
+  const on = Object.values(state.rules || {}).filter((value) => value === true).length;
+  const rules = state.house_rules ? "House rules" : on ? `${on} ${on === 1 ? "rule" : "rules"} in play` : "Vanilla";
+  const kind = state.puzzle ? `Daily Puzzle #${state.puzzle.number}` : state.tournament ? e(state.tournament.name || "Tournament") : state.rated ? "Ranked" : "";
+  // (the rules chip is a button: it puts this sheet away and brings up that player's rules in play)
+  const pills =
+    [kind, style, length].filter(Boolean).map((text) => `<span class="pill">${text}</span>`).join("") +
+    `<button type="button" class="pill pill-btn" data-rules-player="${player}">${rules}${glyph("chevron.right", 11)}</button>`;
+  const tally = single
+    ? ""
+    : `<div class="tally plain" data-series-tally>${
+        games.map((game) => `<div><span>Game ${game.round}</span><b>${game.scores[player]} pts</b></div>`).join("") ||
+        "<div><span>No games finished yet</span></div>"
+      }<div class="total"><span>Wins</span><b>${wins} ${wins === 1 ? "win" : "wins"}</b></div>${
+        points ? `<div class="total more"><span>Total</span><b>${total} pts</b></div>` : ""
+      }</div>`;
+  // (`everyone`: your own sheet has every player at the table, set out as a saved match's card is)
+  return `<div class="series-info"><h3>${heading}</h3><div class="meta">${pills}</div>${everyone ? tableSoFar() : tally}</div>`;
+}
+/** The games of this table so far for every player, as Match history draws a saved match: a column each, points by game, totals and wins. */
+function tableSoFar() {
+  const games = state.history || [];
+  const match = {
+    id: state.id,
+    names: state.names,
+    avatars: state.avatars || [],
+    solo: !!state.solo,
+    viewer: state.spectator ? null : state.viewer,
+    winner: state.champion ?? null,
+    rounds: games,
+    points: state.names.map((_, p) => games.reduce((sum, game) => sum + game.scores[p], 0)),
+    wins: state.names.map((_, p) => games.filter((game) => game.winner === p).length),
+  };
+  const card = matchArticleHtml(match, true);
+  // (no winner to name while it is still being played)
+  return match.winner === null ? card.replace(/<p class="match-winner">[^]*?<\/p>/, "") : card;
 }
 /** A player's record, shown over the table (tap a name tag, theirs or yours). */
 function playerStatsSheet(player) {
   const id = state.player_ids?.[player];
   const color = colorFor(player);
-  // the full record lives on the stats page; the popup links to it
-  const target = id ? `data-stats-player="${e(id)}"` : `data-nav="stats"`;
-  openSheet(`<section class="sheet ${color}" role="dialog" aria-modal="true" aria-label="Player stats">
+  // (the sheet is in the player's own seat color, as their rules sheet is)
+  openSheet(`<section class="sheet ${color} profile-sheet" role="dialog" aria-modal="true" aria-label="Player profile">
     <div class="sheet-head"><h2>${e(state.names[player])}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    ${id ? `<div class="player-card" data-player-card="${e(id)}"><div class="loading">Loading…</div></div>` : ""}
-    ${seriesTally(player)}
-    <div class="row" style="margin-top:1.2rem"><button type="button" class="btn small ${color} grow" ${target}>${tilted("medal", 22)} View stats</button></div>
+    <div data-profile-sheet="${e(id || "")}">${id ? `<div class="loading">Loading…</div>` : seriesTally(player)}</div>
   </section>`);
-  if (id) loadPlayerCard(id);
+  if (!id) return;
+  fetchProfile(id)
+    .then(({ profile, stats }) => {
+      const holder = [...(sheetRoot.querySelectorAll?.("[data-profile-sheet]") || [])].find((el) => el.dataset.profileSheet === id);
+      if (!holder) return;
+      // (the name at the table is the one they are playing under)
+      profile.label = profile.label || state.names[player];
+      profile.avatar = profile.avatar || state.avatars?.[player] || null;
+      holder.innerHTML = profileHtml(profile, stats, { accent: color, tone: color, heading: sectionTitle, extra: seriesTally(player, player === state.viewer && !state.spectator) });
+      sheetRoot.querySelector(".profile-sheet .sheet-head h2")?.replaceChildren();
+    })
+    .catch((error) => {
+      const holder = sheetRoot.querySelector?.("[data-profile-sheet]");
+      if (holder) holder.innerHTML = `${seriesTally(player)}<p class="hint dark">${e(error.message)}</p>`;
+    });
+}
+/**
+ * Anyone's record, opened from Aces (or a name tag's View stats): their card
+ * (MMR, streak, records held), then their numbers, and how you've done against them.
+ */
+async function playerSheet(id) {
+  const me = myPlayerId();
+  openSheet(`<section class="sheet c-p3 player-sheet" role="dialog" aria-modal="true" aria-label="Player stats">
+    <div class="sheet-head"><h2 data-player-sheet-name>Player</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="player-card" data-player-card="${e(id)}"><div class="loading">Loading…</div></div>
+    <div class="stack wide" data-player-stats="${e(id)}"><div class="loading">Loading stats…</div></div>
+  </section>`);
+  loadPlayerCard(id);
+  const query = new URLSearchParams({ player: id, opponent: id === me ? "" : me, house_rules: "false" });
+  let html;
+  try {
+    const result = await api("/api/stats?" + query);
+    const title = sheetRoot.querySelector("[data-player-sheet-name]");
+    if (title && result.player) title.textContent = result.player.profile.label;
+    const versus = result.comparison?.head_to_head?.rounds ? statsTable([result.player, result.comparison], "head_to_head", "Head to head with you", "c-fw") : "";
+    html = result.player
+      ? `${versus}${statsTable([result.player], "overall", "Every game", "c-fw")}`
+      : `<p class="hint dark">No saved games yet.</p>`;
+  } catch (error) {
+    html = `<p class="hint dark">${e(error.message)}</p>`;
+  }
+  const holder = [...(sheetRoot.querySelectorAll?.("[data-player-stats]") || [])].find((el) => el.dataset.playerStats === id);
+  if (holder) holder.innerHTML = html;
 }
 /**
  * The popup's MMR and best 1v1 streak, drawn as rows of the PVP leaderboard,
@@ -2609,7 +2620,7 @@ async function loadPlayerCard(id) {
   const rows = id.startsWith("bot:") ? "" : `<div class="list leader-list">${row("c-p3", "crown.fill", "MMR", mmr)}${row("c-s4", "flame.fill", "Best PvP win streak", streak)}${row("c-s2", "hourglass", "Time played", time)}</div>`;
   holder.innerHTML = `${rows}${
     held.length
-      ? `<h3 class="player-card-head">Records held</h3><div class="records">${held.join("")}</div>`
+      ? `<h3 class="player-card-head">Records held</h3>${hugColumns(held)}`
       : `<p class="hint dark">No records held yet.</p>`
   }`;
 }
@@ -2679,7 +2690,7 @@ function cardGallery() {
   );
   show(
     "cards",
-    `<div class="page scroll">${subHeader("Card gallery")}<p class="hint dark">Drag cards around. Double-click (or double-tap) a card to turn it over.</p><div class="card-gallery">${cards.join("")}</div></div>`,
+    `<div class="page scroll">${subHeader("Card Gallery", undefined, "Drag cards around. Double-click (or double-tap) a card to turn it over.")}<div class="card-gallery">${cards.join("")}</div></div>`,
   );
 }
 const gallery = { drag: null, lastTap: null, top: 1 };
@@ -2734,10 +2745,30 @@ root.addEventListener("pointercancel", endGalleryDrag);
 /* ---------- account ---------- */
 let googleScript = null;
 let initializedGoogleNonce = null;
-async function renderGoogleSignIn() {
-  const container = document.getElementById("google-signin-button");
-  if (!container || page !== "account") return;
-  if (session.account || !session.google_client_id || (session.room_id && !canSignInDuringPractice())) return;
+/**
+ * A Sign in button: ours to look at, Google's to press. Google's own button is
+ * laid invisibly over it (mountGoogleSignIn), so a tap goes straight to Google's
+ * sign-in. Until that has loaded (or where it cannot), ours answers instead (signIn).
+ */
+function signInButton(cls, inner, attrs = "data-signin") {
+  return `<span class="signin-wrap ${cls}"><button type="button" class="btn ${cls}" ${attrs}>${inner}</button><span class="google-cover" data-google-cover aria-hidden="true"></span></span>`;
+}
+/** Whether signing in is possible just now (false with a reason toasted when `say`). */
+function canSignIn(say = false) {
+  const why = session.account
+    ? ""
+    : !session.google_client_id
+      ? "Google sign-in is not available on this server yet. You can keep playing as a guest."
+      : session.room_id && !canSignInDuringPractice()
+        ? "Leave your current table before signing in."
+        : null;
+  if (why && say) toast(why);
+  return why === null;
+}
+/** Lay Google's button over every Sign in button on the screen. */
+async function mountGoogleSignIn() {
+  const covers = () => [...document.querySelectorAll("[data-google-cover]")];
+  if (!covers().length || !canSignIn()) return false;
   try {
     if (!window.google?.accounts?.id) {
       googleScript ??= new Promise((resolve, reject) => {
@@ -2745,98 +2776,108 @@ async function renderGoogleSignIn() {
         script.src = "https://accounts.google.com/gsi/client";
         script.async = true;
         script.onload = resolve;
-        script.onerror = () =>
-          reject(
-            new Error(
-              "Google sign-in could not load. You can keep playing as a guest.",
-            ),
-          );
+        script.onerror = () => reject(new Error("Google sign-in could not load. You can keep playing as a guest."));
         document.head.appendChild(script);
       });
       await googleScript;
     }
-    if (
-      session.account ||
-      (session.room_id && !canSignInDuringPractice()) ||
-      page !== "account" ||
-      !container.isConnected
-    )
-      return;
-    if (initializedGoogleNonce !== session.google_nonce)
-      google.accounts.id.initialize({
-        client_id: session.google_client_id,
-        nonce: session.google_nonce,
-        callback: async ({ credential }) => {
-          try {
-            const keep = { username: session.username, avatar: session.avatar };
-            const epoch = tableEpoch, roomId = session.room_id;
-            const next = await api("/api/auth/google", "POST", {
-              credential,
-              csrf_token: session.csrf_token,
-            });
-            const currentRoom = session.room_id;
-            session = {...next, ...keep};
-            if (next.account?.display_name) saveName(next.account.display_name);
-            syncPrefs();
-            if (epoch !== tableEpoch || currentRoom !== roomId || page !== "account") {
-              session.room_id = currentRoom;
-              return;
-            }
-            if (!session.account.unique_name) accountPage();
-            else if (!(await finishPracticeSignIn())) {
-              home();
-              toast("Signed in as @" + session.account.unique_name);
-            }
-          } catch (error) {
-            toast(error.message);
-          }
-        },
-      });
+    if (!canSignIn()) return false;
+    if (initializedGoogleNonce !== session.google_nonce) google.accounts.id.initialize({ client_id: session.google_client_id, nonce: session.google_nonce, callback: googleSignedIn });
     initializedGoogleNonce = session.google_nonce;
-    container.textContent = "";
-    google.accounts.id.renderButton(container, {
-      theme: "outline",
-      size: "large",
-      text: "signin_with",
-      shape: "pill",
-    });
+    for (const cover of covers()) {
+      const host = cover.parentElement;
+      if (cover.dataset.mounted === session.google_nonce || !host.offsetWidth) continue;
+      cover.dataset.mounted = session.google_nonce;
+      cover.textContent = "";
+      // Google draws its button 44px high and up to 400px wide; it is stretched to
+      // cover the whole of ours, so a tap anywhere on ours is a tap on Google's
+      const width = clamp(Math.round(host.offsetWidth), 200, 400);
+      cover.style.width = `${width}px`;
+      cover.style.setProperty("--gx", (host.offsetWidth / width).toFixed(3));
+      cover.style.setProperty("--gy", (host.offsetHeight / 44).toFixed(3));
+      google.accounts.id.renderButton(cover, { theme: "outline", size: "large", text: "signin_with", shape: "pill", width });
+    }
+    return true;
   } catch (error) {
     googleScript = null;
-    if (page === "account" && container.isConnected)
-      container.textContent = error.message;
+    return false;
   }
 }
-function accountPage() {
-  document.title = "Profile · Golf";
-  history.replaceState({}, "", appPath("/account"));
+/** Our own Sign in button was pressed (Google's was not over it): say why not, or ask Google to prompt. */
+async function signIn() {
+  if (!canSignIn(true)) return;
+  if ((await mountGoogleSignIn()) && window.google?.accounts?.id) google.accounts.id.prompt();
+  else toast("Google sign-in could not load. You can keep playing as a guest.");
+}
+/** Google has signed the player in: the session becomes their account's. */
+async function googleSignedIn({ credential }) {
+  try {
+    const keep = { username: session.username, avatar: session.avatar };
+    const epoch = tableEpoch,
+      roomId = session.room_id;
+    const next = await api("/api/auth/google", "POST", { credential, csrf_token: session.csrf_token });
+    const currentRoom = session.room_id;
+    session = { ...next, ...keep };
+    if (next.account?.display_name) saveName(next.account.display_name);
+    syncPrefs();
+    if (pendingLeaveResolve) resolveLeavePrompt("signedin"); // (the "sign in to keep your streak" card)
+    if (epoch !== tableEpoch || currentRoom !== roomId) {
+      session.room_id = currentRoom;
+      return;
+    }
+    // a new account picks its unique name before anything else
+    if (!session.account.unique_name) uniqueNameSheet();
+    else if (!(await finishPracticeSignIn())) signedIn();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+/** Signed in, with a unique name: say so, and show what is on screen as theirs. */
+function signedIn() {
+  toast("Signed in as @" + session.account.unique_name);
+  if (page === "home") {
+    redrawPane(homeTab);
+    loadTab(homeTab);
+  }
+}
+/** A new account chooses the unique name its games are kept under. */
+function uniqueNameSheet() {
+  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="Choose your unique name">
+    <div class="sheet-head"><h2>Choose your unique name</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <p>This identifies you in Aces across all your display names. Pick once; your display name can change whenever you play.</p>
+    <form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]{3,24}" autocomplete="username" autocapitalize="none" spellcheck="false" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–24 letters, numbers or underscores. Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>
+  </section>`);
+}
+/** Signed in: who as, and the way out. */
+function accountSheet() {
   const account = session.account;
-  // your look at the table first (anyone), then the account behind it
-  show(
-    "account",
-    `<div class="page scroll">${subHeader("Profile")}${profileForm()}<div class="panel c-p1">${
-      account
-        ? account.unique_name
-          ? `<h2>@${e(account.unique_name)}</h2><p>Your games are grouped under this unique name on the Leaderboard. Your display name at the table can change each game.</p>`
-          : `<h2>Choose your unique name</h2><p>This identifies you on the Leaderboard across all your display names. Pick once; your display name can change whenever you play.</p><form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]{3,24}" autocomplete="username" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–24 letters, numbers or underscores. Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>`
-        : `<h2>Sign in</h2><p>Sign in to keep your stats under one unique name across devices. Your display name can change each game.</p>${session.room_id && !canSignInDuringPractice() ? `<p>Leave your current table before signing in.</p>` : session.google_client_id ? `<div id="google-signin-button" aria-live="polite">Loading Google sign-in…</div>` : `<p>Google sign-in is not available on this server yet. You can keep playing as a guest.</p>`}`
-    }${account ? `<button type="button" class="btn small c-p2" style="margin-top:1.6rem" data-signout>Sign out</button>` : ""}<p style="margin-top:1.2rem;opacity:.7">Guests are grouped by display name. Signing in does not claim earlier guest results.</p></div></div>`,
-  );
-  centerAvatar(false);
-  renderGoogleSignIn();
-  loadPreviousNames();
+  if (!account) return;
+  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="Your account">
+    <div class="sheet-head"><h2>${account.unique_name ? `@${e(account.unique_name)}` : "Your account"}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <p>Your games are kept under this unique name in Aces, on every device you sign in on. Your display name at the table can change whenever you like.</p>
+    <div class="menu-list" style="margin-top:1.6rem"><button type="button" class="btn c-p2" data-signout>${tilted("rectangle.portrait.and.arrow.right", 26)} Sign out</button></div>
+  </section>`);
 }
-/** Your avatar and the name other players see at the table, used for every game you join. */
-function profileForm() {
-  const unique = session.account?.unique_name;
-  return `<form id="display-name-form" class="stack profile-form">
-    ${avatarPicker()}
-    ${field("Display Name", `<input id="account-display-name" name="display_name" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam")}
-    <p class="hint dark">Used at every table you join${unique ? `; your games stay under @${e(unique)}` : ""}. Changes save as you make them.</p>
-    ${session.room_id ? `<p class="hint dark">The table you're at keeps the name you joined with; the new one shows from your next table.</p>` : ""}
-    <p class="hint profile-status" data-profile-status aria-live="polite"></p>
-    <div data-previous-names></div>
-  </form>`;
-}
+document.addEventListener("submit", async (event) => {
+  if (event.target.id !== "account-name-form") return;
+  event.preventDefault();
+  try {
+    const keep = { username: session.username, avatar: session.avatar };
+    const epoch = tableEpoch,
+      roomId = session.room_id;
+    const next = await api("/api/account/name", "POST", { unique_name: new FormData(event.target).get("unique_name"), csrf_token: session.csrf_token });
+    const currentRoom = session.room_id;
+    session = { ...next, ...keep };
+    closeSheet();
+    if (epoch !== tableEpoch || currentRoom !== roomId) {
+      session.room_id = currentRoom;
+      return;
+    }
+    if (!(await finishPracticeSignIn())) signedIn();
+  } catch (error) {
+    toast(error.message);
+  }
+});
 /** One plain line of the names used before, most recent first; nothing when there are none. */
 const previousNamesHtml = (names) =>
   names.length ? `<p class="hint dark">Previously: ${names.map(e).join(", ")}</p>` : "";
@@ -2854,16 +2895,77 @@ async function loadPreviousNames() {
   }
 }
 
+/** One saved match: its games and who won each, as Match history lists it. */
+/** A player in a saved match by name, their avatar before it in their seat's color (and the star, if it is you). */
+const matchPlayer = (match, seat) => `<span class="mt-player c-s${seat % 8}">${matchAvatar(match, seat)}${nameMark(match.participants?.[seat]?.id, match.viewer === seat)}${e(match.names[seat])}</span>`;
+/** Points written the table's way, on one line: the number as a sticker with a small "pts" after it, in that seat's color. */
+const ptsInline = (score, key, seat = 0) =>
+  `<span class="pts-inline c-s${seat % 8}" aria-label="${e(String(score))} points">${stickerText(String(score), { idle: false, key })}${stickerText("pts", { cls: "pts", idle: false, key: `${key}:pts` })}</span>`;
+/** A player's avatar in a saved match (yours, as it is now, where an older match saved none), in their seat's color. */
+function matchAvatar(match, seat) {
+  const avatar = match.avatars?.[seat] || (match.solo && seat === 1 ? "golfbot" : match.viewer === seat ? session.avatar : null);
+  return `<span class="mt-ava">${avatar ? icon(avatarIcon(avatar), 17, { idle: false }) : icon("person.fill", 15, { idle: false })}</span>`;
+}
+/** A saved match's chips: when it ended, what kind it was, how long, how it ended, and its patch. */
+function matchMetaHtml(saved) {
+  const match = {
+    ...saved,
+    names: saved.names.map((name, seat) => (saved.solo && seat === 1 ? "Golfbot" : name)),
+  };
+  const status =
+    {
+      finished: "Completed",
+      in_progress: "In progress",
+      abandoned: "Abandoned",
+      interrupted: "Interrupted by server restart",
+    }[match.status] || match.status;
+  const ended = match.last_game_ended_at || Math.max(...match.rounds.map((game) => game.ended_at || 0)) || match.updated_at;
+  return `<div class="meta"><span class="pill">${e(dateLabel(ended))}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div>`;
+}
+function matchArticleHtml(saved, bare = false) {
+  const match = {
+    ...saved,
+    names: saved.names.map((name, seat) => (saved.solo && seat === 1 ? "Golfbot" : name)),
+  };
+  const winner = match.winner === null ? "No overall winner" : match.names[match.winner];
+  const status =
+    {
+      finished: "Completed",
+      in_progress: "In progress",
+      abandoned: "Abandoned",
+      interrupted: "Interrupted by server restart",
+    }[match.status] || match.status;
+  const ended = match.last_game_ended_at || Math.max(...match.rounds.map((game) => game.ended_at || 0)) || match.updated_at;
+  // (`bare`: only the result and the table, for a sheet that is the card itself, its name and chips at its head)
+  return `${bare ? "" : `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2>`}${bare ? "" : matchMetaHtml(saved)}<p class="match-winner">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })}<span>Overall winner:</span>${match.winner === null ? e(winner) : matchPlayer(match, match.winner)}</p><div class="table-wrap"><table class="match-table"><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col"><span class="mt-player c-s${p % 8}">${matchAvatar(match, p)}${match.viewer === p ? youStar() : ""}${e(name)}</span></th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score, p) => `<td>${ptsInline(score, `mh:${match.id}:${game.round}:${p}`, p)}</td>`).join("")}<td>${game.winner === null ? "Draw" : matchPlayer(match, game.winner)}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total</th>${match.points.map((score, p) => `<td>${ptsInline(score, `mh:${match.id}:total:${p}`, p)}</td>`).join("")}<td></td></tr><tr><th scope="row">Wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div>${bare ? "" : "</article>"}`;
+}
 /* ---------- match history ----------
    Split three ways: tables between players, games against Golfbot, and tournaments. */
 const LIST_TABS = [
-  ["pvp", "PVP", "figure.2"],
+  ["pvp", "PvP", "figure.2"],
   ["solo", "Solo", "dumbbell.fill"],
   ["tournament", "Tournaments", "trophy.fill"],
 ];
 let historyTab = "pvp";
+/** The floating selector at the foot of the Match history page: PvP, Solo or Tournaments, as Aces picks its view. */
 function listTabs(selected) {
-  return `<div class="chips list-tabs" role="group" aria-label="Show">${LIST_TABS.map(([key, label, symbol]) => `<button type="button" class="chip c-fw" data-list-tab="${key}" aria-pressed="${selected === key}">${tilted(symbol, 20)}<span>${label}</span></button>`).join("")}</div>`;
+  const at = Math.max(0, LIST_TABS.findIndex(([key]) => key === selected));
+  return `<div class="home-dock list-dock"><nav class="aces-tabs boxed c-fw" aria-label="Show" style="--at:${at}"><span class="aces-pointer c-p2" aria-hidden="true">${icon("chevron.down", 15, { idle: false, sw: 4.2 })}</span>${LIST_TABS.map(([key, label, symbol], i) => `<button type="button" class="aces-tab${selected === key ? " on c-p2" : ""}" data-list-tab="${key}" aria-pressed="${selected === key}">${tilted(symbol, 26, { key: `list:${key}`, tilt: [-6, 0, 6][i] })}<span>${label}</span></button>`).join("")}</nav></div>`;
+}
+/** The Match history page's head: the way back, and its name on an arch like a home tab's. */
+const historyHead = (sub = "") => `${pageHead(`data-nav="${session?.room_id ? "resume" : "home"}"`)}${tabTitle("Match History", sub, "history")}`;
+/* A list picked on the selector comes in from the side it lies on, as an Aces view does,
+   and its cards follow one after another. (Opened afresh, it only fades up.) */
+let historyEnter = 0; // -1 or 1: the side the list now loading comes in from
+function enterHistoryList() {
+  const dir = historyEnter;
+  historyEnter = 0;
+  const list = root.querySelector(".history-page .stack");
+  if (!list?.animate || reducedMotion.matches) return;
+  list.animate([{ translate: `${dir * 18}% 0`, opacity: 0 }, { translate: "0 0", opacity: 1 }], { duration: 380, easing: "cubic-bezier(0.22, 1.2, 0.36, 1)" });
+  [...list.querySelectorAll(":scope > article, :scope > .list > *")].slice(0, 8).forEach((card, i) =>
+    card.animate([{ translate: "0 1.6rem", scale: "0.96", opacity: 0 }, { translate: "0 0", scale: "1", opacity: 1 }], { duration: 450, delay: 60 + i * 55, easing: "cubic-bezier(0.22, 1.2, 0.36, 1)", fill: "backwards" }),
+  );
 }
 let historyEntries = [],
   historyCups = [], // finished tournaments (the Tournaments list)
@@ -2879,7 +2981,7 @@ async function historyPage(more = false) {
     historyEntries = [];
     show(
       "history",
-      `<div class="page scroll">${subHeader("Match history")}${tabs}<div class="loading">Loading match history…</div></div>`,
+      `<div class="page scroll history-page">${historyHead()}${tabs}<div class="loading">Loading match history…</div></div>`,
     );
   }
   try {
@@ -2898,57 +3000,25 @@ async function historyPage(more = false) {
     const scroll = window.scrollY;
     show(
       "history",
-      `<div class="page scroll">${subHeader("Match history")}${tabs}<p class="hint dark">${intro} ${session.room_id ? "Your table is still open — head back any time." : ""}</p><div class="stack wide">${finished ? `<div class="list">${finished}</div>${historyEntries.length ? `<h2 class="section-title">Tournament matches</h2>` : ""}` : ""}${
+      `<div class="page scroll history-page">${historyHead(intro)}${tabs}${session.room_id ? `<p class="hint dark">Your table is still open — head back any time.</p>` : ""}<div class="stack wide">${finished ? `<div class="list">${finished}</div>${historyEntries.length ? sectionTitle("Tournament Matches") : ""}` : ""}${
         historyEntries
-          .map((saved) => {
-            const match = {
-              ...saved,
-              names: saved.names.map((name, seat) =>
-                saved.solo && seat === 1 ? "Golfbot" : name,
-              ),
-            };
-            const winner =
-              match.winner === null
-                ? "No overall winner"
-                : match.names[match.winner];
-            const status =
-              {
-                finished: "Completed",
-                in_progress: "In progress",
-                abandoned: "Abandoned",
-                interrupted: "Interrupted by server restart",
-              }[match.status] || match.status;
-            const ended =
-              match.last_game_ended_at ||
-              Math.max(...match.rounds.map((game) => game.ended_at || 0)) ||
-              match.updated_at;
-            return `<article class="panel c-fw"><h2>${e(match.lobby_name)}</h2><div class="meta"><span class="pill">${e(dateLabel(ended))}</span>${match.solo ? `<span class="pill">Vs Golfbot</span>` : ""}<span class="pill">${e(matchLength(match))}</span><span class="pill">${e(status)}</span><span class="pill">${e(match.patch || "Earlier patches")}</span></div><p style="margin-top:1rem">${tilted("trophy.fill", 22, { style: "--fill:var(--p3);--stroke:var(--paper)" })} Overall winner: ${e(winner)}</p><div class="table-wrap"><table><thead><tr><th scope="col">Game</th>${match.names.map((name, p) => `<th scope="col">${match.viewer === p ? youStar() : ""}${e(name)}</th>`).join("")}<th scope="col">Winner</th></tr></thead><tbody>${match.rounds.map((game) => `<tr><th scope="row">${game.round}</th>${game.scores.map((score) => `<td>${score}</td>`).join("")}<td>${game.winner === null ? "Draw" : e(match.names[game.winner])}</td></tr>`).join("")}</tbody><tfoot><tr><th scope="row">Total pts</th>${match.points.map((score) => `<td>${score}</td>`).join("")}<td></td></tr><tr><th scope="row">Game wins</th>${match.wins.map((wins) => `<td>${wins}</td>`).join("")}<td></td></tr></tfoot></table></div></article>`;
-          })
+          .map((match) => matchArticleHtml(match))
           .join("") ||
         (none ? `<p class="hint">${none}</p>` : "")
       }${historyOffset !== null ? `<button type="button" class="btn small c-fw" data-history-more>Load older matches</button>` : ""}</div></div>`,
     );
     if (more) window.scrollTo(0, scroll);
+    else enterHistoryList();
   } catch (error) {
     if (page === "history" && request === historyRequest)
       show(
         "history",
-        `<div class="page scroll">${subHeader("Match history")}${tabs}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-nav="history">Try again</button></div>`,
+        `<div class="page scroll history-page">${historyHead()}${tabs}<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-nav="history">Try again</button></div>`,
       );
   }
 }
 
 /* ---------- leaderboard (player stats) ---------- */
-let statsSelection = {
-    player: "",
-    opponent: "",
-    enabled: [],
-    disabled: [],
-    house_rules: true,
-    patch: "",
-  },
-  statsRequest = 0,
-  statsFiltersOpen = false;
 const statNumber = (value) =>
   value === null
     ? "—"
@@ -2972,161 +3042,21 @@ const statSeconds = (value) =>
 /* ---------- leaderboard & player stats ---------- */
 // Filters work like the rule picker before a game: House (official stats) or
 // any rules, and with House off each rule can be required or excluded.
-const statsRuleState = (key) =>
-  statsSelection.house_rules
-    ? matchOptions.house_rules[key]
-      ? "on"
-      : "any"
-    : statsSelection.enabled.includes(key)
-      ? "on"
-      : statsSelection.disabled.includes(key)
-        ? "off"
-        : "any";
-function statsQuery(withPlayers = true) {
-  const query = new URLSearchParams();
-  if (!statsSelection.house_rules) query.set("house_rules", "false");
-  else {
-    statsSelection.enabled = [];
-    statsSelection.disabled = [];
-  }
-  if (statsSelection.patch) query.set("patch", statsSelection.patch);
-  if (withPlayers && statsSelection.player) {
-    query.set("player", statsSelection.player);
-    if (statsSelection.opponent) query.set("opponent", statsSelection.opponent);
-  }
-  for (const key of statsSelection.enabled) query.append("enabled", key);
-  for (const key of statsSelection.disabled) query.append("disabled", key);
-  return query;
-}
-function statsFilterSummary() {
-  const names = (keys) =>
-    catalog
-      .filter((rule) => keys.includes(rule.key))
-      .map((rule) => RULE_SHORT[rule.key] || rule.name)
-      .join(", ");
-  const { enabled, disabled, house_rules, patch } = statsSelection;
-  const parts = [];
-  if (house_rules) parts.push("Official stats: games played with the saved House rules.");
-  else if (!enabled.length && !disabled.length) parts.push("Every saved game, whatever rules were on.");
-  else {
-    if (enabled.length) parts.push(`With ${names(enabled)}.`);
-    if (disabled.length) parts.push(`Without ${names(disabled)}.`);
-  }
-  if (patch) parts.push(patch === "legacy" ? "Earlier patches only." : `Patch ${patch} only.`);
-  return parts.join(" ");
-}
-function statsFiltersHtml(patches) {
-  const { enabled, disabled, house_rules, patch } = statsSelection;
-  const custom = enabled.length + disabled.length;
-  const preset = house_rules ? "house" : custom ? "custom" : "any";
-  const presets = [
-    ["house", "House", "house.fill"],
-    ["any", "Any rules", "infinity"],
-  ];
-  const open = statsFiltersOpen;
-  const title = house_rules
-    ? "House rules"
-    : custom
-      ? `${custom} rule filter${custom === 1 ? "" : "s"}`
-      : "Any rules";
-  const words = { on: "required", off: "excluded", any: "either way" };
-  const row = (rule) => {
-    const value = statsRuleState(rule.key);
-    return `<button type="button" class="rule-row filter-row ${value}" data-stats-rule="${e(rule.key)}" aria-label="${e(rule.name)}: ${words[value]}" title="${e(rule.description)}" ${house_rules ? "disabled" : ""}>${tilted(value === "on" ? "checkmark.circle.fill" : value === "off" ? "xmark.circle.fill" : "circle.fill", 24, { idle: false, sw: 2.5, cls: value === "any" ? "bare" : "" })}<span>${e(rule.name)}</span></button>`;
-  };
-  const patchField = selectField(
-    "Patch",
-    `data-stats-patch aria-label="Patch"`,
-    [["", "All time", !patch], ...patches.map((name) => [name, name === "legacy" ? "Earlier patches" : name, patch === name])],
-    null,
-    "compact",
-  );
-  return `<div class="rules-box ${open ? "open" : ""}"><span class="label">Filters</span>
-    <button type="button" class="rules-head" data-stats-filters-toggle aria-expanded="${open}"><span>${tilted("checklist", 24)} ${title}</span><span class="chev">${glyph("chevron.right", 20)}</span></button>
-    <div class="collapse ${open ? "open" : ""}" data-rules-open><div ${open ? "" : "inert"}><div class="rules-body">
-      <div class="chips" style="justify-content:space-around">${presets.map(([key, label, symbol]) => `<button type="button" class="rule-row" style="flex-direction:column;gap:1.4rem;color:var(--fw-text)" data-stats-preset="${key}" aria-pressed="${preset === key}">${tilted(symbol, 52, { tilt: key === "house" ? 6 : -6, style: preset === key ? "--fill:var(--p1b);--stroke:var(--p1)" : "" })}<span>${label}${key === "house" ? " Rules" : ""}</span></button>`).join("")}</div>
-      <div class="rule-group"><h4>Rules</h4>${catalog.map(row).join("")}</div>
-      <p class="hint dark">${house_rules ? "House rules count only games played with the saved preset. Choose Any rules to pick your own." : "Tap a rule to require it. Tap again to leave out games that used it."}</p>
-      ${patchField}
-    </div></div></div></div>
-    <div class="collapse ${open ? "" : "open"}" data-rules-closed><div ${open ? "inert" : ""}><div class="rules-closed"><div class="chips">${presets.map(([key, label, symbol]) => `<button type="button" class="chip" data-stats-preset="${key}" aria-pressed="${preset === key}">${tilted(symbol, 24)}<span>${label}</span></button>`).join("")}</div><p class="hint">${e(statsFilterSummary())}</p></div></div></div>`;
-}
-/** Open or close the filter box in place so the height change can animate. */
-function toggleStatsFilters() {
-  statsFiltersOpen = !statsFiltersOpen;
-  const holder = root.querySelector("[data-stats-filters]");
-  const box = holder?.querySelector(".rules-box");
-  if (!box) return;
-  box.classList.toggle("open", statsFiltersOpen);
-  box.querySelector("[data-stats-filters-toggle]").setAttribute("aria-expanded", statsFiltersOpen);
-  for (const [name, open] of [
-    ["[data-rules-open]", statsFiltersOpen],
-    ["[data-rules-closed]", !statsFiltersOpen],
-  ]) {
-    const part = holder.querySelector(name);
-    part.classList.toggle("open", open);
-    part.firstElementChild.toggleAttribute("inert", !open);
-  }
-  if (statsFiltersOpen) {
-    box.querySelectorAll(".rule-row").forEach((row, i) => row.style.setProperty("--i", i));
-    box.classList.add("opening");
-    setTimeout(() => box.classList.remove("opening"), 900);
-  }
-}
-/** This player's own stats profile: their account, or this browser as a guest. */
 const myPlayerId = () =>
   session.player_id || (session.account ? "account:" + session.account.id : "player:" + session.username);
 /** The ranking: everyone with a matching game, best game win rate first. Guests share one row. */
-function leaderboardHtml(result) {
-  const rows = result.leaderboard.filter((row) => row.rounds > 0);
-  if (!rows.length) return `<p class="empty">No games match these filters yet.</p>`;
-  return `<p class="hint dark">Ranked by game win rate. Tap a player for their full record.</p><div class="list">${rows
-    .map((row, i) => {
-      const games = `${row.rounds} game${row.rounds === 1 ? "" : "s"}`;
-      // the combined "Guest" row is every guest added together, so it opens no player page
-      const opens = row.profile.id !== "guests";
-      const tag = opens ? "button" : "div";
-      return `<${tag}${opens ? ` type="button" data-stats-player="${e(row.profile.id)}"` : ""} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}" aria-label="${i + 1}. ${e(row.profile.label)}, ${statPercent(row.round_win_rate)} win rate, ${games}">
-        <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "rank:first" }) : stickerText(String(i + 1), { key: `rank:${i}` })}</span>
-        <div class="grow"><strong>${e(row.profile.label)}</strong><small>${row.round_wins}–${row.round_losses}–${row.round_draws} · ${games}</small></div>
-        <b class="rate">${statPercent(row.round_win_rate)}</b>${opens ? glyph("chevron.right", 16) : ""}
-      </${tag}>`;
-    })
-    .join("")}</div>`;
-}
 /** The record cards a player holds (given only theirs), as the Records tab draws them. */
 function heldRecordCards(records) {
   return recordCards(records || {})
     .filter(({ record }) => record)
     .map(({ html }) => html);
 }
-function heldRecordsHtml(records) {
-  const held = heldRecordCards(records);
-  return `<div class="stack"><p class="hint dark">Records held</p>${held.length ? `<div class="records">${held.join("")}</div>` : `<p class="hint dark">None yet.</p>`}</div>`;
-}
-/** One player's record: the headline numbers, then the full tables. */
-function playerStatsHtml(result) {
-  const entry = result.player,
-    stats = entry.overall;
-  const place = result.leaderboard.filter((row) => row.rounds > 0).findIndex((row) => row.profile.id === entry.profile.id);
-  const others = result.players.filter((player) => player.id !== entry.profile.id);
-  const tile = (value, label) => `<div><b>${value}</b><span>${label}</span></div>`;
-  return `<section class="panel c-p3 stat-hero">
-      <div class="stat-rate">${stickerText(stats.round_win_rate === null ? "—" : String(Math.round(stats.round_win_rate * 100)), { split: true, key: "stat-rate" })}${stats.round_win_rate === null ? "" : stickerText("%", { cls: "pts", key: "stat-pct" })}</div>
-      <p>game win rate${place >= 0 ? ` · ranked #${place + 1}` : ""}</p>
-      <div class="stat-tiles">${tile(`${stats.round_wins}–${stats.round_losses}–${stats.round_draws}`, "W–L–D")}${tile(statNumber(stats.rounds), "games")}${tile(statNumber(stats.average_points), "avg points")}</div>
-    </section>
-    ${heldRecordsHtml(entry.records)}
-    ${selectField("Compare With", `data-stats-opponent aria-label="Compare with"`, [["", "Nobody: overall only", !statsSelection.opponent], ...others.map((player) => [player.id, player.label, player.id === statsSelection.opponent])], "person.2.fill")}
-    ${statsTable([entry, result.comparison].filter(Boolean), "overall", statsSelection.house_rules ? "Official stats · overall" : "Overall · against all opponents", "c-p3")}
-    ${result.comparison ? statsTable([entry, result.comparison], "head_to_head", "Head to head", "c-p1") : ""}
-    <details class="panel c-fw"><summary>How stats are counted</summary><p style="font-size:1.4rem">A game is one deal. A series is a full match. House rules includes games started with a saved, locked preset; earlier unmarked games remain available with House rules off. Turns counts completed turns by all players. Time spent on move is the average length of your turns, from the moment a turn becomes yours until it ends; a turn you leave or disconnect during is not timed, and games played before this was recorded are left out. In many-player games, an overall game win means the unique lowest score at the table; tied lowest scores are draws. Average opponent points uses the mean of all other players. Head-to-head game results compare just the two selected players, and many-player head-to-head series compare their total points. Fixed series allow drawn totals; patch and rule filters require every game of a completed series to match. Rules in play counts enabled optional rules, whether activated or not. Continuous series are decided after everyone leaves: game wins first, then lower total points. An exact tie has no series winner. Game win rate includes draws in the denominator; series win rate uses completed matches only. Matching games from unfinished series still count toward game stats. With rule filters, a completed series counts only when every game matches. Negative point advantage means fewer points than the opponent. Activation percentage counts games where that player triggered the rule, divided by all games with activation records. Win rate counts wins among those activated games, including draws in the denominator. Each rule counts once per game, even if it triggers multiple times. Rules affecting the opponent are credited to the player who triggered them. Older games without activation records are excluded from this tracker. The indented rows under a rule split it by how it fired (which Angel number, which Hold 'em hand, which color, and so on); one game can count toward several of them, and only games played since these were recorded are counted.</p></details>`;
-}
-function ruleActivationsHtml(entry, scope) {
+function ruleActivationsHtml(entry, scope, named = true) {
   const stats = entry[scope];
   if (!Array.isArray(stats.rule_activations))
     return `<p>Restart the game server to load rule activation stats.</p>`;
-  return `<div><h3>${e(entry.profile.label)}</h3>${entry.profile.unique_name ? `<p>Display names: ${entry.profile.display_names.map(e).join(", ")}</p>` : ""}<p>Rule activations · ${stats.known_activation_games} recorded games</p><div class="table-wrap"><table><thead><tr><th>Rule</th><th>Games activated</th><th>Win rate</th></tr></thead><tbody>${stats.rule_activations.map((rule) => `<tr><th>${e(rule.name)}</th><td>${statPercent(rule.rate)} <small>(${rule.games})</small></td><td>${statPercent(rule.win_rate)}</td></tr>${(rule.subrules || []).map((part) => `<tr class="sub-rule"><th>${textSymbol("arrow.turn.down.right", "sub-rule-arrow")}${e(part.name)}</th><td>${statPercent(part.rate)} <small>(${part.games})</small></td><td>${statPercent(part.win_rate)}</td></tr>`).join("")}`).join("")}</tbody></table></div>${stats.unknown_activation_games ? `<p>${stats.unknown_activation_games} games have no activation records and are excluded.</p>` : ""}${stats.rule_activations.some((rule) => rule.subrules?.length) ? `<p>Indented rows break a rule down by how it fired, over the ${stats.known_subrule_games ?? 0} games that record this (games from this update on).</p>` : ""}</div>`;
+  // (`named`: with more than one player on the card, each table says whose it is)
+  return `<div>${named ? `<h3>${e(entry.profile.label)}</h3>` : ""}${named && entry.profile.unique_name ? `<p>Display names: ${entry.profile.display_names.map(e).join(", ")}</p>` : ""}${named ? `<p>${stats.known_activation_games} games</p>` : ""}<div class="table-wrap"><table><thead><tr><th>Rule</th><th>Games activated</th><th>Win rate</th></tr></thead><tbody>${stats.rule_activations.map((rule) => `<tr><th>${e(rule.name)}</th><td>${statPercent(rule.rate)} <small>(${rule.games})</small></td><td>${statPercent(rule.win_rate)}</td></tr>${(rule.subrules || []).map((part) => `<tr class="sub-rule"><th>${textSymbol("arrow.turn.down.right", "sub-rule-arrow")}${e(part.name)}</th><td>${statPercent(part.rate)} <small>(${part.games})</small></td><td>${statPercent(part.win_rate)}</td></tr>`).join("")}`).join("")}</tbody></table></div></div>`;
 }
 function statsTable(entries, scope, title, color) {
   const rating = (entry, kind) => {
@@ -3175,71 +3105,8 @@ function statsTable(entries, scope, title, color) {
       (s) => `${statNumber(s.best_round)} / ${statNumber(s.worst_round)}`,
     ],
   ];
-  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${e(entry.profile.label)}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope], entry)}</td>`).join("")}</tr>`).join("")}</tbody></table></div><details><summary>View rule activation</summary><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope)).join("")}</div></details>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => (entry[scope].known_first_games ?? 0) < entry[scope].rounds) ? `<p>Who went first has been recorded since patch 1.4.0; earlier games are left out of those rows.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section>`;
+  return `<section class="panel ${color}"><h2>${title}</h2>${entries.every((entry) => entry[scope].rounds === 0) ? `<p>No games match this selection.</p>` : ""}<div class="table-wrap"><table><thead><tr><th scope="col">Statistic</th>${entries.map((entry) => `<th scope="col">${entries.length > 1 ? e(entry.profile.label) : "Value"}</th>`).join("")}</tr></thead><tbody>${metrics.map(([label, value]) => `<tr><th scope="row">${label}</th>${entries.map((entry) => `<td>${value(entry[scope], entry)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${entries.some((entry) => entry[scope].known_turn_games < entry[scope].rounds) ? `<p>Average turns excludes older games without turn records.</p>` : ""}${entries.some((entry) => entry[scope].ambiguous_matches) ? `<p>Games where the selected player holds more than one seat are excluded because those seats cannot be told apart.</p>` : ""}</section><section class="panel ${color} rule-activations"><h2>Rule Activations${entries.length === 1 && Array.isArray(entries[0][scope].rule_activations) ? ` · ${entries[0][scope].known_activation_games} games` : ""}</h2><div class="stack wide">${entries.map((entry) => ruleActivationsHtml(entry, scope, entries.length > 1)).join("")}</div></section>`;
 }
-async function statsPage(fromUrl = false) {
-  if (fromUrl) {
-    const query = new URLSearchParams(location.search);
-    statsSelection = {
-      initialized: true,
-      player: query.get("player") || myPlayerId(),
-      opponent: query.has("opponent") ? query.get("opponent") : "bot:golfbot",
-      enabled: query.getAll("enabled"),
-      disabled: query.getAll("disabled"),
-      house_rules: query.get("house_rules") !== "false",
-      patch: query.get("patch") || "",
-    };
-  }
-  // the Advanced tab opens on your own record against Golfbot, all time
-  if (!statsSelection.initialized) {
-    statsSelection.player ||= myPlayerId();
-    statsSelection.opponent ||= "bot:golfbot";
-    statsSelection.initialized = true;
-  }
-  const request = ++statsRequest;
-  // the ranking, or (once a player is picked) that player's own page
-  const view = statsSelection.player ? "player:" + statsSelection.player : "board";
-  const same = page === "stats" && root.querySelector("[data-stats-view]")?.dataset.statsView === view;
-  const query = statsQuery();
-  document.title = "Leaderboard · Golf";
-  history.replaceState({}, "", appPath("/stats") + (query.toString() ? "?" + query : ""));
-  const draw = (title, body) => leaderShell("stats", title, "advanced", body, "Loading player stats…");
-  if (!same) draw(statsSelection.player ? "Player stats" : "Leaderboard", null);
-  try {
-    const result = await api("/api/stats?" + query);
-    if (page !== "stats" || request !== statsRequest) return;
-    statsSelection.opponent = result.comparison?.profile.id || "";
-    if (!result.players.length)
-      return draw(
-        "Leaderboard",
-        `<p class="hint">No saved games yet. Finish a game against a player or Golfbot to see player statistics here.</p>`,
-      );
-    const filters = statsFiltersHtml(result.patches);
-    const content = statsSelection.player ? playerStatsHtml(result) : leaderboardHtml(result);
-    const holder = root.querySelector("[data-stats-view]");
-    if (same && holder) {
-      // a filter changed: redraw in place, keeping the scroll position
-      holder.querySelector("[data-stats-filters]").innerHTML = filters;
-      holder.querySelector("#stats-content").innerHTML = content;
-      return;
-    }
-    draw(
-      statsSelection.player ? result.player.profile.label : "Leaderboard",
-      `<div class="leader-body" data-stats-view="${e(view)}">
-        <div data-stats-filters>${filters}</div>
-        <div id="stats-content" class="stack wide">${content}</div>
-      </div>`,
-    );
-  } catch (error) {
-    if (page === "stats" && request === statsRequest)
-      draw(
-        "Leaderboard",
-        `<p class="empty">${e(error.message)}</p><button type="button" class="btn small c-fw" data-stats-reset-all>Clear selection and retry</button>`,
-      );
-  }
-}
-
-
 const RULE_EXAMPLES = {
   royal_pairs: [["Queen pair earns one bonus swap", ["QH",null,null,"QS",null,null]], ["Jack pair earns one bonus swap", ["JH",null,null,"JS",null,null]]],
   angel_numbers: [
@@ -3350,9 +3217,6 @@ function syncPrefs() {
 }
 onPrefsSaved = pushPrefs;
 
-function leaderboardTabs(selected) {
-  return `<div class="leader-tabs" role="group" aria-label="Leaderboard views">${[["records","Records"],["solo","Solo"],["pvp","PVP"],["advanced","Advanced stats"]].map(([key,label]) => `<button type="button" class="btn small ${selected === key ? "c-p3" : "c-fw"}" data-leader-tab="${key}" aria-pressed="${selected === key}">${label}</button>`).join("")}</div>`;
-}
 /**
  * Solo (Practice streaks) and PVP (MMR): the leader's card up top, then every
  * player in a green row, styled like the Advanced stats ranking.
@@ -3371,7 +3235,7 @@ function leaderboardBody(tab, result) {
   const gameRecord = (row) => (row.games ? `${statNumber(row.games.wins)}–${statNumber(row.games.draws)}–${statNumber(row.games.losses)}` : "—");
   const settling = (row) => (!solo && row.provisional ? "?" : "");
   const rate = (row) => (row.win_rate === null || row.win_rate === undefined ? "—" : statPercent(row.win_rate));
-  const who = (row) => `${row.id === mine ? youStar() : ""}${e(row.label)}`;
+  const who = (row) => `${nameMark(row.id, row.id === mine)}${e(row.label)}`;
   const leader = rows[0];
   const tile = (text, label) => `<div><b>${text}</b><span>${label}</span></div>`;
   const hero = `<section class="panel c-p3 stat-hero leader-hero">
@@ -3382,7 +3246,8 @@ function leaderboardBody(tab, result) {
     </section>`;
   const list = rows
     .map((row, i) => {
-      const opens = row.id?.startsWith("account:");
+      // (a signed-in player's row opens their profile; so does a debug server's demo player's)
+      const opens = row.id?.startsWith("account:") || row.id?.startsWith("demo:");
       const tag = opens ? "button" : "div";
       const attrs = opens ? ` type="button" data-stats-player="${e(row.id)}"` : "";
       return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} MMR`}, ${solo ? "" : "series "}${record(row)}, ${rate(row)} win rate${solo ? "" : `, games ${gameRecord(row)}`}">
@@ -3407,9 +3272,8 @@ function timeParts(seconds) {
 const timeLabel = (seconds) => timeParts(seconds).join(" ");
 /** Records: the all-time bests, one card each. */
 function recordsBody(records = {}, personal = {}) {
-  return `<div class="records">${recordCards(records, personal)
-    .map(({ html }) => html)
-    .join("")}</div><p class="hint dark leader-foot">All-time bests from every saved game.</p>`;
+  // (two columns of cards that each keep to their own height, as the Flags tab's do)
+  return hugColumns(recordCards(records, personal).map(({ html }) => html));
 }
 /**
  * Every record's card, with the record it shows (null while nobody holds it). Under
@@ -3417,7 +3281,7 @@ function recordsBody(records = {}, personal = {}) {
  */
 function recordCards(records = {}, personal = {}) {
   const mine = session.account ? "account:" + session.account.id : null;
-  const who = (record) => `${record.id && record.id === mine ? youStar() : ""}${e(record.label)}`;
+  const who = (record) => `${nameMark(record.id, !!record.id && record.id === mine)}${e(record.label)}`;
   const when = (at) => (at ? dateLabel(at, { month: "short", day: "numeric", year: "numeric" }) : "");
   const games = (n) => `${statNumber(n)} game${n === 1 ? "" : "s"}`;
   // the viewer's own best: a small box under the record's card, or a note that the
@@ -3461,72 +3325,18 @@ function recordCards(records = {}, personal = {}) {
   ];
   cards.push(card(13, "c-s2", "hourglass", "Most hours played", hours, played, playedUnit, hours && `<strong>${who(hours)}</strong> has spent ${e(timeLabel(hours.seconds))} in games`, "No games played yet.", "", pr(13, hours, P.most_time, myPlayed, myPlayedUnit, "Yours")));
   cards.push(
-    card(14, "c-s6", "cpu.fill", "AI vs. all players", ai, ai && statNumber(Math.abs(aiLead)), "pts", ai && `<strong>${who(ai)}</strong> ${aiLead > 0 ? "is ahead of" : aiLead < 0 ? "is behind" : "is level with"} everyone put together: ${statNumber(ai.bot_points)} pts to the players' ${statNumber(ai.player_points)} over ${games(ai.games)} of solo play (lowest wins)`, "No solo games against Golfbot yet."),
+    card(14, "c-s6", "cpu.fill", "CPU vs. all players", ai, ai && statNumber(Math.abs(aiLead)), "pts", ai && `<strong>${who(ai)}</strong> ${aiLead > 0 ? "is ahead of" : aiLead < 0 ? "is behind" : "is level with"} everyone put together: ${statNumber(ai.bot_points)} pts to the players' ${statNumber(ai.player_points)} over ${games(ai.games)} of solo play (lowest wins)`, "No solo games against Golfbot yet."),
     card(15, "c-p1", "dice.fill", "Luck of the draw", luck, luck && statPercent(luck.rate), "", luck && `<strong>${who(luck)}</strong> gets to go first ${statPercent(luck.rate)} of the time (${statNumber(luck.first)} of ${games(luck.games)})… because of course they do!`, "Nobody has played 20 games with a random first turn yet. Counting started with patch 1.4.0."),
     card(16, "c-s7", "link", "Spreading the gospel", gospel, gospel?.count, gospel?.count === 1 ? "player" : "players", gospel && `<strong>${who(gospel)}</strong> has brought the most people to the table through invite links`, "Nobody has joined through an invite link yet. Counting started with patch 1.4.0."),
-    card(17, "c-p4", "eye.fill", "Quite the spectacle", spectacle, spectacle?.count, spectacle?.count === 1 ? "spectator" : "spectators", spectacle && `<strong>${e((spectacle.players || []).join(" vs "))}</strong>${spectacle.scores ? ` finished ${e(spectacle.scores.join(" to "))}` : ""} in front of the biggest crowd${spectacle.at ? ` · ${when(spectacle.at)}` : ""}`, "No game has had a spectator yet. Counting started with patch 1.4.0."),
+    card(17, "c-p4", "binoculars.fill", "Quite the spectacle", spectacle, spectacle?.count, spectacle?.count === 1 ? "spectator" : "spectators", spectacle && `<strong>${e((spectacle.players || []).join(" vs "))}</strong>${spectacle.scores ? ` finished ${e(spectacle.scores.join(" to "))}` : ""} in front of the biggest crowd${spectacle.at ? ` · ${when(spectacle.at)}` : ""}`, "No game has had a spectator yet. Counting started with patch 1.4.0."),
     card(18, "c-s5", "leaf.fill", "Newest recruit", recruit, recruit && (recruit.at ? (days(recruit.at) === 0 ? "Today" : days(recruit.at)) : "New"), recruit?.at && days(recruit.at) > 0 ? (days(recruit.at) === 1 ? "day ago" : "days ago") : "", recruit && `<strong>${who(recruit)}</strong> is the newest Golf account${recruit.at ? ` · joined ${when(recruit.at)}` : ""}`, "No accounts yet."),
     card(19, "c-p2", "arrow.up.right.circle.fill", "David vs. Goliath", upset, upset && statNumber(upset.gap), "pts apart", upset && `<strong>${who(upset)}</strong> (${statNumber(upset.ratings[0])}) won a series against ${e(upset.opponent)} (${statNumber(upset.ratings[1])})${upset.points ? `, ${e([upset.points[upset.winner], upset.points[1 - upset.winner]].join(" to "))}` : ""}: the biggest upset by rating${upset.at ? ` · ${when(upset.at)}` : ""}`, "No rated series has gone to the lower-rated player yet."),
   );
   const held = [elo, streak, comeback, today, most, least, clutch, stacked, yapper, marathon, bogey, lowest, party, hours, ai, luck, gospel, spectacle, recruit, upset];
   return cards.map((html, i) => ({ html, record: held[i] }));
 }
-/**
- * The leaderboard views (Solo, PVP, Records, Advanced stats) share one page: its header
- * and tabs are drawn once and stay put, and only the part below them changes.
- * `body` null means "still loading": the first time that shows `loading`; once
- * the page is up, what is there stays (dimmed) until the new view arrives.
- */
-function leaderShell(name, title, tab, body, loading = "Loading…") {
-  const shell = ["leaderboard", "stats"].includes(page) && root.querySelector("[data-leader-shell]");
-  if (!shell) {
-    show(
-      name,
-      `<div class="page scroll" data-leader-shell>${subHeader(title)}${leaderboardTabs(tab)}<div class="leader-body" data-leader-body>${body ?? `<div class="loading">${e(loading)}</div>`}</div></div>`,
-    );
-    return;
-  }
-  page = name;
-  closeSheet();
-  const heading = shell.querySelector(".page-title");
-  if (heading && heading.textContent !== title) heading.textContent = title;
-  shell.querySelectorAll("[data-leader-tab]").forEach((button) => {
-    const on = button.dataset.leaderTab === tab;
-    button.classList.toggle("c-p3", on);
-    button.classList.toggle("c-fw", !on);
-    button.setAttribute("aria-pressed", String(on));
-  });
-  const holder = shell.querySelector("[data-leader-body]");
-  holder.classList.toggle("stale", body === null);
-  if (body !== null) {
-    // only the rows that changed are redrawn
-    const template = document.createElement("template");
-    if (!template.content) return void (holder.innerHTML = body);
-    template.innerHTML = body;
-    morphChildren(holder, template.content);
-  }
-}
-let leaderboardRequest = 0,
-  leaderboardCache = null;
-async function leaderboardPage(tab = "pvp") {
-  const request = ++leaderboardRequest;
-  document.title = "Leaderboard - Golf";
-  history.replaceState({}, "", appPath("/leaderboard"));
-  const draw = (body) => leaderShell("leaderboard", "Leaderboard", tab, body, "Loading leaderboard…");
-  // the last board shows straight away; it is only redrawn if the fetch changed it
-  const body = (result) => (tab === "records" ? recordsBody(result.records, result.personal) : leaderboardBody(tab, result));
-  draw(leaderboardCache ? body(leaderboardCache) : null);
-  try {
-    const result = await api("/api/leaderboards");
-    if (page !== "leaderboard" || request !== leaderboardRequest) return;
-    const changed = JSON.stringify(result) !== JSON.stringify(leaderboardCache);
-    leaderboardCache = result;
-    if (changed) draw(body(result));
-  } catch (error) {
-    if (page === "leaderboard" && request === leaderboardRequest && !leaderboardCache)
-      draw(`<p class="empty">${e(error.message)}</p>`);
-  }
-}
+/** The last leaderboards fetched (Aces and You draw from it). */
+let leaderboardCache = null;
 
 /* ---------- patch notes & rules ---------- */
 async function patchesPage() {
@@ -3535,14 +3345,14 @@ async function patchesPage() {
   history.replaceState({}, "", appPath("/patch-notes"));
   show(
     "patches",
-    `<div class="page scroll">${subHeader("Patch notes")}<div class="loading">Loading patch notes…</div></div>`,
+    `<div class="page scroll">${subHeader("Patch Notes")}<div class="loading">Loading patch notes…</div></div>`,
   );
   try {
     const notes = await api("/api/patch-notes");
     if (page !== "patches") return;
     show(
       "patches",
-      `<div class="page scroll">${subHeader("Patch notes")}<div class="stack wide">${notes.patches
+      `<div class="page scroll">${subHeader("Patch Notes")}<div class="stack wide">${notes.patches
         .map(
           (patch) =>
             `<article class="panel ${patch.version === notes.current ? "c-p4" : "c-fw"}"><span class="pill">${patch.version === notes.current ? "Latest update" : "Previous update"}</span><h2 style="margin-top:.8rem">Patch ${e(patch.version)}</h2>${patchNotesHtml(patch)}</article>`,
@@ -3553,7 +3363,7 @@ async function patchesPage() {
     if (page === "patches")
       show(
         "patches",
-        `<div class="page scroll">${subHeader("Patch notes")}<p class="empty">${e(error.message)}</p></div>`,
+        `<div class="page scroll">${subHeader("Patch Notes")}<p class="empty">${e(error.message)}</p></div>`,
       );
   }
 }
@@ -3573,18 +3383,21 @@ function rulesPage() {
 
 /* ---------- events ---------- */
 async function navigate(target) {
-  if (target !== "account") leaveAfterSignIn = null;
+  leaveAfterSignIn = null;
   if (target === "home") return home();
   if (target === "history") return historyPage();
-  if (target === "leaderboard") return leaderboardPage();
-  if (target === "stats") return statsPage();
+  // (Leaderboard and Spectate live on the home screen now, as Aces and Watch;
+  // Advanced stats was split between You and each player's card)
+  if (target === "leaderboard") return home("aces");
+  if (target === "stats") return home("you");
+  if (["flags", "you", "play", "watch", "aces"].includes(target)) return home(target);
   if (target === "patches") return patchesPage();
   if (target === "notifications") return notificationsPage();
-  if (target === "account") return accountPage();
+  if (target === "account") return home("you"); // (the old Profile page: it is the You tab now)
   if (target === "rules") return rulesPage();
   if (target === "cards") return cardGallery();
   if (target === "friends") return friendsPage();
-  if (target === "spectate") return spectatePage();
+  if (target === "spectate") return home("watch");
   if (target === "passplay") return passPlayPage(0);
   if (target === "resume") {
     closeSheet();
@@ -3619,6 +3432,7 @@ document.addEventListener("click", async (event) => {
   try {
     if (data.leaveChoice) return resolveLeavePrompt(data.leaveChoice);
     if (await tournamentClick(button, data)) return;
+    if (await homeClick(button, data, event)) return;
     if (button.classList.contains("slot")) {
       // pointer taps are handled by the board; this is keyboard activation.
       // (A tap on the haptic switch also clicks with no detail: not a key press.)
@@ -3626,11 +3440,21 @@ document.addEventListener("click", async (event) => {
         tapSlot(JSON.parse(data.ref), button);
       return;
     }
-    if (data.leaderTab) return data.leaderTab === "advanced" ? statsPage() : leaderboardPage(data.leaderTab);
+    if (data.bracketRound !== undefined) return showRound(Number(data.bracketRound));
     if (data.listTab) {
       // Match history: PVP, Solo or Tournaments
+      // (the arrow over the selector slides across to the list now showing)
+      const before = root.querySelector(".list-dock .aces-pointer")?.getBoundingClientRect().left;
+      const order = LIST_TABS.map(([key]) => key);
+      historyEnter = Math.sign(order.indexOf(data.listTab) - order.indexOf(historyTab));
       historyTab = data.listTab;
-      return historyPage();
+      const loading = historyPage();
+      const pointer = root.querySelector(".list-dock .aces-pointer");
+      if (pointer && before != null && pointer.animate && !reducedMotion.matches) {
+        const dx = before - pointer.getBoundingClientRect().left;
+        if (Math.abs(dx) > 0.5) pointer.animate([{ translate: `${dx}px 0` }, { translate: "0 0" }], { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      }
+      return loading;
     }
     if (data.info) {
       event.preventDefault();
@@ -3668,7 +3492,9 @@ document.addEventListener("click", async (event) => {
     if ("undo" in data) return cancelStaged();
     if (data.pref) return togglePref(data.pref);
     if ("settings" in data) return settingsSheet();
-    if ("emoteSettings" in data) return emotesSheet();
+    if ("signin" in data) return signIn();
+    if ("accountSheet" in data) return accountSheet();
+    if ("uniqueName" in data) return uniqueNameSheet();
     if ("themeSettings" in data) return themeSheet();
     if (data.themePick) return pickTheme(data.themePick);
     if (data.emotePick || data.emoteDrop) {
@@ -3679,6 +3505,10 @@ document.addEventListener("click", async (event) => {
     if ("sheetPlayer" in data) return openRulesSheet(Number(data.sheetPlayer));
     if (data.statsFor)
       return await playerStatsSheet(data.statsFor === "me" ? state.viewer : board.view.opp);
+    if (data.rulesPlayer != null) {
+      closeSheet();
+      return openRulesSheet(Number(data.rulesPlayer));
+    }
     if (data.rulesFor)
       return openRulesSheet(
         data.rulesFor === "me" ? state.viewer : board.view.opp,
@@ -3829,7 +3659,11 @@ document.addEventListener("click", async (event) => {
         csrf_token: session.csrf_token,
       });
       Object.assign(session, keep);
-      return home();
+      closeSheet();
+      if (page !== "home") return home();
+      redrawPane(homeTab);
+      loadTab(homeTab);
+      return;
     }
     if ("debugEnd" in data) {
       closeSheet();
@@ -3873,31 +3707,10 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (data.nav) return await navigate(data.nav);
-    if ("statsFiltersToggle" in data) return toggleStatsFilters();
     if (data.statsPlayer) {
-      statsSelection.player = data.statsPlayer;
-      statsSelection.opponent = "";
-      return await statsPage();
-    }
-    if (data.statsPreset) {
-      statsSelection.house_rules = data.statsPreset === "house";
-      statsSelection.enabled = [];
-      statsSelection.disabled = [];
-      return await statsPage();
-    }
-    if (data.statsRule) {
-      // each tap moves a rule on: either way → required → excluded → either way
-      const key = data.statsRule;
-      const value = statsRuleState(key);
-      statsSelection.enabled = statsSelection.enabled.filter((item) => item !== key);
-      statsSelection.disabled = statsSelection.disabled.filter((item) => item !== key);
-      if (value === "any") statsSelection.enabled.push(key);
-      else if (value === "on") statsSelection.disabled.push(key);
-      return await statsPage();
-    }
-    if ("statsResetAll" in data) {
-      statsSelection = { player: "", opponent: "", enabled: [], disabled: [], house_rules: true, patch: "" };
-      return await statsPage();
+      // (at a table, the profile comes up in a sheet; from the home screen it is a page)
+      closeSheet();
+      return page === "room" ? playerSheet(data.statsPlayer) : profilePage(data.statsPlayer);
     }
     if ("historyMore" in data) return await historyPage(true);
     if (data.lobby) return await publicLobby(data.lobby);
@@ -3914,7 +3727,7 @@ document.addEventListener("click", async (event) => {
       if (epoch === tableEpoch) enterRoom(next);
       return;
     }
-    if ("leave" in data && state?.spectator) return spectatePage();
+    if ("leave" in data && state?.spectator) return home("watch");
     if ("watch" in data) return watchGame(data.watch);
     if ("passStart" in data) return startPassPlay();
     if ("passNext" in data) return passPlayPage(passStep + 1);
@@ -4008,26 +3821,6 @@ root.addEventListener("input", (event) => {
 root.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (event.target.id === "display-name-form") return saveProfile();
-  if (event.target.id === "account-name-form") {
-    try {
-      const keep = { username: session.username, avatar: session.avatar };
-      const epoch = tableEpoch, roomId = session.room_id;
-      const next = await api("/api/account/name", "POST", {
-        unique_name: new FormData(event.target).get("unique_name"),
-        csrf_token: session.csrf_token,
-      });
-      const currentRoom = session.room_id;
-      session = {...next, ...keep};
-      if (epoch !== tableEpoch || currentRoom !== roomId || page !== "account") {
-        session.room_id = currentRoom;
-        return;
-      }
-      if (!(await finishPracticeSignIn())) accountPage();
-    } catch (error) {
-      toast(error.message);
-    }
-    return;
-  }
 });
 // pass & play setup: one handler each for the whole page (the page's elements are
 // reused from screen to screen, so a listener per screen would pile up)
@@ -4054,12 +3847,6 @@ root.addEventListener("change", async (event) => {
       setupPage();
     }
     if (key === "gameType") refreshRulesPicker();
-    return;
-  }
-  if (target.hasAttribute("data-stats-patch") || target.hasAttribute("data-stats-opponent")) {
-    if (target.hasAttribute("data-stats-patch")) statsSelection.patch = target.value;
-    else statsSelection.opponent = target.value;
-    await statsPage();
     return;
   }
   if (target.id === "username") {
@@ -4114,13 +3901,21 @@ window.addEventListener("resize", () => centerAvatar(false));
 let linkedLobby = null;
 function route() {
   const path = currentPath();
+  if (path.startsWith("/player/")) return profilePage(decodeURIComponent(path.slice("/player/".length)));
   if (path === "/patch-notes") return patchesPage();
   if (path === "/notifications") return notificationsPage();
-  if (path === "/account") return accountPage();
-  if (path === "/leaderboard") return leaderboardPage();
-  if (path === "/stats") return statsPage(true);
+  if (path === "/account") return home("you");
+  if (path === "/leaderboard") return home("aces");
+  if (path === "/stats") return home("you");
   if (path === "/history") return historyPage();
-  if (path === "/spectate") return spectatePage();
+  if (path === "/spectate" || path === "/watch") return home("watch");
+  if (path === "/flags" || path === "/you") return home(path.slice(1));
+  const aces = path.match(/^\/aces(?:\/(records|solo|pvp))?$/);
+  if (aces) {
+    acesView = aces[1] || "records";
+    return home("aces");
+  }
+  if (path === "/puzzle") return home("play");
   const id = path.match(/^\/lobby\/([^/]+)$/)?.[1];
   if (id) {
     linkedLobby = id; // arrived by its address: an invite link
@@ -4146,7 +3941,8 @@ window.addEventListener("popstate", () => {
  */
 function fontsReady() {
   if (!document.fonts?.load) return Promise.resolve();
-  const faces = ['700 16px "FOT-Seurat Pro"', '700 16px "SF Pro Rounded"'].map((face) => document.fonts.load(face).catch(() => {}));
+  // (and the stickers' rough cuts of both, so no sticker is first drawn smooth)
+  const faces = ['700 16px "FOT-Seurat Pro"', '700 16px "SF Pro Rounded"', ...[14, 20, 28, 40, 56].map((cut) => `700 16px "Golf Rough Round ${cut}"`), '700 16px "Golf Rough Seurat 14"', '700 16px "Golf Rough Seurat 56"'].map((face) => document.fonts.load(face).catch(() => {}));
   return Promise.race([Promise.all(faces), new Promise((done) => setTimeout(done, 1500))]);
 }
 function bootData() {
