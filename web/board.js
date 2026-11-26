@@ -1351,6 +1351,31 @@ function renderChrome() {
   renderModal();
 }
 
+/**
+ * A player's emote stands beside their avatar, wherever the table has put it: yours to its
+ * right, the player across the table's to its left, level with it. (Placed from where the
+ * avatar is, not by fixed distances from the screen's edges, which put it in a different
+ * spot on every screen size.)
+ */
+function placeEmotes() {
+  for (const [where, side] of [["me", "me"], ["them", "opp"]]) {
+    const bubble = board.el?.querySelector(`.player-emote.${where}`),
+      avatar = board.el?.querySelector(`.tag-avatar[data-avatar-for="${side}"]`);
+    const holder = bubble?.offsetParent;
+    if (!bubble || !avatar || !holder) continue;
+    const box = holder.getBoundingClientRect(),
+      a = avatar.getBoundingClientRect();
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+    const gap = 1.2 * rem,
+      w = bubble.offsetWidth,
+      h = bubble.offsetHeight;
+    const left = where === "me" ? a.right + gap : a.left - gap - w;
+    bubble.style.left = `${Math.round(left - box.left)}px`;
+    bubble.style.top = `${Math.round(a.top + a.height / 2 - h / 2 - box.top)}px`;
+    bubble.style.right = bubble.style.bottom = "auto";
+  }
+}
+if (typeof addEventListener === "function") addEventListener("resize", () => board.el?.isConnected && placeEmotes());
 function renderEmotes() {
   const layer = board.el.querySelector("[data-emote-layer]");
   // spectators cheer on behalf of the player they watch, each in their own row ("spectator:<slot>");
@@ -1378,6 +1403,7 @@ function renderEmotes() {
   patch("emotes", layer, signature + board.view.opp + results + state.viewer, () =>
     (results ? "" : players.filter(showing).map((p) => playerEmote(p)).join("")) + spectators.map(spectatorEmote).join(""),
   );
+  placeEmotes();
   patch("emotes-others", board.el.querySelector("[data-emote-others]"), signature + board.view.opp + results, () =>
     results ? "" : players.filter((p) => !showing(p)).map((p) => playerEmote(p)).join(""),
   );
@@ -1446,8 +1472,19 @@ function emoteArt(item, player) {
 function measureBoardEdges() {
   const box = board.el?.getBoundingClientRect?.();
   if (!box) return;
-  document.documentElement.style.setProperty("--board-l", `${Math.round(box.left)}px`);
-  document.documentElement.style.setProperty("--board-r", `${Math.round(box.right)}px`);
+  const root = document.documentElement;
+  root.style.setProperty("--board-l", `${Math.round(box.left)}px`);
+  root.style.setProperty("--board-r", `${Math.round(box.right)}px`);
+  // With the action bar at the board's side, your spectators' bubbles stand over it, and the
+  // other side's at the same spot mirrored across the table.
+  const bar = board.el.querySelector?.("[data-actionbar]");
+  const b = bar && getComputedStyle(bar).display !== "none" ? bar.getBoundingClientRect() : null;
+  root.classList.toggle("spectators-over-bar", !!b?.width);
+  if (!b?.width) return;
+  const middle = (box.left + box.right) / 2;
+  root.style.setProperty("--spec-left", `${Math.round(b.left)}px`);
+  root.style.setProperty("--spec-right", `${Math.round(innerWidth - (2 * middle - b.left))}px`);
+  root.style.setProperty("--spec-bottom", `${Math.round(innerHeight - b.top + 12)}px`);
 }
 window.addEventListener?.("resize", measureBoardEdges);
 function spectatorEmote(key) {
@@ -1821,10 +1858,16 @@ function renderSummary() {
       .map(([name, p]) => {
         const ready = !!state.ready[p];
         const crown = finished ? state.champion === p : result?.winner === p;
+        // (between games, whether they are ready: a mark before their name, no words)
         const status = between
-          ? `<span class="ready-state${ready ? " on" : ""}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}${ready ? "Ready" : "Not ready"}</span>`
+          ? `<span class="ready-state${ready ? " on" : ""}" role="img" aria-label="${ready ? "Ready" : "Not ready"}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}</span>`
           : "";
-        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
+        // Each player: this game's points, big, as stickers in their color (a trophy beside
+        // them for whoever won the game), over their name, and the series so far in plain words.
+        // (the game's winner has a trophy beside their points)
+        const trophy = crown ? `<span class="tile-trophy">${icon("trophy.fill", 22, { idle: false })}</span>` : "";
+        const tally = state.series_mode === "points" ? [state.points[p], "total"] : [state.wins[p], state.wins[p] === 1 ? "win" : "wins"];
+        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="tile-points">${trophy}${stickerText(result ? String(result.scores[p]) : "–", { split: true, idle: false })}${stickerText("pts", { cls: "pts", idle: false })}</span><span class="who">${status}<span class="name">${p === viewer ? youStar() : ""}${e(name)}</span></span>${series ? `<small class="tile-tally">${tally[0]} ${tally[1]}</small>` : ""}</div>`;
       })
       .join("");
     // Quit and View board: sticker icons with their labels underneath, either

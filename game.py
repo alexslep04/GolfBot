@@ -131,8 +131,8 @@ class GolfGame:
         # never reshuffles (should it run out, the hand ends there)
         if puzzle:
             player_count, first_player, turn_order, multiplayer = 2, 0, None, False
-        elif type(player_count) is not int or not 2 <= player_count <= 30 or first_player not in range(player_count):
-            raise ValueError("Choose 2–30 players and an existing first player.")
+        elif type(player_count) is not int or not 2 <= player_count <= 32 or first_player not in range(player_count):
+            raise ValueError("Choose 2–32 players and an existing first player.")
         if player_count > 2 and not multiplayer:
             raise ValueError("Many-player games require human players.")
         self.player_count = player_count

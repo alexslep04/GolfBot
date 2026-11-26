@@ -1656,7 +1656,7 @@ function setupPage() {
       ${cup ? `${field("Tournament Name", `<input data-draft="tournamentName" maxlength="48" value="${e(draft.tournamentName)}" aria-label="Tournament name">`)}${tournamentFormatField()}` : ""}
       ${
         draft.mode === "host"
-          ? `<div class="row">${field("Table Name", `<input data-draft="lobbyName" maxlength="48" value="${e(draft.lobbyName)}" aria-label="Table name">`, null, "grow")}${selectField("Players", `data-draft="gameType" aria-label="Game type"`, [["solo", "Solo", draft.gameType === "solo"], ["1v1", "1v1", draft.gameType === "1v1"], ["many", "3–30", draft.gameType === "many"]], null, "hug")}</div>${draft.gameType === "solo" ? `<p class="hint">Just you against Golfbot, with the match and rules you choose here.</p>` : ""}`
+          ? `<div class="row">${field("Table Name", `<input data-draft="lobbyName" maxlength="48" value="${e(draft.lobbyName)}" aria-label="Table name">`, null, "grow")}${selectField("Players", `data-draft="gameType" aria-label="Game type"`, [["solo", "Solo", draft.gameType === "solo"], ["1v1", "1v1", draft.gameType === "1v1"], ["many", "3–32", draft.gameType === "many"]], null, "hug")}</div>${draft.gameType === "solo" ? `<p class="hint">Just you against Golfbot, with the match and rules you choose here.</p>` : ""}`
           : ""
       }
       <div class="stack"><div class="row">

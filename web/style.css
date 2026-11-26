@@ -5307,15 +5307,17 @@ button:disabled > .haptic-switch {
   font-size: 2rem;
 }
 
-/* ---------- desktop: the board expands and gains an action bar ---------- */
-@media (min-width: 760px) and (hover: hover) {
+/* ---------- a wide screen: the board expands and gains an action bar ----------
+   (by the screen's width alone, so a tablet or a phone on its side has it too) */
+@media (min-width: 760px) {
   /* (as wide as what is on the table: a hand and the name tag beside it) */
   .summary.floating {
     width: 42.4rem;
     padding: 0.6rem 0.8rem 1rem;
   }
   :root.in-game {
-    --u: min(100vw / 620, 100dvh / 960, 1.6px);
+    /* (the table fills more of the screen's height now that the action bar stands at its side) */
+    --u: min(100vw / 620, 100dvh / 860, 1.6px);
   }
   .board {
     width: 62rem;
@@ -5334,22 +5336,22 @@ button:disabled > .haptic-switch {
   .b-bottom .b-side {
     flex: 0 0 11.4rem;
   }
-  /* your tags are free-standing here, so their bottom edge is framed and rounded too */
-  .b-bottom .tag {
-    padding-bottom: 0.8rem;
-    border-radius: 2.4rem;
-  }
-  .b-bottom .tag > .tag-in {
-    border-radius: 1.6rem;
-  }
-  /* Flip / Swap / Draw / Discard / End Turn float in a bar of their own under the tags */
+  /* your tags run off the bottom of the screen, as on a phone: square at the foot */
+  /* Flip / Swap / Draw / Discard / End Turn stand in a column of their own on the board's
+     left, level with its middle */
   .actionbar {
+    position: absolute;
+    /* (beside what is on the table, not the board's wider frame: the hands and tags span
+       42.4rem of its 62rem, centered, and the bar stands clear of them, and of Undo, which
+       comes out to the left of the draw pile a little further than the hands reach) */
+    right: calc(100% - (62rem - 42.4rem) / 2 + 3.6rem);
+    top: 50%;
+    translate: 0 -50%;
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    width: 41.066rem;
-    margin: 1.2rem auto max(1.2rem, env(safe-area-inset-bottom));
-    padding: 0.6rem 1.8rem 0.8rem;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 1.4rem 0.6rem 1.2rem;
     border: 0.8rem solid var(--p1);
     border-radius: 2.4rem;
     background: var(--p1b);
@@ -8192,4 +8194,72 @@ button.st-player:active {
   display: inline-grid;
   --fill: var(--p3);
   --stroke: var(--paper);
+}
+
+/* The players on the results: no box of their own, just their avatar (a trophy for the
+   game's winner, yellow in a white edge) over their name, their points, and the series
+   so far as stickers in their color */
+.ready-tile {
+  border: 0;
+  background: none;
+  padding-top: 0.2rem;
+  color: var(--fw-text);
+}
+
+.tile-trophy {
+  display: inline-grid;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+/* this game's points: stickers in the player's color, in a white edge */
+.tile-points {
+  display: inline-flex;
+  align-items: baseline;
+  font: 700 3.6rem/1 var(--round);
+  --sw: 0.7rem;
+}
+.tile-points .pts {
+  margin-left: 0.3rem;
+  font-size: 1.5rem;
+  --sw: 0.45rem;
+}
+/* the series so far, in plain words */
+.ready-tile .tile-tally {
+  font: 700 1.4rem/1.2 var(--text);
+  color: var(--fw-text);
+  opacity: 1;
+}
+
+.tile-points .tile-trophy {
+  align-self: center;
+  margin-right: 0.4rem;
+}
+
+/* the name centered on the player, the ready mark just to its left (out of the centering) */
+.ready-tile .who {
+  position: relative;
+  justify-content: center;
+  overflow: visible;
+}
+.ready-tile .who > .ready-state {
+  position: absolute;
+  right: calc(100% + 0.3rem);
+  top: 50%;
+  translate: 0 -50%;
+}
+
+/* With the action bar at the table's side, your spectators' bubbles stack up over it, and
+   the other side's at the mirrored spot across the table (set by measureBoardEdges) */
+:root.spectators-over-bar .spectator-emote.from-left,
+:root.spectators-over-bar .spectator-emote.from-right {
+  top: auto;
+  bottom: calc(var(--spec-bottom, 40vh) + var(--slot, 0) * 6.4rem);
+}
+:root.spectators-over-bar .spectator-emote.from-left {
+  left: var(--spec-left, 1rem);
+  right: auto;
+}
+:root.spectators-over-bar .spectator-emote.from-right {
+  right: var(--spec-right, 1rem);
+  left: auto;
 }

@@ -1615,7 +1615,11 @@ function watchCardHtml(game, i) {
   const finished = !!game.finished,
     champion = finished ? game.champion : null;
   const standing = (p) => (!finished ? "live" : champion == null ? "drew" : p === champion ? "won" : "lost");
-  const players = game.names.map((name, p) => {
+  // (best placed first: most wins, then fewest points; a series by points, fewest points)
+  const byPoints = game.best_of != null && game.series_mode === "points";
+  const order = game.names.map((_, p) => p).sort((a, b) => (byPoints ? 0 : (game.wins?.[b] ?? 0) - (game.wins?.[a] ?? 0)) || total(a) - total(b) || a - b);
+  const players = order.map((p) => {
+    const name = game.names[p];
     const color = SEAT_COLORS[p % SEAT_COLORS.length];
     const avatar = game.avatars?.[p];
     const mmr = game.mmr?.[p];
@@ -1625,7 +1629,7 @@ function watchCardHtml(game, i) {
     const face = state === "won" ? `<span class="wc-trophy">${icon("trophy.fill", 20, { idle: false })}</span>` : avatar ? icon(avatarIcon(avatar), 20, { idle: false }) : "";
     // (what the patch on a refresh compares: its scores and how it stands)
     const sig = `${game.wins?.[p] ?? 0}/${total(p)}/${state}`;
-    return `<div class="wc-player ${color} ${state}" data-sig="${sig}"><span class="wc-who">${face}<span><b>${game.friends?.[p] ? friendMark() : ""}${e(name)}</b>${mmr != null ? `<small>${statNumber(mmr)}MMR</small>` : ""}</span></span>${scores}</div>`;
+    return `<div class="wc-player ${color} ${state}" data-seat="${p}" data-sig="${sig}"><span class="wc-who">${face}<span><b>${game.friends?.[p] ? friendMark() : ""}${e(name)}</b>${mmr != null ? `<small>${statNumber(mmr)}MMR</small>` : ""}</span></span>${scores}</div>`;
   }).join("");
   const [kind, rulesName] = rulesIcon(game);
   const watching = finished ? (champion == null ? "A draw!" : `${e(game.names[champion])} won!`) : game.watchers ? `${game.watchers} spectating now` : "Tap to spectate!";
@@ -1670,22 +1674,26 @@ function patchWatchCards(list, fresh) {
   // (a game's card by its table, a tournament's by the tournament)
   const id = (card) => card.dataset.watch || card.dataset.tournamentOpen;
   const old = new Map([...list.querySelectorAll(":scope > .watch-card:not(.wc-going)")].map((card) => [id(card), card]));
-  let before = null;
-  for (const card of [...fresh.children]) {
+  // The cards already showing keep their places: the order is the server's (friends' games,
+  // then the busiest) only as the tab is first drawn, and a refresh never shuffles them. A
+  // new game takes the place the server gives it among them.
+  const incoming = [...fresh.children];
+  const added = [];
+  for (const [i, card] of incoming.entries()) {
     const kept = old.get(id(card));
-    let node = kept;
     if (kept) {
       old.delete(id(card));
       patchWatchCard(kept, card, moving);
-    } else node = card;
-    // in its place: after the card before it (cards fading out stay where they were)
-    const at = before ? before.nextSibling : list.firstChild;
-    if (node !== at) list.insertBefore(node, at);
-    // a new one pops in: animated once it is on the page (an element still in the template
-    // belongs to a document whose clock never runs, and its animation never moved on)
-    if (!kept && moving) node.animate([{ opacity: 0, scale: "0.92" }, { opacity: 1, scale: "1" }], { duration: 420, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
-    before = node;
+    } else {
+      // (at the place the server gives it, counted among the cards showing)
+      const showing = [...list.querySelectorAll(":scope > .watch-card:not(.wc-going)")];
+      list.insertBefore(card, showing[i] || null);
+      added.push(card);
+    }
   }
+  // a new one pops in: animated once it is on the page (an element still in the template
+  // belongs to a document whose clock never runs, and its animation never moved on)
+  if (moving) for (const card of added) card.animate([{ opacity: 0, scale: "0.92" }, { opacity: 1, scale: "1" }], { duration: 420, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
   // gone: it fades out, then folds away
   for (const card of old.values()) {
     if (!moving) {
@@ -1720,13 +1728,18 @@ function patchWatchCard(card, fresh, moving) {
   swap(".box-label", 1);
   swap(".wc-foot");
   swap(".cup-live");
-  players.forEach((player, p) => {
-    const nu = next[p];
-    if (player.dataset.sig === nu.dataset.sig) return;
+  // each player by their seat, wherever they now stand; where each stood before, to slide from
+  const holder = card.querySelector(".wc-players");
+  const bySeat = new Map([...players].map((player) => [player.dataset.seat, player]));
+  if ([...next].some((nu) => !bySeat.has(nu.dataset.seat))) return void card.replaceWith(fresh);
+  const before = new Map([...players].map((player) => [player.dataset.seat, player.getBoundingClientRect()]));
+  const placed = [...next].map((nu) => {
+    const player = bySeat.get(nu.dataset.seat);
+    if (player.dataset.sig === nu.dataset.sig) return player;
     const was = player.className;
     const values = Object.fromEntries([...player.querySelectorAll(".wc-score")].map((score) => [score.dataset.k, score.dataset.v]));
     player.replaceWith(nu);
-    if (!moving) return;
+    if (!moving) return nu;
     // a score that moved pops
     for (const score of nu.querySelectorAll(".wc-score"))
       if (values[score.dataset.k] !== undefined && values[score.dataset.k] !== score.dataset.v)
@@ -1736,7 +1749,21 @@ function patchWatchCard(card, fresh, moving) {
       nu.querySelector(".wc-trophy")?.animate([{ scale: "0", rotate: "-40deg" }, { scale: "1.25", rotate: "8deg", offset: 0.6 }, { scale: "1", rotate: "0deg" }], { duration: 700, delay: 200, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" });
     if (nu.classList.contains("lost") && !was.includes("lost"))
       nu.animate([{ filter: "grayscale(0)", opacity: 1 }, { filter: "grayscale(1)", opacity: 0.5 }], { duration: 700, easing: "ease-out" });
+    return nu;
   });
+  // into their new order; anyone who moved slides there from where they were
+  if (holder && placed.some((player, i) => holder.children[i] !== player)) {
+    placed.forEach((player) => holder.appendChild(player));
+    if (moving)
+      for (const player of placed) {
+        const was = before.get(player.dataset.seat),
+          now = player.getBoundingClientRect();
+        const dx = was.left - now.left,
+          dy = was.top - now.top;
+        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)
+          player.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0 0" }], { duration: 560, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+      }
+  }
   // the whole card gives a little hop as its series ends
   if (ending && moving) card.animate([{ scale: "1" }, { scale: "1.035" }, { scale: "1" }], { duration: 520, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" });
 }

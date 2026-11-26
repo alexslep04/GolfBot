@@ -271,7 +271,8 @@ class Room:
     streak: int = 0  # solo: games in a row the player has won against Golfbot
     pending_reaction: str | None = None
     bot_seats: list = field(default_factory=list)  # debug tables: seats the server plays itself
-    demo: bool = False  # a debug server's demo table: bots only, always playing (see keep_demo_tables)
+    demo: bool = False
+    moved_at: float = 0.0  # when the last move was made (Watch puts the busiest tables first)  # a debug server's demo table: bots only, always playing (see keep_demo_tables)
     away: set = field(default_factory=set)  # sockets whose page is in the background
     # how long each person has spent on their turns in the game in play: seconds
     # and turns per seat, and the turn being timed now
@@ -406,7 +407,7 @@ class Room:
 
     @property
     def capacity(self):
-        return 30 if self.game_type == "many" else 2
+        return 32 if self.game_type == "many" else 2
 
     @property
     def has_open_seat(self):
@@ -501,6 +502,7 @@ class Room:
     def track_scores(self):
         """Add a point to the score timeline when a turn ends, and the final scores at the end."""
         game = self.game
+        self.moved_at = time.time()
         self.track_turn_time()
         if game is None or game.phase == "setup" or (self.timeline and self.timeline[-1]["final"]):
             return
@@ -655,8 +657,13 @@ class Store:
         session.touched = time.time()
         return session
 
+    def table_count(self):
+        """Tables counted against the server's limit: not a debug server's demo tables."""
+        return sum(not room.demo for room in self.rooms.values())
+
     def cleanup(self):
-        cutoff = time.time() - 12 * 3600
+        # (a table nobody is at, and that nothing has happened at, for 15 minutes is put away)
+        cutoff = time.time() - TABLE_IDLE_SECONDS
         for key, room in list(self.rooms.items()):
             if room.touched < cutoff and not any(room.clients.values()):
                 if room.bot_task:
@@ -672,6 +679,7 @@ class Store:
                 del self.sessions[token]
 
 
+TABLE_IDLE_SECONDS = 15 * 60  # how long an empty, idle table is kept
 RATED_GRACE = 180  # seconds a rated player may be away before it counts as leaving
 
 
@@ -976,7 +984,7 @@ def parse_ref(ref):
     if len(ref) != 2:
         raise HTTPException(422, "Invalid card selection.")
     owner, index = ref
-    if type(owner) is int and 0 <= owner < 30 and type(index) is int and index in range(6):
+    if type(owner) is int and 0 <= owner < 32 and type(index) is int and index in range(6):
         return owner, index
     if owner in ("draw", "discard") and index is None:
         return owner, None
@@ -1482,6 +1490,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         ("Demo: five players", ["Ace", "Birdie", "Bogey", "Caddie", "Eagle"], 5, "points", False),
         ("Demo: one on one", ["Fairway", "Mulligan"], 3, "wins", False),
         ("Demo: solo", ["Birdie", "Golfbot"], None, "wins", True),
+        ("Demo: 32 players", None, 3, "points", False),  # (the Demo Open's field: set below)
     ]
 
     def make_demo_table(name, players, best_of, series_mode, solo):
@@ -1491,7 +1500,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     house_rules=True, house_version=HOUSE_VERSION)
         room.resize_seats()
         room.demo = True
-        room.avatars = [BOT_AVATAR if player == "Golfbot" else DEMO_AVATARS.get(player) for player in players]
+        looks = ["tree", "bird", "dog", "cup", "fork", "club", "cat", "fish", "hare", "tortoise", "ladybug"]
+        room.avatars = [BOT_AVATAR if player == "Golfbot" else DEMO_AVATARS.get(player, looks[i % len(looks)]) for i, player in enumerate(players)]
         room.participants = [{'id': 'bot:golfbot', 'kind': 'bot', 'display_name': 'Golfbot'} if player == "Golfbot"
                              else demo_profile(player) for player in players]
         room.bot_seats = list(range(len(players)))
@@ -1505,6 +1515,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                               "Bunker", "Hazard", "Chip", "Pitch", "Dogleg", "Fringe", "Links", "Niblick", "Spoon",
                               "Mashie", "Iron", "Hook", "Slice", "Shank", "Yips", "Gimme"]
     DEMO_TOURNAMENTS = [("Demo Cup", DEMO_BOTS + ["Golfbot"], 3), ("Demo Open", DEMO_FIELD[:32], 1)]
+    DEMO_TABLES[-1] = ("Demo: 32 players", [name for name in DEMO_FIELD if name != "Golfbot"][:31] + ["Golfbot"], 3, "points", False)
     DEMO_LOOKS = ["tree", "bird", "dog", "cup", "fork", "club", "cat", "fish", "hare", "tortoise", "ladybug"]
 
     def make_demo_tournament(name, players, best_of):
@@ -1530,12 +1541,23 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         a minute with its winner, then a fresh one is drawn."""
         for name, players, best_of in DEMO_TOURNAMENTS:
             tournament = next((t for t in store.tournaments.values() if getattr(t, 'demo', False) and t.name == name), None)
+            # (a match's table goes a minute after the match is decided: nothing needs it then)
+            for match in (tournament.matches.values() if tournament else ()):
+                room = store.rooms.get(match.room_id) if match.room_id else None
+                if room is not None and room.demo and match.status == 'done' and time.time() - (match.ended_at or 0) > 60:
+                    if room.bot_task:
+                        room.bot_task.cancel()
+                    store.rooms.pop(room.id, None)
             if tournament is not None and tournament.status == 'finished':
                 done = max((match.ended_at or 0 for match in tournament.matches.values()), default=0)
                 if time.time() - done < 60:
                     tournament.touched = time.time()
                     continue
                 store.tournaments.pop(tournament.id, None)
+                for match in tournament.matches.values():
+                    room = store.rooms.pop(match.room_id, None) if match.room_id else None
+                    if room is not None and room.bot_task:
+                        room.bot_task.cancel()
                 tournament = None
             if tournament is None:
                 tournament = make_demo_tournament(name, players, best_of)
@@ -1619,7 +1641,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         leave_old(session)
         cancel_queue(session.token)
         store.cleanup()
-        if len(store.rooms) >= 200:
+        if store.table_count() >= 200:
             raise HTTPException(503, "The server has too many tables.")
         names = [clean_name(name)[:32] for name in body.names]
         try:
@@ -2185,7 +2207,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             choose_avatar(session, body.avatar)
             offer['accepted'].add(session.token)
             if len(offer['accepted']) == 2:
-                if len(store.rooms) >= 200:
+                if store.table_count() >= 200:
                     raise HTTPException(503, 'The server has too many tables. Try again shortly.')
                 players = [store.sessions[token] for token in offer['seats']]
                 profiles = [profile_for(player) for player in players]
@@ -2512,7 +2534,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         session = session_for(request)
         leave_old(session)
         store.cleanup()
-        if len(store.rooms) >= 200:
+        if store.table_count() >= 200:
             raise HTTPException(503, "The server has too many tables. Try again later.")
         set_name(session, settings.username)
         choose_avatar(session, settings.avatar)
@@ -2561,7 +2583,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             return snapshot(old, session.token)
         leave_old(session, 'starting the puzzle')
         store.cleanup()
-        if len(store.rooms) >= 200:
+        if store.table_count() >= 200:
             raise HTTPException(503, "The server has too many tables.")
         cancel_queue(session.token)
         day = daily_puzzle.today()
@@ -2595,7 +2617,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 return resumed
         leave_old(session)
         store.cleanup()
-        if len(store.rooms) >= 200:
+        if store.table_count() >= 200:
             raise HTTPException(503, "The server has too many tables.")
         if settings.practice:
             # Play solo (Practice) is one open-ended run against Golfbot, always on House rules
@@ -2801,9 +2823,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         """Every game in play anyone can watch, solo games included, newest first."""
         session = session_for(request)
         friends = friend_ids(session)
-        # in play, between games of a series, or (for a minute) just finished
-        rooms = sorted((room for room in store.rooms.values() if on_watch(room)),
-                       key=lambda room: room.started_at or 0, reverse=True)
+        # in play, between games of a series, or (for a minute) just finished. Your friends'
+        # games come first; then the rest, the most recent move first (so the busiest tables
+        # lead and the quiet ones fall to the end).
+        def order(room):
+            with_friends = any(profile and profile.get('id') in friends for profile in room.participants)
+            return (not with_friends, -(room.moved_at or room.started_at or 0))
+        rooms = sorted((room for room in store.rooms.values() if on_watch(room)), key=order)
         return [{**public_room(room), "round": len(room.history) + (0 if room.round_recorded else 1),
                  # (the game in play: once it is over its scores are in the series' points)
                  "turns": room.game.turns, "scores": showing_scores(room.game) if room.status == "playing" and not room.round_recorded else None,
@@ -2813,7 +2839,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                  "streak": solo_streak(room),
                  # (the Watch tab's cards: how long ago it began, the series so far, everyone's MMR)
                  "started_at": room.started_at, "wins": room.wins, "points": room.points,
-                 "mmr": spectate_mmr(room),
+                 "mmr": spectate_mmr(room), "moved_at": room.moved_at or None,
                  # (each seat: whether it is one of your friends)
                  "friends": [bool(profile and profile.get('id') in friends) for profile in room.participants],
                  "mine": session.token in room.seats} for room in rooms]
@@ -3030,8 +3056,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             room.history_store.save(room, abandoned=True)
 
     async def monitor_tables():
+        swept = time.time()
         while True:
             await asyncio.sleep(1)
+            # (idle tables are put away within a minute of their time running out, not only
+            # when someone next opens a table)
+            if time.time() - swept > 60:
+                swept = time.time()
+                try:
+                    store.cleanup()
+                except Exception:
+                    log.exception("Could not put idle tables away")
             for room in list(store.rooms.values()):
                 async with room.lock:
                     had_offer = room.void_offer is not None

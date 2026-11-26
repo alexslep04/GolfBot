@@ -15,7 +15,8 @@ class DemoTablesTests(unittest.TestCase):
                 client.get('/api/session')
                 # (the demo tournament's matches are on Watch too)
                 games = {row['name']: row for row in client.get('/api/spectate').json() if not row['tournament']}
-                self.assertEqual(set(games), {'Demo: five players', 'Demo: one on one', 'Demo: solo'})
+                self.assertEqual(set(games), {'Demo: five players', 'Demo: one on one', 'Demo: solo', 'Demo: 32 players'})
+                self.assertEqual(len(games['Demo: 32 players']['names']), 32)
                 self.assertEqual(len(games['Demo: five players']['names']), 5)
                 self.assertEqual(games['Demo: five players']['mmr'][:3], [1284, 1172, 1046])
                 self.assertTrue(games['Demo: solo']['solo'])
@@ -54,6 +55,27 @@ class DemoTablesTests(unittest.TestCase):
                 self.assertEqual((row['finished'], row['champion'], row['scores']), (True, 1, None))
                 room.history[-1]['ended_at'] = time.time() - 61
                 self.assertNotIn(room.id, [row['id'] for row in client.get('/api/spectate').json()])
+
+    def test_watch_lists_friends_games_first_then_the_most_recent_move_first(self):
+        import time
+        with mock.patch.dict(os.environ, {"GOLFBOT_DEBUG": "1"}):
+            store = Store()
+            with TestClient(create_app(store)) as client:
+                client.get('/api/session')
+                rooms = {room.name: room for room in store.rooms.values() if room.name.startswith('Demo:')}
+                now = time.time()
+                rooms['Demo: solo'].moved_at = now - 300
+                rooms['Demo: one on one'].moved_at = now - 1
+                rooms['Demo: five players'].moved_at = now - 20
+                rooms['Demo: 32 players'].moved_at = now - 100
+                listed = [row['name'] for row in client.get('/api/spectate').json() if row['name'].startswith('Demo:')]
+                self.assertEqual(listed, ['Demo: one on one', 'Demo: five players', 'Demo: 32 players', 'Demo: solo'])
+                # a friend's game leads, however quiet
+                with mock.patch.object(store.friends, 'list', return_value=[{'id': 'birdie-account', 'status': 'friend'}]), \
+                        mock.patch.object(store.accounts, 'from_token', return_value={'id': 'me'}):
+                    rooms['Demo: solo'].participants[0] = {'id': 'account:birdie-account', 'kind': 'player', 'display_name': 'Birdie'}
+                    listed = [row['name'] for row in client.get('/api/spectate').json() if row['name'].startswith('Demo:')]
+                self.assertEqual(listed[0], 'Demo: solo')
 
     def test_an_ordinary_server_has_none(self):
         with mock.patch.dict(os.environ, {"GOLFBOT_DEBUG": ""}):
