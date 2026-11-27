@@ -104,7 +104,10 @@ class RecordTests(unittest.TestCase):
         bob = player_card(results, ratings, 'player:Bob')
         # Bob also finished a game on the most points anyone has (2, reached first)
         self.assertEqual((bob['mmr'], bob['pvp_streak'], set(bob['records'])), (1010, 3, {'pvp_streak', 'most_time', 'bogey'}))
-        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'mmr': None, 'provisional': False, 'pvp_streak': 0, 'seconds_played': 0, 'records': {}})
+        self.assertEqual(player_card(results, ratings, 'player:Nobody'), {'id': 'player:Nobody', 'mmr': None, 'provisional': False, 'pvp_streak': 0, 'current_pvp_streak': 0, 'seconds_played': 0, 'records': {}})
+        # and the run each is on now: Ann won her last game after a loss (1); Bob, all three
+        self.assertEqual((ann['current_pvp_streak'], bob['current_pvp_streak']), (1, 3))
+        self.assertEqual(player_card(results, ratings, 'player:Cy')['current_pvp_streak'], 0)
 
     def test_the_records_added_in_1_4_0(self):
         solo = lambda scores, **extra: {'winner': scores.index(min(scores)), 'scores': scores, 'ended_at': 5, **extra}

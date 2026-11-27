@@ -131,7 +131,7 @@ class Emote(BaseModel):
     emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous",
                    "pogcat", "woah", "what", "giveheart", "crocscreech", "poop",
                    "thanks", "oops", "wow", "save", "ofc", "luck", "tempo", "ranked", "rushing", "dragging",
-                   "isit"]
+                   "isit", "gg"]
 
 
 class Settings(BaseModel):
@@ -2330,12 +2330,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         profile['personal'] = await asyncio.to_thread(personal_records, results, ratings, player)
         profile['mine'] = (await asyncio.to_thread(personal_records, results, ratings, viewer)
                            if viewer and viewer != player else None)
-        # games in a row won against Golfbot, as their own table counts them
+        # games in a row won against Golfbot: the most ever (every patch), as the Solo board
+        # ranks them; and the run they are on now
         with store.progression.lock:
             row = store.progression.db.execute(
-                'SELECT current_streak, best_streak FROM progression_players WHERE patch=? AND id=?',
+                'SELECT current_streak FROM progression_players WHERE patch=? AND id=?',
                 (PATCH_VERSION, player)).fetchone()
-        profile['solo_streak'], profile['best_solo_streak'] = (row[0], row[1]) if row else (0, 0)
+            best = store.progression.db.execute(
+                'SELECT MAX(best_streak) FROM progression_players WHERE id=?', (player,)).fetchone()
+        profile['current_solo_streak'] = row[0] if row else 0
+        profile['solo_streak'] = profile['best_solo_streak'] = max((best[0] if best else 0) or 0, profile['current_solo_streak'])
         profile.update(label=None, unique_name=None, avatar=None, status=None, last_seen=None, friend=None)
         if player == 'bot:golfbot':
             profile['label'], profile['avatar'] = 'Golfbot', BOT_AVATAR
@@ -2601,11 +2605,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         for other in live:
             room = store.rooms.get(other.room_id)
             if room and other.token in room.seats and room.status in ("playing", "round_over") and room.game:
-                if room.puzzle:
-                    return {"status": "puzzle", "avatar": other.avatar}
                 # (and the points showing on their face-up cards, as their tag at the table says)
                 seat = room.seats.index(other.token)
                 points = showing_scores(room.game)[seat] if room.status == "playing" and seat < room.game.player_count else None
+                if room.puzzle:
+                    # (the Daily Puzzle: watched only from here, by a friend; it is not on Watch)
+                    playing = room.status == "playing" and room.game.phase != "over"
+                    return {"status": "puzzle", "avatar": other.avatar,
+                            "room_id": room.id if playing else None, "points": points}
                 return {"status": "in_game", "avatar": other.avatar,
                         "room_id": room.id if in_play(room) else None, "solo": room.solo, "points": points}
         if live:
@@ -3585,6 +3592,13 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                                'watchers': sum(bool(sockets) for sockets in room.watchers.values())}
         entrant = tournament.by_token(session.token)
         match = next((match for match in tournament.live() if entrant and entrant.id in match.players), None)
+        # once it is over, the emotes its players are sending, each for EMOTE_SECONDS: how long
+        # each has been up, so it shows from where it is (none from a saved one: it is over)
+        if tournament.status == 'finished':
+            now = time.time()
+            view['emotes'] = [{'entrant': who, 'id': item['id'], 'sequence': item['sequence'],
+                               'age': round(now - item['at'], 2)}
+                              for who, item in getattr(tournament, 'emotes', {}).items() if now - item['at'] < EMOTE_SECONDS]
         view['you'] = {'entrant': entrant.id if entrant else None,
                        'host': bool(entrant and entrant.id == tournament.host),
                        'match': match.id if match else None, 'room_id': match.room_id if match else None}
@@ -3668,6 +3682,25 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                                     'score_preview': settings.score_preview, 'show_odds': settings.show_odds})
         tournament.host = enter_tournament(tournament, session).id
         store.tournaments[tournament.id] = tournament
+        return tournament_view(tournament, session)
+
+    @app.post('/api/tournaments/{tournament_id}/emote')
+    async def tournament_emote(tournament_id: str, body: Emote, request: Request):
+        """A player's emote at the end of a tournament: beside their name in the standings."""
+        session = session_for(request)
+        tournament = find_tournament(tournament_id)
+        entrant = tournament.by_token(session.token)
+        if entrant is None:
+            raise HTTPException(403, "Only the tournament's players can emote here.")
+        if tournament.status != 'finished':
+            raise HTTPException(409, "Emotes open here once the tournament is over.")
+        flag = achievements.FLAG_EMOTES.get(body.emote)
+        if flag and flag not in await asyncio.to_thread(flags_for, puzzle_player(session)):
+            raise HTTPException(403, f"Earn the flag “{flag}” to use this emote.")
+        tournament.emote_sequence = getattr(tournament, 'emote_sequence', 0) + 1
+        tournament.emotes = {**getattr(tournament, 'emotes', {}),
+                             entrant.id: {'id': body.emote, 'sequence': tournament.emote_sequence, 'at': time.time()}}
+        tournament.touched = time.time()
         return tournament_view(tournament, session)
 
     @app.get('/api/tournaments/{tournament_id}')

@@ -373,7 +373,7 @@ const THEMES = [
 // has earned which, the server's flags.py). What this device last heard it has
 // unlocked is kept, so a theme earned shows from the first page on.
 // ("word" is any emote a flag holds back, a saying or a face)
-const FLAG_LOCKED = { word: ["rushing", "dragging", "isit", "save", "ranked", "giveheart", "pogcat", "poop", "crocscreech"], theme: ["poker", "pool", "focus", "night"], card: ["ripped-5d"] };
+const FLAG_LOCKED = { word: ["rushing", "dragging", "isit", "gg", "save", "ranked", "giveheart", "pogcat", "poop", "crocscreech"], theme: ["poker", "pool", "focus", "night"], card: ["ripped-5d"] };
 let myFlags = { earned: [], emotes: [], themes: [], cards: [], progress: {} };
 // (whether this device has heard which flags you have before: only then is one newly
 // earned announced)
