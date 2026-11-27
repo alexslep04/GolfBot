@@ -1453,14 +1453,18 @@ async function puzzleBoardSheet() {
 /** Your friends and what they are up to, busiest first. */
 function friendsHtml() {
   const info = homeData.friends;
-  const add = `<button type="button" class="friends-add" data-friends-sheet>${icon("person.badge.plus", 22, { idle: false })}<span>${info?.incoming?.length ? `Friend requests (${info.incoming.length})` : "Add a friend"}</span></button>`;
+  const add = `<button type="button" class="friends-add" data-friends-sheet>${icon("person.fill.badge.plus", 22, { idle: false })}<span>${info?.incoming?.length ? `Friend requests (${info.incoming.length})` : "Add a friend"}</span></button>`;
   if (!info) return boxed("c-fw", "Friends", `<div class="loading">Loading friends…</div>`, "friends-box");
   if (!info.signed_in)
     return boxed("c-fw", "Friends", `<p class="friends-empty">Sign in to add friends and see when they're playing.</p>${signInButton("small c-p1", `${tilted("person.crop.circle.fill", 22)}Sign in`)}`, "friends-box");
   const rows = info.friends.map((friend, i) => {
     const status = friendStatus(friend);
     const watch = friend.status === "in_game" && friend.room_id ? `<button type="button" class="friend-watch" data-watch="${e(friend.room_id)}" aria-label="Watch ${e(friend.display_name)}">${tilted("binoculars.fill", 28, { key: `fw:${i}` })}</button>` : "";
-    return `<div class="friend-row ${friend.status}" style="--i:${i}"><span class="friend-ava">${tilted(avatarIcon(friend.avatar), 34, { key: `fa:${friend.unique_name}` })}</span><span class="friend-name"><b>${e(friend.display_name)}</b>${friend.mmr != null ? `<small>${statNumber(friend.mmr)}</small>` : ""}</span><span class="friend-status">${status}</span>${watch}</div>`;
+    // (in a game: the points they have showing, as stickers, in place of the words)
+    const points = friend.status === "in_game" && friend.points != null
+      ? `<span class="friend-pts" aria-label="${e(`${status}: ${friend.points} points`)}">${stickerText(String(friend.points), { split: true, idle: false, key: `fp:${i}` })}${stickerText("pts", { cls: "pts", idle: false, key: `fpp:${i}` })}</span>`
+      : `<span class="friend-status">${status}</span>`;
+    return `<div class="friend-row ${friend.status}" style="--i:${i}"><span class="friend-ava">${tilted(avatarIcon(friend.avatar), 34, { key: `fa:${friend.unique_name}` })}</span><span class="friend-name"><b>${e(friend.display_name)}</b>${friend.mmr != null ? `<small>${statNumber(friend.mmr)}</small>` : ""}</span>${points}${watch}</div>`;
   }).join("");
   return boxed("c-fw", "Friends", `${rows || `<p class="friends-empty">No friends yet. Add someone by their @name.</p>`}${add}`, "friends-box");
 }
@@ -1472,13 +1476,16 @@ function friendStatus(friend) {
 }
 function friendsSheet() {
   const info = homeData.friends || { friends: [], incoming: [], outgoing: [] };
-  const row = (friend, actions, i) => `<div class="list-item c-fw friend-req" style="--i:${i}">${avatarBadge(friend.avatar)}<div class="grow"><strong>${e(friend.display_name)}</strong><small>@${e(friend.unique_name)}</small></div>${actions}</div>`;
-  const incoming = info.incoming.map((friend, i) => row(friend, `<button type="button" class="btn small c-p1" data-friend-accept="${e(friend.unique_name)}">Accept</button><button type="button" class="btn small c-fw" data-friend-remove="${e(friend.unique_name)}">Decline</button>`, i)).join("");
-  const outgoing = info.outgoing.map((friend, i) => row(friend, `<span class="hint dark">Asked</span><button type="button" class="btn small c-fw" data-friend-remove="${e(friend.unique_name)}">Cancel</button>`, i)).join("");
-  const friends = info.friends.map((friend, i) => row(friend, `<button type="button" class="btn small c-p2" data-friend-remove="${e(friend.unique_name)}" aria-label="Remove ${e(friend.display_name)}">Remove</button>`, i)).join("");
+  // each person's card, and beside it, outside the card, what can be done: each an icon
+  // over its word (as inviting a player does); "Asked" on the card while it waits
+  const row = (friend, actions, i, note = "") => `<div class="invite-row friend-req-row" style="--i:${i}"><div class="list-item c-fw friend-req grow">${avatarBadge(friend.avatar)}<div class="grow"><strong>${e(friend.display_name)}</strong><small>@${e(friend.unique_name)}</small></div>${note}</div>${actions}</div>`;
+  const act = (attr, who, color, symbol, label, aria) => `<button type="button" class="close-btn ${color}" ${attr}="${e(who.unique_name)}" aria-label="${e(aria)}">${icon(symbol, 30)}<span>${label}</span></button>`;
+  const incoming = info.incoming.map((friend, i) => row(friend, act("data-friend-accept", friend, "c-p1", "checkmark.circle.fill", "Accept", `Accept ${friend.display_name}`) + act("data-friend-remove", friend, "c-p2", "xmark.circle.fill", "Decline", `Decline ${friend.display_name}`), i)).join("");
+  const outgoing = info.outgoing.map((friend, i) => row(friend, act("data-friend-remove", friend, "c-p2", "xmark.circle.fill", "Cancel", `Cancel the request to ${friend.display_name}`), i, `<span class="hint dark">Asked</span>`)).join("");
+  const friends = info.friends.map((friend, i) => row(friend, act("data-friend-remove", friend, "c-p2", "trash.fill", "Remove", `Remove ${friend.display_name}`), i)).join("");
   openSheet(`<section class="sheet c-fw friends-sheet" role="dialog" aria-modal="true" aria-label="Friends">
     <div class="sheet-head"><h2>Friends</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    <form id="friend-add-form" class="stack friend-add-form">${field("Add by @name", `<input id="friend-name" name="unique_name" maxlength="25" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@name" aria-label="Their unique name" required>`, "person.badge.plus")}<button type="submit" class="btn c-p1">${tilted("plus.circle.fill", 26)}<span>Send friend request</span></button></form>
+    <form id="friend-add-form" class="stack friend-add-form">${field("Add by @name", `<input id="friend-name" name="unique_name" maxlength="25" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@name" aria-label="Their unique name" required>`, "person.fill.badge.plus")}<button type="submit" class="btn c-p1">${tilted("plus.circle.fill", 26)}<span>Send friend request</span></button></form>
     ${incoming ? `<h3 class="sheet-sub">Asking to be your friend</h3><div class="list">${incoming}</div>` : ""}
     ${outgoing ? `<h3 class="sheet-sub">Waiting on them</h3><div class="list">${outgoing}</div>` : ""}
     ${friends ? `<h3 class="sheet-sub">Your friends</h3><div class="list">${friends}</div>` : ""}
@@ -2099,7 +2106,7 @@ function youProfileHtml() {
   return `
     <form id="display-name-form" class="stack profile-form you-profile">
       ${avatarPicker()}
-      ${field("Your Display Name", `<input id="account-display-name" name="display_name" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam", "c-p1")}
+      ${field("Your Display Name", `<input id="account-display-name" name="display_name" data-max-chars="12" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam", "c-p1")}
       <div data-previous-names></div>
       <p class="hint profile-status" data-profile-status aria-live="polite"></p>
     </form>
@@ -2406,8 +2413,8 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
   const sub = [profile.unique_name ? `@${e(profile.unique_name)}` : "", where].filter(Boolean).join(" · ");
   const twin = (symbol) => [tilted(symbol, 24), tilted(symbol, 24, { mirror: true })];
   const friend = {
-    none: `<button type="button" class="btn small ${accent} profile-friend" data-profile-friend="${e(profile.unique_name || "")}">${twin("person.badge.plus")[0]}<span>Add friend</span>${twin("person.badge.plus")[1]}</button>`,
-    incoming: `<button type="button" class="btn small ${accent} profile-friend" data-profile-friend="${e(profile.unique_name || "")}">${twin("person.badge.plus")[0]}<span>Accept friend request</span>${twin("person.badge.plus")[1]}</button>`,
+    none: `<button type="button" class="btn small ${accent} profile-friend" data-profile-friend="${e(profile.unique_name || "")}">${twin("person.fill.badge.plus")[0]}<span>Add friend</span>${twin("person.fill.badge.plus")[1]}</button>`,
+    incoming: `<button type="button" class="btn small ${accent} profile-friend" data-profile-friend="${e(profile.unique_name || "")}">${twin("person.fill.badge.plus")[0]}<span>Accept friend request</span>${twin("person.fill.badge.plus")[1]}</button>`,
     outgoing: `<button type="button" class="btn small ${accent} profile-friend" disabled>${twin("hourglass")[0]}<span>Friend request sent</span>${twin("hourglass")[1]}</button>`,
     friend: `<button type="button" class="btn small ${accent} profile-friend" disabled>${twin("person.2.fill")[0]}<span>Friends</span>${twin("person.2.fill")[1]}</button>`,
   }[profile.friend] || "";

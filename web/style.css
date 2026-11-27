@@ -6810,8 +6810,9 @@ button:disabled > .haptic-switch {
 .friend-watch {
   display: grid;
   place-items: center;
-  --fill: var(--c2);
-  --stroke: var(--c);
+  /* (orange binoculars, as Watch's own) */
+  --fill: var(--p5b);
+  --stroke: var(--p5);
   transition: transform 0.25s var(--spring);
 }
 .friend-watch:active {
@@ -8959,4 +8960,35 @@ button.deck-card:not(.selected):active {
 .patch-intro {
   margin: 0.4rem 0 0.2rem;
   font: 700 1.8rem/1.3 var(--text);
+}
+
+/* Friends: the @name field's hint in the sheet's lighter green (each theme's own), and
+   each request's actions beside its card, an icon over its word */
+.friends-sheet input::placeholder {
+  color: var(--c);
+  opacity: 1;
+}
+.friend-req-row {
+  gap: 0.8rem;
+}
+.friend-req-row .close-btn {
+  font-size: 1.3rem;
+}
+
+/* a friend in a game: the points they have showing, red stickers with a white edge */
+.friend-pts {
+  display: flex;
+  align-items: baseline;
+  font: 700 2.6rem/1 var(--round);
+  --fill: var(--p2);
+  --stroke: var(--paper);
+  --sw: 0.55rem;
+}
+.friend-pts .stk:not(.pts) {
+  margin-right: -0.03em;
+}
+.friend-pts .pts {
+  margin-left: 0.3rem;
+  font-size: 1.3rem;
+  --sw: 0.4rem;
 }

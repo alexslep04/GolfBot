@@ -8,7 +8,7 @@ import time
 
 LOGIN_DAYS = 30
 ACCOUNT_COOKIE = 'golf_account'
-UNIQUE_NAME = re.compile(r'[a-z0-9_]{3,24}\Z')
+UNIQUE_NAME = re.compile(r'[a-z0-9_]{3,12}\Z')  # (letters, numbers and _ only: no emoji)
 PREFERENCE_LIMIT = 2000  # characters of saved settings, as JSON
 
 
@@ -76,7 +76,7 @@ class Accounts:
     def choose_name(self, account_id, name):
         name = name.strip().lower()
         if not UNIQUE_NAME.fullmatch(name):
-            raise ValueError('Use 3–24 letters, numbers or underscores for your unique name.')
+            raise ValueError('Use 3–12 letters, numbers or underscores for your unique name.')
         with self.lock, self.db:
             row = self.db.execute('SELECT id, unique_name, display_name FROM accounts WHERE id=?', (account_id,)).fetchone()
             if row is None:

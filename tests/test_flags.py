@@ -175,6 +175,22 @@ class FinalHandTests(unittest.TestCase):
         self.assertEqual(scoring.final_hand_keys(quads, Rules()), set())
 
 
+class NameTests(unittest.TestCase):
+    def test_display_names_take_emoji_and_stop_at_twelve_characters(self):
+        import server
+        self.assertEqual(server.clean_display_name("  Golfer 🏌️‍♀️  "), "Golfer 🏌️‍♀️")
+        self.assertEqual(len(server.name_characters("👍🏽🇺🇸👨‍👩‍👧")), 3)
+        self.assertEqual(server.clean_display_name("abcdefghijklmnop"), "abcdefghijkl")
+        self.assertEqual(server.name_characters(server.clean_display_name("🎉" * 20)), ["🎉"] * 12)
+
+    def test_unique_names_are_letters_numbers_and_underscores_up_to_twelve(self):
+        import accounts
+        for good in ("abc", "golf_fan_123"):
+            self.assertTrue(accounts.UNIQUE_NAME.fullmatch(good))
+        for bad in ("ab", "golf_fan_1234", "golf🏌️", "golfé"):
+            self.assertIsNone(accounts.UNIQUE_NAME.fullmatch(bad))
+
+
 class ClockTests(unittest.TestCase):
     def test_the_hour_a_game_ends_is_where_each_player_is(self):
         import server

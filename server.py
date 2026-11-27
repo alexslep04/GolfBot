@@ -16,6 +16,7 @@ import re
 import secrets
 import random
 import time
+import unicodedata
 from urllib.parse import urlparse
 from typing import Literal
 
@@ -234,7 +235,7 @@ class GoogleCredential(BaseModel):
 
 
 class AccountName(BaseModel):
-    unique_name: str = Field(min_length=3, max_length=24)
+    unique_name: str = Field(min_length=3, max_length=12)
     csrf_token: str = Field(min_length=1, max_length=128)
 
 
@@ -851,6 +852,32 @@ def clean_name(value):
     return value
 
 
+DISPLAY_NAME_LENGTH = 12  # characters (an emoji, however it is made, is one)
+
+
+def name_characters(value):
+    """`value` split into the characters a person sees: an emoji's skin tone, a flag's two
+    letters, the parts joined into one emoji, and accents all stay with what they mark."""
+    out = []
+    for char in value:
+        code = ord(char)
+        joins = out and (unicodedata.combining(char) or unicodedata.category(char) in ("Mn", "Me")
+                         or code in (0x200D, 0xFE0E, 0xFE0F) or 0x1F3FB <= code <= 0x1F3FF or 0xE0020 <= code <= 0xE007F
+                         or out[-1].endswith("\u200d")
+                         or (0x1F1E6 <= code <= 0x1F1FF and len(out[-1]) == 1 and 0x1F1E6 <= ord(out[-1]) <= 0x1F1FF))
+        if joins:
+            out[-1] += char
+        else:
+            out.append(char)
+    return out
+
+
+def clean_display_name(value):
+    """A display name: cleaned, and no more than DISPLAY_NAME_LENGTH characters (any more
+    are cut off; emoji are welcome)."""
+    return "".join(name_characters(clean_name(value))[:DISPLAY_NAME_LENGTH]).strip() or clean_name(value)[:1]
+
+
 def parse_rules(values):
     values = upgrade_rule_values(values)
     legacy = values.pop('queen_swap', False) or values.get('jack_swap', False)
@@ -1407,7 +1434,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     def set_name(session, name):
         """Take a display name the player chose, and save it to their account (if any) for every device."""
-        session.username = clean_name(name)
+        session.username = clean_display_name(name)
         if session.account and session.account.get('display_name') != session.username:
             store.accounts.save_display_name(session.account['id'], session.username)
             session.account['display_name'] = session.username
@@ -1574,7 +1601,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if now - store.queue_alerted.get(token, 0) < QUEUE_ALERT_GAP:
                 continue
             store.queue_alerted[token] = now
-            payload = {'title': 'Someone wants a Ranked match',
+            payload = {'title': 'Join a ranked match!',
                        'body': f'{joiner.username} joined the Ranked queue. Join now to play them.',
                        'tag': 'golf-queue', 'url': ''}
             loop.run_in_executor(None, send_push, token, subscription, payload)
@@ -1811,7 +1838,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         store.cleanup()
         if store.table_count() >= 200:
             raise HTTPException(503, "The server has too many tables.")
-        names = [clean_name(name)[:32] for name in body.names]
+        names = [clean_display_name(name) for name in body.names]
         try:
             chosen = [clean_avatar(avatar) for avatar in body.avatars]
         except ValueError as error:
@@ -2510,8 +2537,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if room and other.token in room.seats and room.status in ("playing", "round_over") and room.game:
                 if room.puzzle:
                     return {"status": "puzzle", "avatar": other.avatar}
+                # (and the points showing on their face-up cards, as their tag at the table says)
+                seat = room.seats.index(other.token)
+                points = showing_scores(room.game)[seat] if room.status == "playing" and seat < room.game.player_count else None
                 return {"status": "in_game", "avatar": other.avatar,
-                        "room_id": room.id if in_play(room) else None, "solo": room.solo}
+                        "room_id": room.id if in_play(room) else None, "solo": room.solo, "points": points}
         if live:
             # (online and free: they can be invited to a table)
             return {"status": "online", "avatar": live[0].avatar, "invite_id": live[0].public_id}

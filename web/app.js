@@ -1779,7 +1779,7 @@ function setupPage() {
     show(
       "setup",
       `<div class="page${cup ? " scroll" : ""}">${subHeader(heading, "friends")}<div class="stack wide">
-      ${profileChosen() ? "" : field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
+      ${profileChosen() ? "" : field("Your Display Name", `<input id="username" data-max-chars="12" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}
       ${cup ? `${field("Tournament Name", `<input data-draft="tournamentName" maxlength="48" value="${e(draft.tournamentName)}" aria-label="Tournament name">`)}${tournamentFormatField()}` : ""}
       ${
         draft.mode === "host"
@@ -2162,7 +2162,7 @@ function passPlayPage(step = passStep) {
     `<div class="page">${pageHead("data-pass-back")}<div class="stack wide">
     ${tabTitle(`Player ${p + 1} of ${passPlayers.length}`, "", "pass-step", `seat ${SEAT_COLORS[p % SEAT_COLORS.length]}`)}
     ${avatarPicker(p, player.avatar)}
-    ${field("Display Name", `<input data-pass-name="${p}" maxlength="32" value="${e(player.name)}" autocomplete="off" aria-label="Player ${p + 1} display name">`, "character.cursor.ibeam", SEAT_COLORS[p % SEAT_COLORS.length])}
+    ${field("Display Name", `<input data-pass-name="${p}" data-max-chars="12" value="${e(player.name)}" autocomplete="off" aria-label="Player ${p + 1} display name">`, "character.cursor.ibeam", SEAT_COLORS[p % SEAT_COLORS.length])}
     </div><div class="row">${last ? entryButton("data-pass-start", "Start") : entryButton("data-pass-next", "Next player")}</div></div>`,
   );
   centerAvatar(false);
@@ -2426,7 +2426,7 @@ async function publicLobby(id) {
     `<div class="page">${pageHead(`data-nav="friends"`)}<div class="stack wide">
     <div class="stack">${tabTitle(info.name, "", "table")}<div class="meta center"><span class="pill">Hosted by ${e(info.names[0])}</span><span class="pill">${e(matchLength(info))}</span><span class="pill">${info.players}/${info.capacity} players</span>${rulesChip(info)}</div></div>
     ${profileChosen() ? "" : `${avatarPicker(info.players)}
-    ${field("Your Display Name", `<input id="username" maxlength="32" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}`}
+    ${field("Your Display Name", `<input id="username" data-max-chars="12" value="${e(session.username)}" autocomplete="nickname" aria-label="Your display name">`, "character.cursor.ibeam")}`}
     ${full ? `<p class="hint dark">This table is full or already playing.</p>` : ""}
     </div><div class="row"><button type="button" class="btn c-p1 grow" data-join="${e(id)}" ${full ? "disabled" : ""}>${twin[0]}<span>${padTag("y")}Join Table</span>${twin[1]}</button></div></div>`,
   );
@@ -2986,7 +2986,7 @@ function uniqueNameSheet() {
   openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="Choose your unique name">
     <div class="sheet-head"><h2>Choose your unique name</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <p>This identifies you in Aces across all your display names. Pick once; your display name can change whenever you play.</p>
-    <form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="24" pattern="[a-zA-Z0-9_]{3,24}" autocomplete="username" autocapitalize="none" spellcheck="false" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–24 letters, numbers or underscores. Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>
+    <form id="account-name-form" class="stack" style="margin-top:2rem">${field("Unique Name", `<input name="unique_name" aria-label="Unique name" minlength="3" maxlength="12" pattern="[a-zA-Z0-9_]{3,12}" autocomplete="username" autocapitalize="none" spellcheck="false" required>`, "character.cursor.ibeam")}<p class="hint" style="color:var(--p1)">3–12 letters, numbers or underscores (no emoji). Names are lowercase and unique.</p><button type="submit" class="btn c-p1">Save unique name</button></form>
   </section>`);
 }
 /** Signed in: who as, and the way out. */

@@ -102,7 +102,7 @@ class AccountTests(unittest.TestCase):
                 client.get('/golf/api/session').raise_for_status()
             phone.post('/golf/api/presence', json={'username': 'Pocket'}).raise_for_status()
             self.login(phone)  # the guest name becomes the account's first saved name
-            self.name(phone, 'pocket_player').raise_for_status()
+            self.name(phone, 'pocket_golf').raise_for_status()
             self.login(laptop)
             self.assertEqual(laptop.get('/golf/api/session').json()['username'], 'Pocket')
             phone.post('/golf/api/name', json={'username': 'Spence'}).raise_for_status()
@@ -148,7 +148,7 @@ class AccountTests(unittest.TestCase):
         store = Store()
         with TestClient(create_app(store, 'test.apps.googleusercontent.com'), base_url='https://sleptsov.dev') as client:
             self.login(client)
-            account = self.name(client, 'unique_player').json()['account']
+            account = self.name(client, 'uniq_player').json()['account']
             for display, score in (('Alias One', 2), ('Alias Two', 8)):
                 state = client.post('/golf/api/solo', json={'username': display}).json()
                 room = store.rooms[state['id']]
@@ -158,17 +158,17 @@ class AccountTests(unittest.TestCase):
                 client.post(f'/golf/api/lobbies/{room.id}/leave').raise_for_status()
             session = client.get('/golf/api/session').json()
             client.post('/golf/api/auth/logout', json={'csrf_token': session['csrf_token']}).raise_for_status()
-            state = client.post('/golf/api/solo', json={'username': 'unique_player'}).json()
+            state = client.post('/golf/api/solo', json={'username': 'uniq_player'}).json()
             room = store.rooms[state['id']]
             room.game.phase = 'over'
             room.record_result()
             result = build_stats(store.history.results(), 'account:' + account['id'])
-            self.assertEqual(result['player']['profile']['label'], '@unique_player')
+            self.assertEqual(result['player']['profile']['label'], '@uniq_player')
             self.assertEqual(result['player']['profile']['display_names'], ['Alias One', 'Alias Two'])
             self.assertEqual(result['player']['overall']['rounds'], 2)
             # signed out, the same person is a guest again: their own profile, apart from the account
             guests = [p for p in result['players'] if p['is_guest']]
-            self.assertEqual([(p['username'], p['id'].split(':')[0]) for p in guests], [('unique_player', 'browser')])
+            self.assertEqual([(p['username'], p['id'].split(':')[0]) for p in guests], [('uniq_player', 'browser')])
             self.assertNotIn('google-private-sub', json.dumps(result))
 
     def test_history_reset_prevents_an_old_host_reinserting_a_cached_series(self):

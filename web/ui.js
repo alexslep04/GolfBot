@@ -730,3 +730,18 @@ function logoHtml() {
 
 /** A Daily Puzzle margin (Golfbot's points minus yours) with its sign: +5, 0, -3. */
 const puzzleMargin = (n) => (n > 0 ? `+${n}` : String(n));
+
+/*
+ * A display name is at most 12 characters, counted as a person sees them: an emoji is
+ * one, however many code points make it (a field's maxlength would count it as two or
+ * more, and cut one in half). Each field marked data-max-chars is held to its count.
+ */
+const graphemes = (text) =>
+  typeof Intl !== "undefined" && Intl.Segmenter ? [...new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)].map((part) => part.segment) : [...text];
+document.addEventListener?.("input", (event) => {
+  const field = event.target;
+  const most = Number(field?.dataset?.maxChars);
+  if (!most || typeof field.value !== "string") return;
+  const parts = graphemes(field.value);
+  if (parts.length > most) field.value = parts.slice(0, most).join("");
+});
