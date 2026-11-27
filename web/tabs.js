@@ -506,6 +506,7 @@ function afterPane(tab) {
   }
   mountGoogleSignIn(); // (over any Sign in button on it)
   if (tab === "flags" || tab === "you") loadMyFlags();
+  if (tab === "you") loadMyNumbers();
   if (tab === "play") watchMatchesEnd();
 }
 function slideToTab(from, to) {
@@ -2110,6 +2111,7 @@ function youProfileHtml() {
     </form>
     ${account}
     ${emoteEditHtml()}
+    ${homeData.myProfile ? `<div data-my-numbers>${profileNumbersHtml(homeData.myProfile)}</div>` : `<div data-my-numbers></div>`}
     ${tabTitle("Personal Records", "", "you-records")}
     ${personalRecordsHtml(homeData.boards?.personal)}
     ${myStatsHtml()}`;
@@ -2398,6 +2400,28 @@ function compareChoices(skip) {
   for (const row of leaderboardCache?.pvp || []) add(row.id, row.label, row.avatar);
   return out;
 }
+/** Your own four numbers for the You tab (as your profile shows them to others). */
+async function loadMyNumbers() {
+  try {
+    homeData.myProfile = await api(`/api/profile?player=${encodeURIComponent(myPlayerId())}`);
+  } catch {
+    return;
+  }
+  const holder = root.querySelector?.(".tab-pane:not(.parked):not(.staged) [data-my-numbers]") || root.querySelector?.("[data-my-numbers]");
+  if (holder) holder.innerHTML = profileNumbersHtml(homeData.myProfile);
+}
+/** A player's four numbers, a row each as the leaderboards draw a player: their MMR, their
+ *  solo and PvP streaks (best, and the run on now) and their time played. On a profile,
+ *  and on the You tab for your own. */
+function profileNumbersHtml(profile) {
+  const row = (color, symbol, label, value, unit) =>
+    `<div class="list-item board-row ${color}"><span class="rank">${tilted(symbol, 30, { key: `profile:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${value}<small>${unit}</small></b></div>`;
+  const streakRow = (color, label, best, now) =>
+    `<div class="list-item board-row ${color} streak-row"><span class="rank">${tilted("flame.fill", 30, { key: `profile:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${statNumber(best)}<small>best</small></b><b class="rate streak-now">${statNumber(now)}<small>now</small></b></div>`;
+  const mmr = profile.mmr == null ? null : `${statNumber(profile.mmr)}${profile.provisional ? "?" : ""}`;
+  const [played, playedUnit] = timeParts(profile.seconds_played || 0);
+  return `<div class="list leader-list profile-rows">${row("c-p3", "crown.fill", "Current MMR", mmr ?? "—", mmr ? "MMR" : "")}${streakRow("c-s4", "Solo Win Streak", profile.solo_streak || 0, profile.current_solo_streak || 0)}${streakRow("c-p2", "PvP Win Streak", profile.pvp_streak || 0, profile.current_pvp_streak || 0)}${row("c-p4", "hourglass", "Time Played", statNumber(played), playedUnit)}</div>`;
+}
 function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading = tabTitle, extra = "", opponent = null } = {}) {
   const entry = stats?.player,
     you = stats?.comparison;
@@ -2438,7 +2462,7 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
     ? vs
       ? `<div class="list leader-list profile-rows">${row("c-p3", "person.2.fill", "Record vs People", `${statNumber(vs.wins)}–${statNumber(vs.draws)}–${statNumber(vs.losses)}`, "")}${row("c-s4", "trophy.fill", "Win Rate", statPercent(vs.games ? vs.wins / vs.games : 0), "")}${row("c-p2", "flame.fill", "Best Win Streak", statNumber(profile.personal?.pvp_streak?.streak || 0), wins(profile.personal?.pvp_streak?.streak || 0))}${row("c-p4", "hourglass", "Time Played", botTime[0], botTime[1])}</div>`
       : ""
-    : `<div class="list leader-list profile-rows">${row("c-p3", "crown.fill", "Current MMR", mmr ?? "—", mmr ? "MMR" : "")}${streakRow("c-s4", "Solo Win Streak", profile.solo_streak || 0, profile.current_solo_streak || 0)}${streakRow("c-p2", "PvP Win Streak", profile.pvp_streak || 0, profile.current_pvp_streak || 0)}${row("c-p4", "hourglass", "Time Played", statNumber(played), playedUnit)}</div>`;
+    : profileNumbersHtml(profile);
   // side by side with you
   const rating = (side) => {
     const shown = side?.ratings?.series;
