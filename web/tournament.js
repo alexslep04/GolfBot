@@ -147,7 +147,9 @@ async function refreshTournament(id) {
   // this player's match is on: go and play it (once; they can come back to look at the bracket)
   if (view.you.room_id && view.you.room_id !== tournamentEntered) return enterTournamentMatch(view.you.room_id);
   // (a finished tournament never changes again)
-  if (view.status !== "finished") tournamentTimer = setTimeout(() => refreshTournament(id), TOURNAMENT_POLL);
+  // (a finished tournament never changes again, but for the emotes its players send at
+  // the end: those keep coming while it is still up; a saved one has none)
+  if (view.status !== "finished" || Array.isArray(view.emotes)) tournamentTimer = setTimeout(() => refreshTournament(id), TOURNAMENT_POLL);
 }
 /** The tournament this player is hosting and still gathering players for (they can invite to it). */
 function hostedLobby() {
@@ -326,6 +328,36 @@ function entrantStatus(view, entrant) {
   // (between matches, after a win or before their first: waiting for the next)
   return ["hourglass", "Waiting", "c-fw"];
 }
+/*
+ * At the end of a tournament its players can emote, as at the end of a game: a tab under
+ * the standings drops the quick emotes down, and what each sends shows beside their name
+ * in the standings, as a spectator's emote shows by the table (and goes after 4 seconds).
+ */
+let cupEmotesOpen = false;
+const cupEmoteSeen = new Map(); // an emote's sequence -> when it began, on this device's clock
+function cupEmoteHtml(view, entrant, seat) {
+  const item = (view.emotes || []).find((one) => one.entrant === entrant.id);
+  if (!item) return "";
+  if (!cupEmoteSeen.has(item.sequence)) cupEmoteSeen.set(item.sequence, Date.now() - (item.age || 0) * 1000);
+  const age = Date.now() - cupEmoteSeen.get(item.sequence);
+  if (age >= 4000) return "";
+  const art = TEXT_EMOTES.includes(item.id)
+    ? `<b class="spectator-say">${e(emoteNames[item.id])}</b>`
+    : `<img src="${appPath(`/static/emotes/${item.id}.png`)}" alt="">`;
+  return `<span class="spectator-emote from-left cup-emote ${seat}" role="status" aria-label="${e(entrant.name)}: ${e(emoteNames[item.id] || "")}" style="animation-delay:-${age}ms">${art}</span>`;
+}
+function cupEmotesHtml(view) {
+  if (view.status !== "finished" || !Array.isArray(view.emotes) || !view.you?.entrant) return "";
+  const face = (id) => `<button type="button" data-cup-emote="${id}" aria-label="Send ${e(emoteNames[id].toLowerCase())} emote"><img src="${appPath(`/static/emotes/${id}.png`)}" alt=""></button>`;
+  const word = (id) => `<button type="button" class="emote-word" data-cup-emote="${id}" aria-label="Say ${e(emoteNames[id])}">${e(emoteNames[id])}</button>`;
+  const said = emoteBar("words");
+  const half = Math.ceil(said.length / 2);
+  const words = [said.slice(0, half), said.slice(half)].filter((row) => row.length).map((row) => `<div class="emote-words-row">${row.map(word).join("")}</div>`).join("");
+  const faces = emoteBar("faces");
+  const buttons = `<div class="emote-row"><div class="emote-faces${faces.length <= 4 ? " at-end" : ""}">${faces.map(face).join("")}</div></div>${words ? `<div class="emote-words">${words}</div>` : ""}`;
+  const open = cupEmotesOpen;
+  return `<div class="summary-emote-anchor cup-emote-anchor"><div class="summary-emote-drawer c-fw"><button type="button" class="emote-tab" data-cup-emotes aria-expanded="${open}" aria-label="${open ? "Hide" : "Show"} quick emotes">${icon("text.bubble.fill", 22, { idle: false })}${glyph(open ? "chevron.up" : "chevron.down", 14)}</button></div><div class="emote-pop summary-emotes${open ? "" : " tucked"}" role="group" aria-label="Quick emotes" ${open ? "" : "inert"}>${buttons}</div></div>`;
+}
 function standingsHtml(view) {
   const robin = view.format === "round_robin";
   // Where each has placed so far: their place in the standings, those level on record
@@ -350,10 +382,10 @@ function standingsHtml(view) {
       // (each player opens their profile; an AI in the bracket is Golfbot)
       const player = entrant.player_id || (entrant.ai ? "bot:golfbot" : null);
       const tag = player ? "button" : "span";
-      return `<tr class="${entrant.id === view.you.entrant ? "mine" : ""}"><th scope="row">${entrant.seed ?? rank + 1}</th><td class="st-rank">${ordinal(placed.get(row.id) || rank + 1)}</td><td><${tag}${player ? ` type="button" data-stats-player="${e(player)}" aria-label="${e(entrant.name)}'s profile"` : ""} class="st-player ${seat}"><span class="bk-ava">${icon(avatarIcon(entrant.avatar), 20, { idle: false })}</span><span class="bk-who"><b>${entrant.id === view.you.entrant ? youStar() : ""}${e(entrant.name)}</b>${mmr ? `<small>${mmr}</small>` : entrant.ai ? `<small class="bk-ai">CPU</small>` : ""}</span></${tag}></td><td>${row.wins}-${row.losses}-${row.draws}</td><td><span class="st-status ${color}" title="${status}">${icon(symbol, 18, { idle: false })}<span class="st-status-text">${status}</span></span></td></tr>`;
+      return `<tr class="${entrant.id === view.you.entrant ? "mine" : ""}"><th scope="row">${entrant.seed ?? rank + 1}</th><td class="st-rank">${ordinal(placed.get(row.id) || rank + 1)}</td><td><span class="st-player-wrap"><${tag}${player ? ` type="button" data-stats-player="${e(player)}" aria-label="${e(entrant.name)}'s profile"` : ""} class="st-player ${seat}"><span class="bk-ava">${icon(avatarIcon(entrant.avatar), 20, { idle: false })}</span><span class="bk-who"><b>${entrant.id === view.you.entrant ? youStar() : ""}${e(entrant.name)}</b>${mmr ? `<small>${mmr}</small>` : entrant.ai ? `<small class="bk-ai">CPU</small>` : ""}</span></${tag}>${cupEmoteHtml(view, entrant, seat)}</span></td><td>${row.wins}-${row.losses}-${row.draws}</td><td><span class="st-status ${color}" title="${status}">${icon(symbol, 18, { idle: false })}<span class="st-status-text">${status}</span></span></td></tr>`;
     })
     .join("");
-  return `<div class="boxed c-fw standings-card"><div class="table-wrap"><table class="standings"><thead><tr><th scope="col">Seed</th><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">W-L-D</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>${robin ? `<p class="hint dark">Ranked by matches won (a draw counts half), then fewest card points.</p>` : ""}`;
+  return `<div class="boxed c-fw standings-card"><div class="table-wrap"><table class="standings"><thead><tr><th scope="col">Seed</th><th scope="col">Rank</th><th scope="col">Player</th><th scope="col">W-L-D</th><th scope="col">Status</th></tr></thead><tbody>${rows}</tbody></table></div></div>${cupEmotesHtml(view)}${robin ? `<p class="hint dark">Ranked by matches won (a draw counts half), then fewest card points.</p>` : ""}`;
 }
 function tournamentDashboard(view) {
   const me = entrantOf(view, view.you.entrant);
@@ -669,7 +701,8 @@ function followRounds() {
 function renderTournament() {
   const view = tournament;
   if (!view || page !== "tournament") return;
-  const signature = JSON.stringify([view, tournamentArmed]);
+  // (an emote's age changes on every poll; only a new emote, or one going, redraws)
+  const signature = JSON.stringify([{ ...view, emotes: (view.emotes || []).map(({ entrant, id, sequence }) => [entrant, id, sequence]) }, tournamentArmed, cupEmotesOpen]);
   if (signature === tournamentDrawn) return;
   tournamentDrawn = signature;
   document.title = `${view.name} · Golf`;
@@ -716,6 +749,26 @@ async function tournamentClick(button, data) {
     const id = state.tournament.id;
     stopWatching();
     await tournamentPage(id);
+    return true;
+  }
+  if ("cupEmotes" in data) {
+    cupEmotesOpen = !cupEmotesOpen;
+    renderTournament();
+    return true;
+  }
+  if (data.cupEmote && tournament) {
+    try {
+      tournament = await api(`/api/tournaments/${tournament.id}/emote`, "POST", { emote: data.cupEmote });
+      haptic("tap");
+      renderTournament();
+      // (gone again after its 4 seconds)
+      setTimeout(() => {
+        tournamentDrawn = "";
+        renderTournament();
+      }, 4100);
+    } catch (error) {
+      toast(error.message);
+    }
     return true;
   }
   if ("tournamentPlay" in data) {

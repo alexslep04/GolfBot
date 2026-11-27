@@ -1459,9 +1459,11 @@ function friendsHtml() {
     return boxed("c-fw", "Friends", `<p class="friends-empty">Sign in to add friends and see when they're playing.</p>${signInButton("small c-p1", `${tilted("person.crop.circle.fill", 22)}Sign in`)}`, "friends-box");
   const rows = info.friends.map((friend, i) => {
     const status = friendStatus(friend);
-    const watch = friend.status === "in_game" && friend.room_id ? `<button type="button" class="friend-watch" data-watch="${e(friend.room_id)}" aria-label="Watch ${e(friend.display_name)}">${tilted("binoculars.fill", 28, { key: `fw:${i}` })}</button>` : "";
+    // (a game, or the Daily Puzzle: either one watched the same way)
+    const playing = friend.status === "in_game" || friend.status === "puzzle";
+    const watch = playing && friend.room_id ? `<button type="button" class="friend-watch" data-watch="${e(friend.room_id)}" aria-label="Watch ${e(friend.display_name)}">${tilted("binoculars.fill", 28, { key: `fw:${i}` })}</button>` : "";
     // (in a game: the points they have showing, as stickers, in place of the words)
-    const points = friend.status === "in_game" && friend.points != null
+    const points = playing && friend.points != null
       ? `<span class="friend-pts" aria-label="${e(`${status}: ${friend.points} points`)}">${stickerText(String(friend.points), { split: true, idle: false, key: `fp:${i}` })}${stickerText("pts", { cls: "pts", idle: false, key: `fpp:${i}` })}</span>`
       : `<span class="friend-status">${status}</span>`;
     return `<div class="friend-row ${friend.status}" style="--i:${i}"><span class="friend-ava">${tilted(avatarIcon(friend.avatar), 34, { key: `fa:${friend.unique_name}` })}</span><button type="button" class="friend-name" data-stats-player="${e(friend.id)}" aria-label="${e(friend.display_name)}'s profile"><b>${e(friend.display_name)}</b>${friend.mmr != null ? `<small>${statNumber(friend.mmr)}</small>` : ""}</button>${points}${watch}</div>`;

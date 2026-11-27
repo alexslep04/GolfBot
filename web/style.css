@@ -9013,3 +9013,31 @@ button.deck-card:not(.selected):active {
   border-left: 0.25rem solid color-mix(in srgb, var(--c) 45%, transparent);
   opacity: 0.75;
 }
+
+/* A tournament's end: each player's emote beside their name in the standings, a
+   spectator's bubble with its tail pointing back at the name, in their color (it floats
+   over the row, so the table never moves for it) */
+.st-player-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+.spectator-emote.cup-emote {
+  position: absolute;
+  left: calc(100% + 1.4rem);
+  right: auto;
+  top: 50%;
+  margin-top: -2rem;
+  z-index: 3;
+  transform-origin: 0 50%;
+  animation: spectator-in-left 4s both;
+}
+/* the quick emotes under the standings, dropping down as at the end of a game */
+.cup-emote-anchor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* (tucked up under the standings card, as under the results) */
+  margin-top: -1.2rem;
+}

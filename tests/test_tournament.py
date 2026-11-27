@@ -215,6 +215,32 @@ class TournamentServerTests(unittest.TestCase):
         late = self.player()
         self.assertEqual(late.post(f'/api/tournaments/{tid}/join', json={'username': 'Late'}).status_code, 409)
 
+    def test_its_players_emote_at_the_end_beside_their_name(self):
+        tid = self.create()['id']
+        guest = self.player()
+        guest.post(f'/api/tournaments/{tid}/join', json={'username': 'Guest'}).raise_for_status()
+        outsider = self.player()
+        self.host.post(f'/api/tournaments/{tid}/start').raise_for_status()
+        path = f'/api/tournaments/{tid}/emote'
+        # (not while it is on)
+        self.assertEqual(self.host.post(path, json={'emote': 'wow'}).status_code, 409)
+        tournament = self.store.tournaments[tid]
+        (match,) = tournament.live()
+        self.finish(self.store.rooms[match.room_id], [3, 9])
+        self.tick()
+        self.assertEqual(tournament.status, 'finished')
+        view = self.host.post(path, json={'emote': 'wow'}).json()
+        host = view['you']['entrant']
+        self.assertEqual([(item['entrant'], item['id']) for item in view['emotes']], [(host, 'wow')])
+        # everyone looking sees it, beside the host's name; a flag's emote waits for the flag
+        self.assertEqual([item['id'] for item in guest.get(f'/api/tournaments/{tid}').json()['emotes']], ['wow'])
+        self.assertEqual(guest.post(path, json={'emote': 'ranked'}).status_code, 403)
+        # only its players
+        self.assertEqual(outsider.post(path, json={'emote': 'wow'}).status_code, 403)
+        # and each goes after its few seconds
+        tournament.emotes[host]['at'] -= 10
+        self.assertEqual(self.host.get(f'/api/tournaments/{tid}').json()['emotes'], [])
+
     def test_a_match_result_moves_the_bracket_on_and_crowns_a_champion(self):
         tid = self.create()['id']
         others = [self.player() for _ in range(3)]
