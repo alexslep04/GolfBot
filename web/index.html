@@ -11,7 +11,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Golf</title>
     <link rel="icon" type="image/png" href="static/assets/icon.png" />
-    <link rel="apple-touch-icon" sizes="180x180" href="static/assets/apple-touch-icon.png" />
+    <!-- The Home Screen icon comes from the manifest, not an apple-touch-icon: iOS darkens
+         an apple-touch-icon in Dark mode (a black background), and leaves a manifest's alone. -->
+    <link rel="manifest" href="static/manifest.webmanifest" />
     <script>
       // The saved theme, set before anything is painted (ui.js keeps it in step).
       try {

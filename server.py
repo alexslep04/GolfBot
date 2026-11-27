@@ -1047,15 +1047,19 @@ async def refresh_odds(room, send):
             await send()
 
 
-def puzzle_rows(board, me, friends=(), progression=None):
+def puzzle_rows(board, me, friends=(), progression=None, looks=None):
     """The day's puzzle board as a player sees it: whether each row is theirs or a
     friend's, whose profile it opens (a guest's public id is the one the leaderboards
     and records already show), and the MMR of anyone who has played a Ranked series
     (with "provisional" while it is still settling)."""
     rows = []
+    # (each signed-in player as they are now, not as they were when they played)
+    now = looks([row["player"] for row in board]) if looks else {}
     for row in board:
         row = dict(row)
         player = row.pop("player")
+        if player in now:
+            row["name"], row["avatar"] = now[player][0] or row["name"], now[player][1] or row["avatar"]
         row["mine"] = player == me
         row["friend"] = player in friends
         if player.startswith(("account:", "browser:")):
@@ -1116,7 +1120,8 @@ def snapshot(room, token, watch=False):
                            "last": room.puzzle.get("last"),
                            **(store.mine(day, room.puzzle["player"]) if store else {}),
                            # (who is who stays on the server: each row just says whether it is yours)
-                           "board": puzzle_rows(store.board(day) if store else [], room.puzzle["player"], progression=room.progression)}
+                           "board": puzzle_rows(store.board(day) if store else [], room.puzzle["player"], progression=room.progression,
+                                                looks=getattr(store, "looks", None))}
         # each attempt is dealt in afresh, like a new game
         state["round"] = state["puzzle"].get("attempts") or 1
     state['void_offer'] = room.void_offer
@@ -2292,6 +2297,14 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         for record in boards['records'].values():
             if isinstance(record, dict) and record.get('id') in avatars:
                 record['avatar'] = avatars[record['id']]
+        # (signed-in players as they are now: their display name and avatar)
+        holders = [row for row in boards['pvp'] + boards['solo']] + [record for record in boards['records'].values() if isinstance(record, dict)]
+        now = current_looks([row.get('id') for row in holders])
+        for row in holders:
+            if row.get('id') in now:
+                name, avatar = now[row['id']]
+                row['label'] = name or row.get('label')
+                row['avatar'] = avatar or row.get('avatar')
         # and each ranked player's, beside their name on the boards
         for row in boards['pvp'] + boards['solo']:
             row.setdefault('avatar', avatars.get(row.get('id')) or (DEMO_AVATARS.get(row.get('label')) if str(row.get('id')).startswith('demo:') else None))
@@ -2597,6 +2610,27 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             players[identity] = other
         return list(players.values())
 
+    def current_looks(players):
+        """{player id: (display name, avatar)} for each signed-in player among `players`, as
+        they are now: their account's display name, and the avatar they last chose (on the
+        device they were on most recently, else as last seen). Names and avatars saved with
+        a game, a puzzle or a board are only what they were then."""
+        accounts = {player.split(':', 1)[1] for player in players if str(player).startswith('account:')}
+        if not accounts:
+            return {}
+        names = store.accounts.by_ids(accounts)
+        seen = store.friends.last_seen(accounts)
+        live = {}
+        for other in store.sessions.values():
+            if other.account and other.account['id'] in accounts and other.avatar:
+                if other.online_until >= live.get(other.account['id'], (-1, None))[0]:
+                    live[other.account['id']] = (other.online_until, other.avatar)
+        return {f'account:{account}': ((names.get(account) or {}).get('display_name'),
+                                       live.get(account, (None, None))[1] or seen.get(account, (None, None))[1])
+                for account in accounts if account in names}
+
+    store.puzzles.looks = current_looks
+
     def friend_status(account_id, seen):
         """What a friend is up to: in a game (and where to watch it), solving the puzzle, online, or last seen."""
         now = time.time()
@@ -2731,11 +2765,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     @app.post('/api/presence')
     async def presence(body: Presence, request: Request):
         session = session_for(request)
-        if not at_table(session) and not (session.account and session.account.get('display_name')):
-            set_name(session, body.username)
+        before = session.avatar
+        if not at_table(session):
+            # (a signed-in player's name is their account's; their avatar is whatever they
+            # last picked, on whichever device: it was only taken at a table before, so
+            # boards and friends went on showing an old one)
+            if not (session.account and session.account.get('display_name')):
+                set_name(session, body.username)
             choose_avatar(session, body.avatar)
         session.online_until = time.time() + 30
-        if session.account and session.seen_saved < time.time() - 60:
+        if session.account and (session.seen_saved < time.time() - 60 or session.avatar != before):
             # friends see when someone was last on (written once a minute at most)
             session.seen_saved = time.time()
             try:
@@ -2917,7 +2956,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         day = daily_puzzle.today()
         spec = await store.puzzle_maker.spec(day)
         me = puzzle_player(session)
-        board = puzzle_rows(store.puzzles.board(day, limit), me, friend_ids(session), store.progression)
+        board = puzzle_rows(store.puzzles.board(day, limit), me, friend_ids(session), store.progression, current_looks)
         return {"number": daily_puzzle.puzzle_number(day), "day": day.isoformat(),
                 "hand": daily_puzzle.preview(spec), "board": board, "theme": daily_puzzle.describe(spec),
                 "players": len(store.puzzles.board(day)), "moves": spec["moves"], **store.puzzles.mine(day, me)}

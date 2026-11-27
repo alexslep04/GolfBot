@@ -130,6 +130,13 @@
 :root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) {
   --scrim: rgb(0 0 0 / 0.6);
 }
+/* The room kept at the foot of the screen for an iPhone's home bar, by the panels that
+   run off the bottom (the name tag and rules bar at the table, the tab bar): the home
+   bar's safe area less 2rem, so they tuck partly down beside it and save that height,
+   but keep their words clear of the bar and of the screen's rounded corners. */
+:root {
+  --home-bar: max(0px, env(safe-area-inset-bottom) - 2rem);
+}
 :root {
   --u: min(1px, 100vw / 402);
   font-size: calc(var(--u) * 10);
@@ -2061,7 +2068,6 @@ body > header.topbar {
 .b-bottom .tag {
   padding: 2rem 0.8rem 0;
   border-radius: 2.4rem 2.4rem 0 0;
-  padding-bottom: env(safe-area-inset-bottom);
 }
 .b-bottom .tag-score {
   padding-top: 2.6rem;
@@ -2071,6 +2077,10 @@ body > header.topbar {
 }
 .b-bottom .tag > .tag-in {
   border-radius: 1.6rem 1.6rem 0 0;
+  /* (the fill runs on down into the phone's home bar area, inside the tag's border, so
+     the bottom of the screen is the tag's own filled card rather than a band of its
+     border color) */
+  padding-bottom: calc(1.2rem + var(--home-bar));
 }
 .tag-rules .txt {
   font-size: 1.6rem;
@@ -6197,10 +6207,10 @@ button:disabled > .haptic-switch {
 .page.home.tabbed {
   gap: 1.6rem;
   /* room under the last thing on the tab for the dock that floats over it */
-  padding-bottom: calc(11rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(11rem + var(--home-bar));
 }
 .page.home.tabbed[data-tab="play"] {
-  padding-bottom: calc(20rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(20rem + var(--home-bar));
 }
 .tab-stage {
   display: grid;
@@ -6396,7 +6406,7 @@ button:disabled > .haptic-switch {
   display: flex;
   align-items: stretch;
   justify-content: space-between;
-  padding: 0.4rem 0.6rem calc(0.2rem + env(safe-area-inset-bottom));
+  padding: 0.4rem 0.6rem calc(0.2rem + var(--home-bar));
   border: 0.4rem solid var(--fw);
   border-bottom: 0;
   border-radius: 2.4rem 2.4rem 0 0;

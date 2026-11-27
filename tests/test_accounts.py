@@ -94,6 +94,25 @@ class AccountTests(unittest.TestCase):
                 self.assertEqual(client.post('/api/auth/google', json=body).status_code, 401)
             self.assertEqual(client.post('/api/auth/logout', json={'csrf_token': session['csrf_token']}, headers={'Origin': 'https://evil.test'}).status_code, 403)
 
+    def test_boards_show_a_signed_in_player_as_they_are_now(self):
+        import datetime
+        store = Store()
+        app = create_app(store, 'test.apps.googleusercontent.com')
+        with TestClient(app, base_url='https://sleptsov.dev') as phone:
+            phone.get('/golf/api/session').raise_for_status()
+            self.login(phone)
+            self.name(phone, 'spence').raise_for_status()
+            phone.post('/golf/api/name', json={'username': 'Spenis'}).raise_for_status()
+            me = 'account:' + phone.get('/golf/api/session').json()['account']['id']
+            # a puzzle finished under the old name and look
+            today = datetime.date.today()
+            store.puzzles.finish(today, me, 'Spenis', 'golfer', 21)
+            # then a new name and avatar, picked away from any table
+            phone.post('/golf/api/name', json={'username': 'speeeeeeenis'}).raise_for_status()
+            phone.post('/golf/api/presence', json={'username': 'speeeeeeenis', 'avatar': 'cup'}).raise_for_status()
+            row = next(row for row in phone.get('/golf/api/puzzle').json()['board'] if row.get('id') == me)
+            self.assertEqual((row['name'], row['avatar']), ('speeeeeeenis', 'cup'))
+
     def test_display_name_follows_the_account_to_every_device(self):
         store = Store()
         app = create_app(store, 'test.apps.googleusercontent.com')
