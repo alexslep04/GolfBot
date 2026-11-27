@@ -5851,6 +5851,9 @@ button:disabled > .haptic-switch {
 .record-value {
   display: flex;
   align-items: baseline;
+  /* (a number too wide for the card puts its unit on a line of its own under it) */
+  flex-wrap: wrap;
+  justify-content: center;
   font: 700 4.4rem/1 var(--round);
   --sw: 0.7rem;
 }
@@ -5858,8 +5861,11 @@ button:disabled > .haptic-switch {
 .record-pr-value .stk:not(.pts) {
   margin-right: -0.03em;
 }
+.record-value {
+  column-gap: 0.5rem;
+}
 .record-value .pts {
-  margin-left: 0.5rem;
+  margin-left: 0;
   font-size: 1.8rem;
   --sw: 0.5rem;
 }
@@ -5903,12 +5909,16 @@ button:disabled > .haptic-switch {
 .record-pr-value {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: center;
   font: 700 3.2rem/1 var(--round);
-  white-space: nowrap;
   --sw: 0.55rem;
 }
+.record-pr-value {
+  column-gap: 0.4rem;
+}
 .record-pr-value .pts {
-  margin-left: 0.4rem;
+  margin-left: 0;
   font-size: 1.4rem;
   --sw: 0.4rem;
 }
@@ -9048,4 +9058,49 @@ button.deck-card:not(.selected):active {
   align-items: center;
   /* (tucked up under the standings card, as under the results) */
   margin-top: -1.2rem;
+}
+
+/* A record changing hands: the Flag Complete! pill in the records' gold (a lost one in red) */
+.queue-pill.flag-pill.record-pill {
+  border-color: var(--p3);
+  background: var(--p3b);
+  color: var(--p3t);
+  --c: var(--p3);
+  --c2: var(--p3b);
+  --ct: var(--p3t);
+}
+.queue-pill.flag-pill.record-pill .queue-accept {
+  border-color: color-mix(in srgb, var(--p3) 45%, var(--p3b));
+  --fill: var(--p3b);
+  --stroke: color-mix(in srgb, var(--p3) 45%, var(--p3b));
+}
+.queue-pill.flag-pill.record-pill.lost {
+  border-color: var(--p2);
+  background: var(--p2b);
+  color: var(--p2t);
+  --c: var(--p2);
+  --c2: var(--p2b);
+  --ct: var(--p2t);
+}
+.queue-pill.flag-pill.record-pill.lost .queue-accept {
+  border-color: color-mix(in srgb, var(--p2) 45%, var(--p2b));
+  background: var(--p2b);
+  color: var(--p2t);
+  --fill: var(--p2b);
+  --stroke: color-mix(in srgb, var(--p2) 45%, var(--p2b));
+}
+.record-pill .flag-pill-art {
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+
+/* a record's number keeps its digits together; its unit stays on one line, beside it
+   when there is room and under it when there is not */
+.rv-num {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+:is(.record-value, .record-pr-value) .pts {
+  white-space: nowrap;
 }

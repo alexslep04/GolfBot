@@ -2520,6 +2520,9 @@ function accept(next) {
   const finished = state?.id === next.id && state.status === "playing" && ["round_over", "finished"].includes(next.status) && !next.spectator;
   state = next;
   if (finished && typeof loadMyFlags === "function") setTimeout(loadMyFlags, 700);
+  // (and any record it changed hands)
+  if (finished && typeof checkRecords === "function")
+    setTimeout(() => api("/api/leaderboards").then((boards) => ((leaderboardCache = boards), checkRecords(boards.records))).catch(() => {}), 900);
   renderVoidOffer();
   // pass & play: when the turn moves to someone else, the device is handed over
   if (next.local) holdForPass(next);
@@ -3102,7 +3105,8 @@ function historyPaneHtml(tab) {
   const finished = tab === "tournament" ? tournamentRows(list.cups || []) : "";
   const none = { pvp: "No games between players yet.", solo: "No games against Golfbot yet. Finish one to see it here.", tournament: finished ? "" : "No tournament has finished yet." }[tab];
   const matches = list.matches.map((match) => matchArticleHtml(match)).join("") || (none ? `<p class="hint">${none}</p>` : "");
-  const more = list.offset !== null ? `<button type="button" class="btn small c-fw" data-history-more>Load older matches</button>` : "";
+  // (older matches load by themselves as the end of the list scrolls into view: see watchHistoryEnd)
+  const more = list.offset !== null ? `<p class="loading history-end" data-history-end>Loading older matches…</p>` : "";
   return `<div class="tab-body history-body">${head}${open}<div class="stack wide">${finished ? `<div class="list">${finished}</div>${list.matches.length ? sectionTitle("Tournament Matches") : ""}` : ""}${matches}${more}</div></div>`;
 }
 /** Fetch a list (`more`: its next older matches), then draw it in once the screen is at rest. */
@@ -3111,7 +3115,8 @@ async function loadHistoryList(tab, more = false) {
   const was = historyLists[tab];
   try {
     const [result, cups] = await Promise.all([
-      api(`/api/history?kind=${tab}&offset=${more ? was?.offset ?? 0 : 0}`),
+      // (a dozen at a time: the next dozen as the end of the list comes into view)
+      api(`/api/history?kind=${tab}&limit=12&offset=${more ? was?.offset ?? 0 : 0}`),
       tab === "tournament" && !more ? loadTournamentHistory() : null,
     ]);
     if (request !== historyRequests[tab]) return;
@@ -3121,8 +3126,35 @@ async function loadHistoryList(tab, more = false) {
     if (more || !was || was.error) historyLists[tab] = { ...(more ? was : {}), error: error.message };
   }
   if (deck !== "history") return;
-  whenHomeQuiet(`draw:${tab}`, () => redrawPane(tab));
+  whenHomeQuiet(`draw:${tab}`, () => {
+    redrawPane(tab);
+    watchHistoryEnd();
+  });
   refreshParked([tab]);
+}
+/* Match history loads lazily: a list's first matches when it is first shown, and its
+   older ones as the end of the list scrolls into view (as Your Matches on Play does). */
+const historyEnd =
+  typeof IntersectionObserver === "function"
+    ? new IntersectionObserver((entries) => entries.some((entry) => entry.isIntersecting) && loadOlderHistory(), { rootMargin: "400px 0px" })
+    : null;
+let historyLoadingMore = false;
+function watchHistoryEnd() {
+  if (!historyEnd) return;
+  historyEnd.disconnect();
+  const end = page === "history" ? root.querySelector(".tab-pane:not(.leaving):not(.neighbor):not(.parked):not(.staged) [data-history-end]") : null;
+  if (end) historyEnd.observe(end);
+}
+async function loadOlderHistory() {
+  const tab = historyTab;
+  const list = historyLists[tab];
+  if (historyLoadingMore || page !== "history" || !list || list.offset == null || list.error) return;
+  historyLoadingMore = true;
+  try {
+    await loadHistoryList(tab, true);
+  } finally {
+    historyLoadingMore = false;
+  }
 }
 /** The Match history page, on the list last looked at. */
 function historyPage() {
@@ -3139,7 +3171,7 @@ function historyPage() {
   placeTabArrows();
   // (the list showing first, then the others, so a swipe finds them ready)
   loadHistoryList(tab);
-  for (const item of LIST_TABS) if (item.key !== tab) loadHistoryList(item.key);
+  // (the other lists load when they are first turned to, not now)
   warmPanes();
 }
 /** The bar flows to the list showing (and the screen holds still meanwhile), as the home screen's does. */
@@ -3174,6 +3206,8 @@ function adoptHistoryList(p) {
   else follow();
   haptic("snap");
   freshenPane(pager.cur?.el);
+  // (the list now showing watches its own end)
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(watchHistoryEnd);
 }
 
 /* ---------- leaderboard (player stats) ---------- */
@@ -3390,11 +3424,10 @@ function leaderboardBody(tab, result) {
   if (!rows.length)
     return `<section class="panel c-fw leader-empty">${tilted(solo ? "flame.fill" : "trophy.fill", 52, { key: "leader-empty" })}<p>No ${solo ? "solo streaks" : "rated results"} yet.</p><p class="hint dark">${solo ? "Win games in a row against Golfbot to get on the board." : "Finish a Ranked series to get on the board."}</p></section>${intro}`;
   const value = (row) => (solo ? row.best_streak : row.mmr);
-  const record = (row) => `${statNumber(row.wins)}–${statNumber(row.draws)}–${statNumber(row.losses)}`;
-  // PVP: W–D–L counts series; the games inside them are counted apart
-  const gameRecord = (row) => (row.games ? `${statNumber(row.games.wins)}–${statNumber(row.games.draws)}–${statNumber(row.games.losses)}` : "—");
+  const record = (row) => `${statNumber(row.wins)}–${statNumber(row.losses)}–${statNumber(row.draws)}`;
+  // PVP: W–L–D counts series; the games inside them are counted apart
+  const gameRecord = (row) => (row.games ? `${statNumber(row.games.wins)}–${statNumber(row.games.losses)}–${statNumber(row.games.draws)}` : "—");
   const settling = (row) => (!solo && row.provisional ? "?" : "");
-  const rate = (row) => (row.win_rate === null || row.win_rate === undefined ? "—" : statPercent(row.win_rate));
   const who = (row) => `${nameMark(row.id, row.id === mine)}${e(row.label)}`;
   const leader = rows[0];
   const tile = (text, label) => `<div><b>${text}</b><span>${label}</span></div>`;
@@ -3402,7 +3435,7 @@ function leaderboardBody(tab, result) {
       <span class="leader-trophy">${tilted("trophy.fill", 48, { key: "leader-trophy" })}</span>
       <div class="stat-rate${solo ? " streak-rate" : ""}">${solo ? icon("flame.fill", 44, { key: "leader-flame" }) : ""}${stickerText(String(value(leader)), { split: true, key: "leader-value" })}${solo ? "" : stickerText("MMR", { cls: "pts", key: "leader-elo" })}</div>
       <p><span class="lb-hero-ava">${icon(leader.avatar ? avatarIcon(leader.avatar) : "person.fill", 22, { idle: false })}</span><strong>${who(leader)}</strong> ${solo ? "· best streak" : "is on top"}</p>
-      <div class="stat-tiles">${tile(record(leader), solo ? "W–D–L" : "series W–D–L")}${tile(rate(leader), "win rate")}${solo ? tile(statNumber(leader.wins + leader.draws + leader.losses), "games") : tile(gameRecord(leader), "games W–D–L")}</div>
+      <div class="stat-tiles">${tile(record(leader), solo ? "W–L–D" : "series W–L–D")}${solo ? tile(statNumber(leader.wins + leader.draws + leader.losses), "games") : tile(gameRecord(leader), "games W–L–D")}</div>
     </section>`;
   const list = rows
     .map((row, i) => {
@@ -3410,9 +3443,9 @@ function leaderboardBody(tab, result) {
       const opens = row.id?.startsWith("account:") || row.id?.startsWith("demo:");
       const tag = opens ? "button" : "div";
       const attrs = opens ? ` type="button" data-stats-player="${e(row.id)}"` : "";
-      return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} MMR`}, ${solo ? "" : "series "}${record(row)}, ${rate(row)} win rate${solo ? "" : `, games ${gameRecord(row)}`}">
+      return `<${tag}${attrs} class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.id === mine ? " mine" : ""}" style="--i:${i}" aria-label="${i + 1}. ${e(row.label)}, ${solo ? `best streak ${value(row)}` : `${value(row)} MMR`}, ${solo ? "" : "series "}${record(row)}${solo ? "" : `, games ${gameRecord(row)}`}">
         <span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "lb-first" }) : stickerText(String(i + 1), { key: `lb-rank:${i}` })}</span>
-        <div class="grow"><strong class="lb-name"><span class="lb-ava">${icon(row.avatar ? avatarIcon(row.avatar) : "person.fill", 16, { idle: false })}</span>${who(row)}</strong><small>${solo ? "" : "Series "}${record(row)} · ${rate(row)} win rate${solo ? "" : ` · Games ${gameRecord(row)}`}</small></div>
+        <div class="grow"><strong class="lb-name"><span class="lb-ava">${icon(row.avatar ? avatarIcon(row.avatar) : "person.fill", 16, { idle: false })}</span>${who(row)}</strong><small>${solo ? "" : "Series "}${record(row)}${solo ? "" : ` · Games ${gameRecord(row)}`}</small></div>
         <b class="rate">${solo ? `<small class="streak-now">currently ${statNumber(row.current_streak ?? 0)}</small>${icon("flame.fill", 22, { idle: false })}<span class="streak-num">${statNumber(value(row))}</span>` : `${statNumber(value(row))}${settling(row)}<small>MMR</small>`}</b>${opens ? glyph("chevron.right", 16) : ""}
       </${tag}>`;
     })
@@ -3451,7 +3484,7 @@ function recordCards(records = {}, personal = {}) {
     if (record && personal.id && (record.id === personal.id || record.ids?.includes(personal.id)))
       return `<div class="record-pr held"><span class="record-pr-text">${youStar()}You hold this record</span></div>`;
     const tied = record && String(value) === String(recordValue);
-    return `<div class="record-pr"><span class="record-pr-value">${stickerText(String(value), { split: true, key: `record-pr:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-pu:${key}` }) : ""}</span><span class="record-pr-text">${tied ? "Ties the record" : text}</span></div>`;
+    return `<div class="record-pr"><span class="record-pr-value"><span class="rv-num">${stickerText(String(value), { split: true, key: `record-pr:${key}` })}</span>${unit ? stickerText(unit, { cls: "pts", key: `record-pu:${key}` }) : ""}</span><span class="record-pr-text">${tied ? "Ties the record" : text}</span></div>`;
   };
   // A record held by a player names them on a line of their own under the number, with their
   // avatar, and the card opens their profile; the line under that says what they did.
@@ -3461,7 +3494,7 @@ function recordCards(records = {}, personal = {}) {
     const tag = holder ? "button" : "section";
     return `<div class="record-slot ${color}" style="--i:${key}"><${tag}${holder ? ` type="button" data-stats-player="${e(holder)}" aria-label="${e(title)}: ${e(record.label)}'s profile"` : ""} class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${
       record
-        ? `<div class="record-value">${stickerText(String(value), { split: true, key: `record-v:${key}` })}${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div>${line}<p>${line ? detail.replace(/^<strong>[\s\S]*?<\/strong>\s*/, "") : detail}</p>`
+        ? `<div class="record-value"><span class="rv-num">${stickerText(String(value), { split: true, key: `record-v:${key}` })}</span>${unit ? stickerText(unit, { cls: "pts", key: `record-u:${key}` }) : ""}</div>${line}<p>${line ? detail.replace(/^<strong>[\s\S]*?<\/strong>\s*/, "") : detail}</p>`
         : `<p class="hint dark">${empty}</p>`
     }${note ? `<p class="record-note">${note}</p>` : ""}</${tag}>${mine(value)}</div>`;
   };
@@ -3878,10 +3911,6 @@ document.addEventListener("click", async (event) => {
       // (the puzzle's best margins open the page itself, with Back leading to the table)
       return page === "room" && !button.closest(".pz-leaders") ? playerSheet(data.statsPlayer) : profilePage(data.statsPlayer);
     }
-    if ("historyMore" in data) {
-      button.disabled = true;
-      return await loadHistoryList(historyTab, true);
-    }
     if (data.lobby) return await publicLobby(data.lobby);
     if (data.join) {
       const epoch = tableEpoch;
@@ -4147,6 +4176,8 @@ function bootData() {
     } catch {}
     syncPrefs();
     loadMyFlags();
+    // (a record taken from you, or by you, while you were away)
+    api("/api/leaderboards").then((boards) => ((leaderboardCache = boards), checkRecords(boards.records))).catch(() => {});
     // (your custom card designs, for the tables you sit at)
     if (Object.keys(deckChoices).length) syncDeck();
     // (your time zone, so the server knows the hour your games end where you are: Just one more game)

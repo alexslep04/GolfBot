@@ -52,11 +52,11 @@ test('Aces PvP ranks by MMR, escapes names, formats fractional win rate; it load
   h.run('acesView="pvp"');
   const html=h.run('acesPaneHtml()');
   assert.match(html,/PvP Rankings/);
-  // the leader's card and a ranked row for each player, with MMR (still settling: "?") and the series W–D–L
+  // the leader's card and a ranked row for each player, with MMR (still settling: "?") and the series W–L–D (no win rate)
   assert.match(html,/class="panel c-p3 stat-hero leader-hero"/);assert.match(html,/class="list-item board-row c-p3"/);
-  assert.match(html,/1,210\?<small>MMR<\/small>/);assert.match(html,/Series 3–1–2/);assert.match(html,/series W–D–L/);
-  assert.match(html,/Games 11–2–9/);assert.doesNotMatch(html,/still settling|leader-foot/);assert.doesNotMatch(html,/Elo/);
-  assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
+  assert.match(html,/1,210\?<small>MMR<\/small>/);assert.match(html,/Series 3–2–1/);assert.match(html,/series W–L–D/);
+  assert.match(html,/Games 11–9–2/);assert.doesNotMatch(html,/still settling|leader-foot/);assert.doesNotMatch(html,/Elo/);
+  assert.match(html,/Alice &lt;admin&gt;/);assert.doesNotMatch(html,/50%|win rate/);
   h.run('acesView="solo"');assert.match(h.run('acesPaneHtml()'),/No solo streaks yet/);
   // the views sit above the tab bar, the one showing marked
   assert.match(h.run('acesTabsHtml()'),/data-aces-view="solo" aria-pressed="true"/);
@@ -82,7 +82,7 @@ test('Your stats (once Advanced stats) are yours against everyone, over every ga
 test('PVP ranks by MMR from series, with games counted apart; Solo is all time',()=>{
   const h=harness();
   const pvp=h.run('leaderboardBody("pvp",{patch:"1.4.0",pvp:[{id:"account:1",label:"Ann",mmr:1040,provisional:false,wins:7,draws:1,losses:4,win_rate:.58,game_rating:1090,games:{wins:30,draws:2,losses:21}}]})');
-  assert.match(pvp,/Series 7–1–4/);assert.match(pvp,/Games 30–2–21/);assert.match(pvp,/1,040<small>MMR<\/small>/);
+  assert.match(pvp,/Series 7–4–1/);assert.match(pvp,/Games 30–21–2/);assert.match(pvp,/1,040<small>MMR<\/small>/);
   // the game rating is not on the board (it is in Advanced stats), and MMR is not tied to a patch
   assert.doesNotMatch(pvp,/1,090/);assert.doesNotMatch(pvp,/Patch 1\.4\.0/);assert.doesNotMatch(pvp,/still settling/);
   assert.match(h.run('leaderboardBody("pvp",{pvp:[]})'),/Finish a Ranked series to get on the board/);
@@ -541,14 +541,14 @@ test('match eye toggles remain open across live updates and are isolated by play
   assert.match(h.run('ruleHelpCard(catalog[1],{player:0,on:true})'),/aria-expanded="false"/);
 });
 
-test('Solo shows best streak with W-D-L and win rate instead of current streak',()=>{
+test('Solo shows best streak with W-L-D (no win rate) instead of current streak',()=>{
   const h=harness();
   h.run(`homeData.boards=${JSON.stringify({patch:'1.2.0',solo:[{label:'Alice',best_streak:8,current_streak:3,wins:6,draws:2,losses:2,win_rate:.6}]})};acesView="solo"`);
   const html=h.run('acesPaneHtml()');
   assert.match(html,/Solo Streaks/);
   assert.match(html,/best streak/);assert.match(html,/best streak 8/);
-  assert.match(html,/W–D–L/);assert.match(html,/win rate/);
-  assert.match(html,/6–2–2/);assert.match(html,/60%/);
+  assert.match(html,/W–L–D/);assert.doesNotMatch(html,/win rate|60%/);
+  assert.match(html,/6–2–2/);
   assert.doesNotMatch(html,/Current streak|Best reached/);
   // each row's current streak sits beside its best, small
   assert.match(html,/class="streak-now">currently 3</);
@@ -764,14 +764,16 @@ test('Match history has the same three lists, with finished tournaments under To
     ?[{id:'t9',name:'Old Cup',status:'finished',format_name:'Round robin',ranked:false,entrants:3,live:0,host:'Ann',champion:'Bob <b>',finished_at:1700000000,mine:true}]
     :{matches:[saved('m1',url.includes('kind=tournament')?'Old Cup: Final':url.includes('kind=solo')?'Solo table':'Friendly Golf')],next_offset:null}};};
   h.run('page="home"');h.run('historyPage()');
+  // (lazily: only the list showing is fetched on opening; the others when turned to)
+  assert.deepEqual(h.requests.map(r=>r.url),['/golf/api/history?kind=pvp&limit=12&offset=0']);
   await h.run('Promise.all(LIST_TABS.map(item=>loadHistoryList(item.key)))');
   // (one page, laid out as the home screen is, with the home screen's bar at its foot)
   assert.match(h.nodes.get('app').innerHTML,/class="tab-btn c-p2 on" data-list-tab="pvp" aria-current="page"/);
-  assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=pvp&offset=0')));
+  assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=pvp&limit=12&offset=0')));
   let html=h.run('historyPaneHtml("pvp")');
   assert.match(html,/Friendly Golf/);assert.match(html,/games between players/);
   assert.doesNotMatch(html,/data-tournament-open/);
-  assert.match(h.run('historyPaneHtml("solo")'),/Solo table/);assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=solo&offset=0')));
+  assert.match(h.run('historyPaneHtml("solo")'),/Solo table/);assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=solo&limit=12&offset=0')));
   html=h.run('historyPaneHtml("tournament")');
   assert.ok(h.requests.some(r=>r.url.endsWith('/api/tournament-history')));
   assert.match(html,/data-tournament-open="t9"/);assert.match(html,/Round robin · 3 players · [^<]* · Bob &lt;b&gt; won/);

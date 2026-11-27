@@ -781,6 +781,7 @@ async function fetchTab(tab, lazy = false) {
     } else if (tab === "aces" || tab === "you") {
       got = { boards: await api("/api/leaderboards") };
       leaderboardCache = got.boards;
+      checkRecords(got.boards.records);
     } else return;
     const key = tab === "you" ? "aces" : tab;
     const text = JSON.stringify(got);
@@ -1692,7 +1693,7 @@ function cupCardHtml(cup, i) {
   const [kind, rulesName] = rulesIcon(cup.settings || {});
   const live = `${cup.live} match${cup.live === 1 ? "" : "es"} in play`;
   const watching = cup.watchers ? `${cup.watchers} spectating now` : "Tap to follow!";
-  return `<button type="button" class="watch-card cup-card boxed c-s4" data-tournament-open="${e(cup.id)}" style="--i:${i}" aria-label="${e(cup.name)}: ${live}"><span class="box-label">${label}</span><span class="box-label right">${e(agoShort(cup.started_at || cup.created_at))}</span><div class="cup-main"><span class="cup-trophy">${tilted("trophy.fill", 40, { key: `cup:${cup.id}`, sw: 4 })}</span><div class="cup-text"><b class="cup-name">${e(cup.name)}</b><span class="cup-live">${tilted("figure.golf", 24, { key: `cupg:${i}` })}<span>${live}</span></span></div></div><div class="wc-foot">${tilted("binoculars.fill", 24, { key: `cupb:${i}` })}<span>${watching}</span><span class="wc-kind" role="img" aria-label="${rulesName}" title="${rulesName}">${tilted(kind, 24, { key: `cupk:${i}` })}</span></div></button>`;
+  return `<button type="button" class="watch-card cup-card boxed c-s4" data-tournament-open="${e(cup.id)}" style="--i:${i}" aria-label="${e(cup.name)}: ${live}"><span class="box-label">${label}</span><span class="box-label right">${e(agoShort(cup.started_at || cup.created_at))}</span><div class="cup-main"><span class="cup-trophy">${tilted("trophy.fill", 40, { key: `cup:${cup.id}`, sw: 4 })}</span><div class="cup-text"><b class="cup-name">${e(cup.name)}</b>${cup.friends ? `<span class="cup-live cup-friends">${tilted("figure.2", 24, { key: `cupf:${i}` })}<span>${cup.friends} ${cup.friends === 1 ? "friend" : "friends"} entered</span></span>` : `<span class="cup-live">${tilted("figure.golf", 24, { key: `cupg:${i}` })}<span>${live}</span></span>`}</div></div><div class="wc-foot">${tilted("binoculars.fill", 24, { key: `cupb:${i}` })}<span>${watching}</span><span class="wc-kind" role="img" aria-label="${rulesName}" title="${rulesName}">${tilted(kind, 24, { key: `cupk:${i}` })}</span></div></button>`;
 }
 function watchCardHtml(game, i) {
   const series = game.best_of == null ? "" : game.series_mode === "points" ? "Total pts" : "Best of";
@@ -2151,7 +2152,7 @@ function personalRecordsHtml(P, mine = null, empty = "Play a few games and your 
   const yours = new Map(mine ? personalRecordItems(mine).map((item) => [item[2], item[3]]) : []);
   const best = (title, i) => {
     const own = yours.get(title);
-    return own ? `<div class="record-pr"><span class="record-pr-value">${stickerText(String(own[0]), { split: true, key: `prm:${i}` })}${stickerText(own[1], { cls: "pts", key: `prmu:${i}` })}</span><span class="record-pr-text">Your best</span></div>` : "";
+    return own ? `<div class="record-pr"><span class="record-pr-value"><span class="rv-num">${stickerText(String(own[0]), { split: true, key: `prm:${i}` })}</span>${stickerText(own[1], { cls: "pts", key: `prmu:${i}` })}</span><span class="record-pr-text">Your best</span></div>` : "";
   };
   // A best that is the all-time record (this player holds it on Aces) says so at its foot.
   const records = (typeof leaderboardCache !== "undefined" && leaderboardCache?.records) || homeData.boards?.records || {};
@@ -2161,7 +2162,7 @@ function personalRecordsHtml(P, mine = null, empty = "Play a few games and your 
     return !!(P.id && record && (record.id === P.id || record.ids?.includes(P.id)));
   };
   const allTime = (i) => `<p class="record-alltime">${icon("trophy.fill", 20, { idle: false })}<span>All time record!</span></p>`;
-  const slots = items.map(([color, symbol, title, [value, unit, at, note]], i) => `<div class="record-slot ${color}" style="--i:${i}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `pr:${i}` })}</span><h3>${title}</h3><div class="record-value">${stickerText(String(value), { split: true, key: `prv:${i}` })}${stickerText(unit, { cls: "pts", key: `pru:${i}` })}</div>${note ? `<p>${e(note)}</p>` : ""}${at ? `<p>${when(at)}</p>` : ""}${holds(title) ? allTime(i) : ""}</section>${best(title, i)}</div>`);
+  const slots = items.map(([color, symbol, title, [value, unit, at, note]], i) => `<div class="record-slot ${color}" style="--i:${i}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `pr:${i}` })}</span><h3>${title}</h3><div class="record-value"><span class="rv-num">${stickerText(String(value), { split: true, key: `prv:${i}` })}</span>${stickerText(unit, { cls: "pts", key: `pru:${i}` })}</div>${note ? `<p>${e(note)}</p>` : ""}${at ? `<p>${when(at)}</p>` : ""}${holds(title) ? allTime(i) : ""}</section>${best(title, i)}</div>`);
   // two columns of cards that each keep to their own height, as the Flags tab's do
   return hugColumns(slots);
 }
@@ -2192,8 +2193,8 @@ async function loadMyStats() {
 /* Achievements to earn. The server works out who has earned which (flags.py),
    from the games they have played; each unlocks a text emote or a theme. */
 const FLAGS = [
-  { name: "Wait for my cue...", reward: "word", word: "rushing", detail: "Finish a PvP game where your only moves are flips of your own cards. No swaps. No Go Fish draws." },
-  { name: "Here we go...", reward: "word", word: "dragging", detail: "Finish a PvP game where you draw 5 Go Fish cards in a row and discard them all. No swaps. No flips of your own cards." },
+  { name: "Wait for my cue...", reward: "word", word: "rushing", detail: "Win a PvP game where your only moves are flips of your own cards. No swaps. No Go Fish draws." },
+  { name: "Here we go...", reward: "word", word: "dragging", detail: "Win a PvP game where you draw 5 Go Fish cards in a row and discard them all. No swaps. No flips of your own cards." },
   { name: "Let's go gambling!", reward: "theme", theme: "poker", detail: "Activate Angel Numbers' 777s in a game." },
   { name: "Adult swim", reward: "theme", theme: "pool", detail: "Play 50 solo games in a row against Golfbot." },
   { name: "Black out!", reward: "theme", theme: "focus", detail: "Activate Suited Rows and All in Black in the same hand 10 times." },
@@ -2240,10 +2241,51 @@ function announceFlag(name) {
   flagNews.push(name);
   if (flagNews.length === 1) showFlagNews();
 }
+/*
+ * A record changing hands, told the same way, in the records' gold: one you have just
+ * taken ("Record broken!"), or one someone has just taken from you ("Record lost").
+ * (A push notification says so too: see check_records in server.py.) Which records each
+ * player held is kept on this device, from the leaderboards each time they are fetched;
+ * a device that has never looked only takes them in.
+ */
+const RECORD_NEWS = {
+  highest_mmr: ["Highest MMR", "crown.fill"], pvp_streak: ["Best PvP win streak", "flame.fill"],
+  comeback: ["Biggest comeback", "arrow.up.right"], games_today: ["Most games today", "clock.arrow.circlepath"],
+  modifiers_in_game: ["Most rules in play on one hand", "sparkles"], yapper: ["Biggest yapper", "text.bubble.fill"],
+  bogey: ["Bogey monster", "tortoise.fill"], lowest: ["Lowest score", "bird.fill"], most_time: ["Most hours played", "hourglass"],
+  luck: ["Luck of the draw", "dice.fill"], gospel: ["Spreading the gospel", "link"], upset: ["David vs. Goliath", "arrow.up.right.circle.fill"],
+};
+function checkRecords(records) {
+  if (!records || typeof myPlayerId !== "function") return;
+  const me = myPlayerId();
+  const holders = {};
+  for (const key of Object.keys(RECORD_NEWS)) if (records[key]?.id) holders[key] = { id: records[key].id, label: records[key].label || "" };
+  let before = null;
+  try {
+    before = JSON.parse(localStorage.getItem("golf-record-holders") || "null");
+  } catch {}
+  try {
+    localStorage.setItem("golf-record-holders", JSON.stringify(holders));
+  } catch {}
+  if (!before) return;
+  for (const [key, now] of Object.entries(holders)) {
+    const was = before[key]?.id;
+    if (now.id === me && was !== me) announceRecord(key, true);
+    else if (was === me && now.id !== me) announceRecord(key, false, now.label);
+  }
+}
+function announceRecord(key, mine, taker = "") {
+  const id = `record:${key}:${mine ? "won" : "lost"}`;
+  if (flagNews.some((item) => item?.id === id)) return;
+  flagNews.push({ id, key, mine, taker });
+  if (flagNews.length === 1) showFlagNews();
+}
 function showFlagNews() {
   const banner = document.getElementById("flag-banner");
-  const flag = FLAGS.find((one) => one.name === flagNews[0]);
+  const item = flagNews[0];
   if (!banner) return;
+  if (item && typeof item === "object") return showRecordNews(banner, item);
+  const flag = FLAGS.find((one) => one.name === item);
   if (!flag) {
     banner.hidden = true;
     banner.innerHTML = "";
@@ -2253,6 +2295,17 @@ function showFlagNews() {
   banner.innerHTML = `<div class="queue-pill offer open flag-pill" role="dialog" aria-label="Flag complete: ${e(flag.name)}"><div class="queue-offer-row"><span class="queue-text"><b>Flag Complete!</b><small><span class="queue-who">${e(flag.name)}</span><br>${FLAG_REWARDS[flag.reward]}</small></span><span class="flag-pill-art">${flagArtHtml(flag, true)}</span></div><button type="button" class="btn c-p4 queue-accept" data-flag-dismiss>${sparkle(false)}<span>${padTag("y")}Dismiss</span>${sparkle(true)}</button></div>`;
   banner.hidden = false;
   haptic("win");
+  if (reducedMotion.matches || !banner.animate) return;
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  banner.animate([{ transform: "translateY(calc(-100% - 2rem))" }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(0.3, 0.8, 0.25, 1.1)" });
+}
+function showRecordNews(banner, { key, mine, taker }) {
+  const [title, symbol] = RECORD_NEWS[key];
+  const sparkle = (mirror) => icon("sparkles", 24, { idle: false, sw: 3.4, cls: mirror ? "mirrored" : "" });
+  const line = mine ? "The record is yours!" : `Taken by ${e(taker || "someone")}`;
+  banner.innerHTML = `<div class="queue-pill offer open flag-pill record-pill${mine ? "" : " lost"}" role="dialog" aria-label="${mine ? "Record broken" : "Record lost"}: ${e(title)}"><div class="queue-offer-row"><span class="queue-text"><b>${mine ? "Record broken!" : "Record lost"}</b><small><span class="queue-who">${e(title)}</span><br>${line}</small></span><span class="flag-pill-art">${tilted(symbol, 44, { key: `record-news:${key}` })}</span></div><button type="button" class="btn c-p3 queue-accept" data-flag-dismiss>${sparkle(false)}<span>${padTag("y")}Dismiss</span>${sparkle(true)}</button></div>`;
+  banner.hidden = false;
+  haptic(mine ? "win" : "lose");
   if (reducedMotion.matches || !banner.animate) return;
   banner.getAnimations().forEach((animation) => animation.cancel());
   banner.animate([{ transform: "translateY(calc(-100% - 2rem))" }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(0.3, 0.8, 0.25, 1.1)" });
@@ -2460,7 +2513,7 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
     return `<div class="profile-body">${head}${extra}<div class="list leader-list profile-rows">${row("c-p1", "puzzlepiece.fill", "Puzzle Attempts", statNumber(puzzle.attempts), tries(puzzle.attempts))}${row("c-p3", "calendar", "Attempts Today", statNumber(puzzle.today), tries(puzzle.today))}${row("c-p2", "person.2.fill", "Players Faced", statNumber(puzzle.players), puzzle.players === 1 ? "player" : "players")}</div></div>`;
   const rows = bot
     ? vs
-      ? `<div class="list leader-list profile-rows">${row("c-p3", "person.2.fill", "Record vs People", `${statNumber(vs.wins)}–${statNumber(vs.draws)}–${statNumber(vs.losses)}`, "")}${row("c-s4", "trophy.fill", "Win Rate", statPercent(vs.games ? vs.wins / vs.games : 0), "")}${row("c-p2", "flame.fill", "Best Win Streak", statNumber(profile.personal?.pvp_streak?.streak || 0), wins(profile.personal?.pvp_streak?.streak || 0))}${row("c-p4", "hourglass", "Time Played", botTime[0], botTime[1])}</div>`
+      ? `<div class="list leader-list profile-rows">${row("c-p3", "person.2.fill", "Record vs People", `${statNumber(vs.wins)}–${statNumber(vs.losses)}–${statNumber(vs.draws)}`, "")}${row("c-s4", "trophy.fill", "Win Rate", statPercent(vs.games ? vs.wins / vs.games : 0), "")}${row("c-p2", "flame.fill", "Best Win Streak", statNumber(profile.personal?.pvp_streak?.streak || 0), wins(profile.personal?.pvp_streak?.streak || 0))}${row("c-p4", "hourglass", "Time Played", botTime[0], botTime[1])}</div>`
       : ""
     : profileNumbersHtml(profile);
   // side by side with you

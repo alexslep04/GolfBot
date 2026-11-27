@@ -21,19 +21,24 @@ def game(moves, ended_at=1, **extra):
 
 class FlagTests(unittest.TestCase):
     def test_only_flipping_your_own_cards_earns_the_cue(self):
-        earned = flags.earned([match([game(['fefefefe', 'dxdx'], 7)])], 'account:me')
+        earned = flags.earned([match([game(['fefefefe', 'dxdx'], 7, winner=0)])], 'account:me')
         self.assertEqual(earned, {"Wait for my cue...": 7})
         # (a single draw, swap or discard and it is not that game)
         for moves in ('fefedx', 'fs', 'fefe' 'ds', ''):
-            self.assertNotIn("Wait for my cue...", flags.earned([match([game([moves, ''])])], 'account:me'))
+            self.assertNotIn("Wait for my cue...", flags.earned([match([game([moves, ''], winner=0)])], 'account:me'))
+        # (and it has to be won: lost or drawn, it does not count)
+        for winner in (1, None):
+            self.assertNotIn("Wait for my cue...", flags.earned([match([game(['fefefefe', 'dxdx'], winner=winner)])], 'account:me'))
 
     def test_five_draws_thrown_away_in_a_row_and_nothing_else_earns_the_tempo(self):
         tempo = "Here we go..."
-        self.assertIn(tempo, flags.earned([match([game(['dx' * 5, 'fe'])])], 'account:me'))
+        self.assertIn(tempo, flags.earned([match([game(['dx' * 5, 'fe'], winner=0)])], 'account:me'))
         # (someone's guess along the way is not a move of your hand)
-        self.assertIn(tempo, flags.earned([match([game(['dxdxgdxdxdx', 'fe'])])], 'account:me'))
+        self.assertIn(tempo, flags.earned([match([game(['dxdxgdxdxdx', 'fe'], winner=0)])], 'account:me'))
         for moves in ('dx' * 4, 'dx' * 5 + 'ds', 'fe' + 'dx' * 5, 'dxdxdxdxds' + 'dx'):
-            self.assertNotIn(tempo, flags.earned([match([game([moves, 'fe'])])], 'account:me'))
+            self.assertNotIn(tempo, flags.earned([match([game([moves, 'fe'], winner=0)])], 'account:me'))
+        # (and it has to be won)
+        self.assertNotIn(tempo, flags.earned([match([game(['dx' * 5, 'fe'], winner=1)])], 'account:me'))
 
     def test_the_move_flags_need_a_game_against_people(self):
         moves = [game(['fefefe', 'fefefe'])]
@@ -151,13 +156,13 @@ class FlagTests(unittest.TestCase):
         self.assertEqual(flags.standing([match([timed(0, 99999)], local=True)], 'account:me')["Good Sport"], (None, 0))
 
     def test_how_far_along_each_flag_is(self):
-        standing = flags.standing([match([game(['dxdxdxfe', 'fe'], 1), game(['dxdxdx', 'fe'], 2)])], 'account:me')
+        standing = flags.standing([match([game(['dxdxdxfe', 'fe'], 1, winner=0), game(['dxdxdx', 'fe'], 2, winner=0)])], 'account:me')
         self.assertEqual(standing["Here we go..."], (None, 0.6))  # three in a row (the game with a flip is not counted)
         self.assertEqual(standing["Wait for my cue..."], (None, 0))
         self.assertEqual(standing["Adult swim"], (None, 0))
         solo = match([{'ended_at': i} for i in range(20)], (ME, BOT), solo=True)
         self.assertEqual(flags.standing([solo], 'account:me')["Adult swim"], (None, 0.4))
-        self.assertEqual(flags.standing([match([game(['fefe', ''], 4)])], 'account:me')["Wait for my cue..."], (4, 1))
+        self.assertEqual(flags.standing([match([game(['fefe', ''], 4, winner=0)])], 'account:me')["Wait for my cue..."], (4, 1))
         self.assertEqual(set(flags.standing([], None)), set(flags.FLAGS))
 
     def test_what_each_flag_unlocks(self):
@@ -181,6 +186,22 @@ class FinalHandTests(unittest.TestCase):
         quads = [Slot(Card(rank, suit), True) for rank, suit in zip((7, 7, 7, 7, 2, 3), "SHDCSH")]
         self.assertEqual(scoring.final_hand_keys(quads, Rules(four_kind=True)), {'four_kind:final'})
         self.assertEqual(scoring.final_hand_keys(quads, Rules()), set())
+
+
+class RecordPushTests(unittest.TestCase):
+    def test_a_record_changing_hands_tells_both_players_by_push(self):
+        import asyncio
+        from unittest import mock
+        import server
+        app = server.create_app(Store())
+        held = {'lowest': {'id': 'account:b', 'label': 'Bea'}, 'comeback': {'id': 'account:a', 'label': 'Al'},
+                'most_modifier': {'name': 'Hold em'}}
+        with mock.patch.object(server, 'build_records', side_effect=lambda *args: held):
+            # (the first look only takes the holders in)
+            self.assertEqual(asyncio.run(app.state.check_records()), [])
+            held = {**held, 'lowest': {'id': 'account:a', 'label': 'Al'}}
+            told = asyncio.run(app.state.check_records())
+        self.assertEqual(told, [('account:a', True, 'Lowest score'), ('account:b', False, 'Lowest score')])
 
 
 class ShutdownTests(unittest.TestCase):

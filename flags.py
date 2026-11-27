@@ -86,6 +86,11 @@ def seat_activated(game, seat):
     return set(parts[seat]) if seat < len(parts) else set()
 
 
+def won(game, seat):
+    """Whether this seat won the game (a draw is not a win)."""
+    return game.get("winner") == seat
+
+
 def seat_moves(game, seat):
     moves = game.get("moves") or []
     return moves[seat] if seat < len(moves) else ""
@@ -100,11 +105,11 @@ def seat_moves(game, seat):
 # which), and for a counted flag, how many games it needs)
 FLAGS = {
     "Wait for my cue...": (
-        "Finish a PvP game where your only moves are flips of your own cards. No swaps. No Go Fish draws.",
-        "pvp", lambda game, seat: only_hand_flips(seat_moves(game, seat)), ("emote", "rushing")),
+        "Win a PvP game where your only moves are flips of your own cards. No swaps. No Go Fish draws.",
+        "pvp", lambda game, seat: won(game, seat) and only_hand_flips(seat_moves(game, seat)), ("emote", "rushing")),
     "Here we go...": (
-        "Finish a PvP game where you draw 5 Go Fish cards in a row and discard them all. No swaps. No flips of your own cards.",
-        "pvp", lambda game, seat: five_draws_discarded(seat_moves(game, seat)), ("emote", "dragging")),
+        "Win a PvP game where you draw 5 Go Fish cards in a row and discard them all. No swaps. No flips of your own cards.",
+        "pvp", lambda game, seat: five_draws_discarded(seat_moves(game, seat)) if won(game, seat) else 0, ("emote", "dragging")),
     "Let's go gambling!": (
         "Activate Angel Numbers' 777s in a game.",
         "any", lambda game, seat: "angel_numbers:777" in seat_rules(game, seat),

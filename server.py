@@ -1412,15 +1412,17 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             monitor = asyncio.create_task(monitor_tables())
             demos = asyncio.create_task(keep_demo_tables()) if debug_mode() else None
             puzzles = asyncio.create_task(keep_puzzles_made())
+            records = asyncio.create_task(watch_records())
             try:
                 yield
             finally:
                 log.info("Golf stopping: %d tables open, %d in play between people", len(store.rooms), games_in_play())
                 monitor.cancel()
                 puzzles.cancel()
+                records.cancel()
                 if demos:
                     demos.cancel()
-                await asyncio.gather(monitor, puzzles, *([demos] if demos else []), return_exceptions=True)
+                await asyncio.gather(monitor, puzzles, records, *([demos] if demos else []), return_exceptions=True)
                 store.puzzle_maker.close()
                 for room in store.rooms.values():
                     room.save_practice()
@@ -1656,6 +1658,67 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                        'body': f'{joiner.username} joined the Ranked queue. Join now to play them.',
                        'tag': 'golf-queue', 'url': ''}
             loop.run_in_executor(None, send_push, token, subscription, payload)
+
+    # the records held by one player, as a push notification names them
+    RECORD_PUSH = {
+        'highest_mmr': 'Highest MMR', 'pvp_streak': 'Best PvP win streak', 'comeback': 'Biggest comeback',
+        'games_today': 'Most games today', 'modifiers_in_game': 'Most rules in play on one hand',
+        'yapper': 'Biggest yapper', 'bogey': 'Bogey monster', 'lowest': 'Lowest score',
+        'most_time': 'Most hours played', 'luck': 'Luck of the draw', 'gospel': 'Spreading the gospel',
+        'upset': 'David vs. Goliath'}
+
+    def record_holders():
+        """{record: (holder's id, name)} for the records one player holds, as they stand."""
+        results = store.history.stats_results()
+        ratings = store.progression.leaderboard(PATCH_VERSION, combine_guests=False)['pvp']
+        records = build_records(results, ratings, record_extras())
+        return {key: (record['id'], record.get('label') or '') for key, record in records.items()
+                if key in RECORD_PUSH and isinstance(record, dict) and record.get('id')}
+
+    def notify_record(player, title, won, taker=''):
+        """A push notification to a player whose record has just changed hands."""
+        if not str(player).startswith(('account:', 'browser:')):
+            return
+        payload = ({'title': 'Record broken!', 'body': f'You now hold {title}.'} if won else
+                   {'title': 'Record lost', 'body': f'{taker or "Someone"} took your {title} record.'})
+        payload.update(tag=f'golf-record-{title}', url='aces')
+        loop = asyncio.get_running_loop()
+        for token, subscription in list(store.push_subscriptions.items()):
+            other = store.sessions.get(token)
+            if other is None or subscription.get('records') is False or puzzle_player(other) != player:
+                continue
+            loop.run_in_executor(None, send_push, token, subscription, payload)
+
+    async def check_records():
+        """Whether any record changed hands since the last look: the player who took it,
+        and the one it was taken from, are each sent a push notification. (The first look
+        only takes the holders in.) Returns who was told what, as [(player, won, record)]."""
+        now = await asyncio.to_thread(record_holders)
+        before, store.record_holders = getattr(store, 'record_holders', None), now
+        told = []
+        if before is not None:
+            for key, (holder, name) in now.items():
+                was = before.get(key, (None, ''))[0]
+                if holder != was:
+                    told.append((holder, True, RECORD_PUSH[key]))
+                    notify_record(holder, RECORD_PUSH[key], True)
+                    if was:
+                        told.append((was, False, RECORD_PUSH[key]))
+                        notify_record(was, RECORD_PUSH[key], False, name)
+        return told
+
+    async def watch_records():
+        """After each saved match, see whether any record changed hands (check_records)."""
+        seen = None
+        while True:
+            await asyncio.sleep(5)
+            if store.history.saves == seen:
+                continue
+            seen = store.history.saves
+            try:
+                await check_records()
+            except Exception:
+                log.exception("Could not work out the records' holders")
 
     def kick_bot(room):
         if room.ai_match:
@@ -3660,6 +3723,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         """Tournaments to join or follow: open ones and running ones. (Finished ones are in Match history.)"""
         session = session_for(request)
         rows = []
+        friends = friend_ids(session)
         for tournament in store.tournaments.values():
             if tournament.status not in ('open', 'live'):
                 continue
@@ -3671,7 +3735,10 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                          'live': len(tournament.live()), 'settings': tournament.settings,
                          # (the Watch tab's card: when it began, and how many are watching its matches)
                          'started_at': tournament.started_at, 'watchers': tournament_watchers(tournament),
-                         'mine': tournament.by_token(session.token) is not None, 'created_at': tournament.created_at})
+                         'mine': tournament.by_token(session.token) is not None, 'created_at': tournament.created_at,
+                         # (how many of your friends are playing in it)
+                         'friends': sum(1 for entrant in tournament.entrants.values()
+                                        if (entrant.profile or {}).get('id') in friends)})
         return sorted(rows, key=lambda row: (('live', 'open').index(row['status']), -row['created_at']))
 
     def tournament_watchers(tournament):
@@ -4199,6 +4266,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
     host = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     host.state.store = store
     host.state.advance_tournaments = advance_tournaments  # the once-a-second pass, for tests
+    host.state.check_records = check_records  # (a look at the records' holders, for tests)
 
     @host.api_route('/Golfgame', methods=['GET', 'POST', 'DELETE', 'PATCH', 'PUT', 'OPTIONS', 'HEAD'])
     @host.api_route('/Golfgame/{rest:path}', methods=['GET', 'POST', 'DELETE', 'PATCH', 'PUT', 'OPTIONS', 'HEAD'])

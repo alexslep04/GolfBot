@@ -3080,12 +3080,12 @@ function rulesSheet(player) {
     ${state.names.length > 2 ? `<div class="meta" style="margin-top:1rem">${others.map((p) => `<button type="button" class="btn small ${colorFor(p)}" data-sheet-player="${p}">${e(state.names[p])}</button>`).join("")}</div>` : ""}
     ${editable ? `<p class="hint dark" style="margin-top:.8rem">You can change rules until you flip your first card.</p>` : ""}
     ${editable ? ruleSections(ordered, player) : `<div>${ordered.map((rule) => ruleHelpCard(rule, {player, on:!!state.rules[rule.key]})).join("") || "<p>Base scoring only — no optional rules.</p>"}</div>`}
-    <h3>Match</h3>
+    ${state.puzzle ? "" : `<h3>Match</h3>
     <div class="tally">
       <div><span>Game ${state.round} · ${e(matchLength(state))}</span></div>
       ${state.names.map((name, p) => `<div><span>${e(name)}</span><b>${state.series_mode === "points" ? state.points[p] + " pts" : state.wins[p] + (state.wins[p] === 1 ? " win" : " wins")}</b></div>`).join("")}
       ${state.history.map((game) => `<div><span>Game ${game.round}: ${game.winner === null ? "draw" : e(state.names[game.winner])}</span><b>${game.scores.join(" · ")}</b></div>`).join("")}
-    </div>
+    </div>`}
     ${state.names.length > 2 ? `<h3>Turn order · ${g.deck_count} decks</h3><p>${g.turn_order.map((p) => (p === g.current ? `<u>${e(state.names[p])}</u>` : e(state.names[p]))).join(" → ")}</p>` : ""}
     <p class="hint dark" style="margin-top:1.2rem">${e(g.last_move)}<br>Face-down cards are not counted until the game ends.</p>
   </section>`;
