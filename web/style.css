@@ -3349,7 +3349,8 @@ button.tag-rules:active > .tag-in {
   /* (room for a face's tilt and its controller ring, taken back by the margin) */
   padding: 0.3rem;
   margin: -0.3rem;
-  mask-image: linear-gradient(to right, #000 calc(100% - 2.6rem), transparent);
+  /* (a short fade at its very edge, hinting at more) */
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.2rem), transparent);
 }
 .emote-faces.at-end {
   mask-image: none;
@@ -3383,7 +3384,7 @@ button.tag-rules:active > .tag-in {
   padding: 0.3rem 0.4rem 0.6rem 0.2rem;
   margin: -0.3rem -0.4rem -0.6rem -0.2rem;
   /* the last saying fades at the edge, so it reads as more to scroll to */
-  mask-image: linear-gradient(to right, #000 calc(100% - 2.4rem), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.2rem), transparent);
 }
 .emote-words.at-end {
   mask-image: none;
@@ -6479,7 +6480,11 @@ button:disabled > .haptic-switch {
 .tab-btn .tab-label {
   position: absolute;
   left: 50%;
-  bottom: 0.4rem;
+  /* (room round the word inside its own box, taken back off where it sits: Safari draws
+     a fading, moving word on a layer only as big as its box, and cut off what hangs
+     past it, the tail of a "y", a "g" or a "p") */
+  bottom: calc(0.4rem - 0.4rem);
+  padding: 0.4rem 0.4rem;
   transform: translate(-50%, -0.4rem);
   opacity: 0;
   color: var(--ct);
@@ -7601,6 +7606,11 @@ button.pb-row {
 /* (its cells sit a little closer, so two players and the winner fit a phone's width) */
 .match-table {
   font-size: 1.3rem;
+}
+/* (its row lines in the lighter rule Your Matches uses between matches, not the card's
+   full border color) */
+.match-table :is(th, td) {
+  border-bottom-color: color-mix(in srgb, var(--c) 45%, transparent);
 }
 .match-table :is(th, td) {
   padding-inline: 0.3rem;
@@ -9103,4 +9113,22 @@ button.deck-card:not(.selected):active {
 }
 :is(.record-value, .record-pr-value) .pts {
   white-space: nowrap;
+}
+
+/* Under the results the menu is as wide as the results: the faces fill all of it up to
+   the bell, rather than stopping at four and a half */
+.summary-emotes .emote-faces {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+/* A table in a sheet scrolls sideways right to the sheet's edges: the sheet's side
+   padding moves inside the table's scroll area, so the first column is not cut off
+   short of the edge as the table is scrolled */
+.sheet .table-wrap {
+  margin-inline: -1.6rem;
+  padding-inline: 1.6rem;
+}
+.sheet .table-wrap::-webkit-scrollbar-track {
+  margin-inline: 1.6rem;
 }
