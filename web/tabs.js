@@ -503,7 +503,6 @@ function paneHtml(tab) {
 function afterPane(tab) {
   if (tab === "you") {
     centerAvatar(false);
-    loadPreviousNames();
   }
   mountGoogleSignIn(); // (over any Sign in button on it)
   if (tab === "flags" || tab === "you") loadMyFlags();
@@ -735,7 +734,6 @@ function redrawPane(tab) {
   if (tab === "you") {
     // (patching the page clears where the avatar wheel had put each avatar)
     layoutWheel(root.querySelector(".avatar-strip"), true);
-    loadPreviousNames();
     paintDeckPick(); // (and what was picked up in Your Deck)
   }
   mountGoogleSignIn();
@@ -1051,7 +1049,6 @@ function adoptHomePage(p) {
     if (page !== "home") return;
     document.title = HOME_TABS[tabIndex(homeTab)].title === "Golf" ? "Golf" : `${HOME_TABS[tabIndex(homeTab)].title} · Golf`;
     history.replaceState({}, "", appPath(tabPath(homeTab)));
-    if (homeTab === "you") loadPreviousNames();
     mountGoogleSignIn();
     if (homeTab === "play") watchMatchesEnd();
     loadTab(homeTab, true);
@@ -2109,7 +2106,6 @@ function youProfileHtml() {
     <form id="display-name-form" class="stack profile-form you-profile">
       ${avatarPicker()}
       ${field("Your Display Name", `<input id="account-display-name" name="display_name" data-max-chars="12" value="${e(session.username)}" autocomplete="nickname" aria-label="Display name" required>`, "character.cursor.ibeam", "c-p1")}
-      <div data-previous-names></div>
       <p class="hint profile-status" data-profile-status aria-live="polite"></p>
     </form>
     ${account}

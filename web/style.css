@@ -7138,9 +7138,7 @@ button:disabled > .haptic-switch {
   font-size: 1.3rem;
   pointer-events: none;
 }
-.you-profile [data-previous-names]:empty {
-  display: none;
-}
+
 /* A Sign in button with Google's own laid invisibly over it (app.js: signInButton):
    it looks like ours and presses like Google's, so a tap goes straight to Google. */
 .signin-wrap {

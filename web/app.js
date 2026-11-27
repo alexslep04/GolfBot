@@ -3020,23 +3020,6 @@ document.addEventListener("submit", async (event) => {
     toast(error.message);
   }
 });
-/** One plain line of the names used before, most recent first; nothing when there are none. */
-const previousNamesHtml = (names) =>
-  names.length ? `<p class="hint dark">Previously: ${names.map(e).join(", ")}</p>` : "";
-/** Under the display name: the names this account has gone by before. */
-async function loadPreviousNames() {
-  const holder = () => root.querySelector("[data-previous-names]");
-  if (!session.account || !holder()) return;
-  try {
-    const { names } = await api("/api/account/display-names");
-    const target = holder();
-    if (!target) return;
-    target.innerHTML = previousNamesHtml(names);
-  } catch {
-    // the list is a nicety: the form works without it
-  }
-}
-
 /** One saved match: its games and who won each, as Match history lists it. */
 /** A player in a saved match by name, their avatar before it in their seat's color (and the star, if it is you). */
 /** A player in a saved match: their avatar and name, a button to their profile (where they have one to open). */
@@ -3990,7 +3973,6 @@ async function saveProfile() {
       return toast(error.message);
     }
   } else pollPresence(); // the server learns the new name with the next presence update
-  if (before.username !== value) loadPreviousNames(); // the name just replaced joins the list
   const status = root.querySelector("[data-profile-status]");
   if (status) {
     status.textContent = "Saved";

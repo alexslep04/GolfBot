@@ -399,12 +399,6 @@ test('a profile shows who the player is, their numbers, how they compare with yo
   // friends already: no button to press
   assert.match(h.run(`profileHtml(${JSON.stringify({...profile,friend:'friend'})},null)`),/disabled>[^]*?Friends/);
 });
-test('previous display names are one plain line of text, with no buttons',()=>{
-  const h=harness();
-  assert.equal(h.run('previousNamesHtml(["Ace","B & C","Dee"])'),'<p class="hint dark">Previously: Ace, B &amp; C, Dee</p>');
-  assert.equal(h.run('previousNamesHtml([])'),'');
-});
-
 test('void action posts corrected lobby endpoint and reply payload',async()=>{
   const h=harness();h.run('state={id:"room"};session.room_id="room";accept=next=>{};');
   const click=h.listeners.click.at(-1);
