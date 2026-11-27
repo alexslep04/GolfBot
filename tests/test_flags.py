@@ -142,6 +142,14 @@ class FlagTests(unittest.TestCase):
         others = [won(0, 0), won(1, 2, 1), won(2), won(3, None)]
         self.assertEqual(flags.standing([match(others)], 'account:me')["Under Pressure"], (None, 1 / 3))
 
+    def test_five_minutes_of_play_earn_good_sport(self):
+        timed = lambda start, end: {'started_at': start, 'ended_at': end}
+        # two minutes, then four: the five come in the second game
+        self.assertEqual(flags.earned([match([timed(0, 120), timed(200, 440)], (ME, BOT), solo=True)], 'account:me')["Good Sport"], 440)
+        self.assertEqual(flags.standing([match([timed(0, 150)])], 'account:me')["Good Sport"], (None, 0.5))
+        # (a game left open for hours counts for half an hour at most; pass & play not at all)
+        self.assertEqual(flags.standing([match([timed(0, 99999)], local=True)], 'account:me')["Good Sport"], (None, 0))
+
     def test_how_far_along_each_flag_is(self):
         standing = flags.standing([match([game(['dxdxdxfe', 'fe'], 1), game(['dxdxdx', 'fe'], 2)])], 'account:me')
         self.assertEqual(standing["Here we go..."], (None, 0.6))  # three in a row (the game with a flip is not counted)
@@ -154,7 +162,7 @@ class FlagTests(unittest.TestCase):
 
     def test_what_each_flag_unlocks(self):
         names = list(flags.FLAGS)
-        self.assertEqual(flags.unlocked_emotes(names), ['crocscreech', 'dragging', 'giveheart', 'isit', 'pogcat', 'poop', 'ranked', 'rushing', 'save'])
+        self.assertEqual(flags.unlocked_emotes(names), ['crocscreech', 'dragging', 'gg', 'giveheart', 'isit', 'pogcat', 'poop', 'ranked', 'rushing', 'save'])
         self.assertEqual(flags.unlocked(names, 'theme'), ['focus', 'night', 'poker', 'pool'])
         self.assertEqual(flags.FLAG_THEMES, {'poker': "Let's go gambling!", 'pool': 'Adult swim', 'focus': 'Black out!',
                                              'night': 'Just one more game'})

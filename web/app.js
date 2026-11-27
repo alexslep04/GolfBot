@@ -80,9 +80,10 @@ const emoteNames = {
   rushing: "Rushing.",
   dragging: "Dragging.",
   isit: "Is it in you?",
+  gg: "Good game!",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo", "ranked", "rushing", "dragging", "isit"];
+const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo", "ranked", "rushing", "dragging", "isit", "gg"];
 // faces kept out of sight for now: not offered on the bar or in Settings (one sent
 // from elsewhere still shows, by its name above)
 // (Heart, Pog cat, Croc screech and Poop are not hidden: they are flags' to unlock)
@@ -1328,7 +1329,7 @@ function togglePref(key) {
 function settingsBodyHtml({ resume = true } = {}) {
   return `<div class="menu-list">
       ${resume && session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
-      <button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} Rules</button>
+      <button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p2" data-nav="notifications">${tilted("bell.fill", 26)} Notifications</button>
       <button type="button" class="btn c-p4" data-nav="patches">${tilted("newspaper.fill", 26)} Patch notes</button>

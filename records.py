@@ -139,6 +139,19 @@ def pvp_streaks(results):
     return best
 
 
+def current_pvp_streak(results, player):
+    """The 1v1 games against another person `player` has won in a row up to now (0 after a
+    draw or a loss)."""
+    games = sorted(((game.get('ended_at') or 0, game, seats) for match, game, seats in _played(results)
+                    if not match.get('solo') and len(seats) == 2), key=lambda item: item[0])
+    run = 0
+    for _, game, seats in games:
+        for seat, who, _ in seats:
+            if who == player:
+                run = run + 1 if game.get('winner') == seat else 0
+    return run
+
+
 def best_pvp_streak(results):
     """The most 1v1 games against another person anyone has won in a row; the first to reach it holds it."""
     return max(pvp_streaks(results).values(), key=lambda entry: (entry['streak'], -entry['at']), default=None)
@@ -421,6 +434,7 @@ def player_card(results, ratings, player, extras=None):
     return {'id': player, 'mmr': rating['mmr'] if rating else None,
             'provisional': bool(rating and rating.get('provisional')),
             'pvp_streak': (pvp_streaks(results).get(player) or {}).get('streak', 0),
+            'current_pvp_streak': current_pvp_streak(results, player),
             'seconds_played': round((time_played(results).get(player) or {}).get('seconds', 0)),
             'records': held_records(records, player)}
 

@@ -6763,6 +6763,18 @@ button:disabled > .haptic-switch {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
+  /* (a button to their profile, looking just like the name it is) */
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.25s var(--spring);
+}
+.friend-name:active {
+  transform: scale(0.96);
 }
 .friend-name b {
   overflow: hidden;
@@ -8991,4 +9003,13 @@ button.deck-card:not(.selected):active {
   margin-left: 0.3rem;
   font-size: 1.3rem;
   --sw: 0.4rem;
+}
+
+/* a profile's streak: its best, and beside it the run on now, a little quieter, with a
+   rule between them */
+.streak-row .rate + .rate.streak-now {
+  margin-left: 0.4rem;
+  padding-left: 0.9rem;
+  border-left: 0.25rem solid color-mix(in srgb, var(--c) 45%, transparent);
+  opacity: 0.75;
 }

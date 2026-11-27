@@ -1038,14 +1038,14 @@ test('the emote bar shows the emotes chosen in Settings > Emotes, in their order
 
 test('an emote added to the game later starts off the bar, for a new player and for one with a saved bar',()=>{
   const fresh=harness();fresh.run('myFlags.emotes=["save","ranked"]');
-  fresh.run('TEXT_EMOTES.push("gg");emoteNames.gg="Good game!";FACE_EMOTES.push("smug");emoteNames.smug="Smug"');
+  fresh.run('TEXT_EMOTES.push("later");emoteNames.later="Later!";FACE_EMOTES.push("smug");emoteNames.smug="Smug"');
   assert.equal(fresh.run('emoteBar("words").join()'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
   assert.equal(fresh.run('emoteBar("faces").join()'),'unamused,shocked,laughing,cackling,nervous');
   const edit=fresh.run('emoteEditHtml()');
-  assert.match(edit,/aria-label="Add Good game! to your bar"/);assert.match(edit,/aria-label="Add Smug to your bar"/);
-  fresh.run('state={status:"playing"}');assert.doesNotMatch(fresh.run('emoteButtons()'),/data-emote="(gg|smug)"/);
+  assert.match(edit,/aria-label="Add Later! to your bar"/);assert.match(edit,/aria-label="Add Smug to your bar"/);
+  fresh.run('state={status:"playing"}');assert.doesNotMatch(fresh.run('emoteButtons()'),/data-emote="(later|smug)"/);
   fresh.run('prefs.emoteWords="wow,luck"');assert.equal(fresh.run('emoteBar("words").join()'),'wow,luck');
-  fresh.run('pickEmote("words","gg")');assert.equal(fresh.run('emoteBar("words").join()'),'wow,luck,gg');
+  fresh.run('pickEmote("words","later")');assert.equal(fresh.run('emoteBar("words").join()'),'wow,luck,later');
   // the bar that started with five sayings (for a short while) was never a choice: it becomes every saying
   assert.equal(fresh.run('unchosenEmotes({emoteWords:"luck,thanks,oops,wow,save",theme:"night"}).emoteWords'),undefined);
   assert.equal(fresh.run('unchosenEmotes({emoteWords:"luck,thanks,oops,wow"}).emoteWords'),'luck,thanks,oops,wow');

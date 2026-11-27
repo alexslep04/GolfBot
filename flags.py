@@ -11,6 +11,8 @@ How near a player is to each flag is worked out the same way, as a fraction.
 """
 import re
 
+GAME_TIME_CAP = 30 * 60  # (one game counts for at most this long: as records.py times them)
+
 MOVE_CODES = {"flip": "f", "draw": "d", "discard": "x", "swap": "s", "end_turn": "e", "guess": "g", "arrange": "a"}
 
 
@@ -38,15 +40,30 @@ SOLO_RUN = 50  # Adult swim: solo games in a row
 
 
 def solo_run(games):
-    """`games`: a player's finished games, oldest first, as (ended at, against Golfbot?).
+    """`games`: a player's finished games, oldest first, as (ended at, against Golfbot?,
+    seconds it took).
     When they had played SOLO_RUN games against Golfbot back to back (none against
     people in between), or None; and how far along the run they are on now is."""
     run = 0
-    for ended_at, solo in games:
+    for ended_at, solo, *_ in games:
         run = run + 1 if solo else 0
         if run >= SOLO_RUN:
             return ended_at, 1
     return None, run / SOLO_RUN
+
+
+GOOD_SPORT_SECONDS = 5 * 60  # Good Sport: time spent playing
+
+
+def time_spent(games):
+    """When a player's games, oldest first (see solo_run), had added up to
+    GOOD_SPORT_SECONDS of play, or None; and how far along they are."""
+    total = 0
+    for ended_at, _, seconds in games:
+        total += seconds
+        if total >= GOOD_SPORT_SECONDS:
+            return ended_at, 1
+    return None, total / GOOD_SPORT_SECONDS
 
 
 BLACK_HANDS = 10  # Black out!: hands with black suited rows, all in black
@@ -129,6 +146,9 @@ FLAGS["Take 5!"] = (
     f"Finish a game with {TAKE_FIVE} rules in play in your final hand.",
     "any", lambda game, seat: len((((game.get("modifier_counts") or [])[seat:seat + 1]) or [{}])[0] or {}) >= TAKE_FIVE,
     ("emote", "crocscreech"))
+FLAGS["Good Sport"] = (
+    "Play 5 minutes of Golf.",
+    "career", time_spent, ("emote", "gg"))
 RANKED_MATCHES = 3  # Join Ranked!: Ranked matches played
 FLAGS["No longer a casual"] = (
     f"Play {RANKED_MATCHES} Ranked matches.",
@@ -160,7 +180,7 @@ def standing(results, player):
     found = {name: [None, 0] for name in FLAGS}
     if not player:
         return {name: tuple(at) for name, at in found.items()}
-    career = []  # every game they finished: (ended at, against Golfbot?)
+    career = []  # every game they finished: (ended at, against Golfbot?, seconds it took)
     counted = {name: [] for name, flag in FLAGS.items() if flag[1] in COUNTED}  # when each passing game ended
     for match in results:
         if match.get("local"):
@@ -170,9 +190,15 @@ def standing(results, player):
             continue
         seat = seats.index(player)
         people = against_people(match)
+        previous = match.get("started_at")
         for game in match.get("rounds") or []:
             at = game.get("ended_at") or 0
-            career.append((at, bool(match.get("solo"))))
+            # (from its deal to its end; a game saved before deals were timed, from the
+            # end of the one before it, as Most hours played counts them)
+            started = game.get("started_at", previous)
+            previous = at or previous
+            took = min(max(at - started, 0), GAME_TIME_CAP) if at and isinstance(started, (int, float)) else 0
+            career.append((at, bool(match.get("solo")), took))
             for name, (_, scope, test, *_) in FLAGS.items():
                 if scope in ("count", "pvp count"):
                     if (scope == "count" or people) and test(game, seat):

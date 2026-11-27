@@ -1464,7 +1464,7 @@ function friendsHtml() {
     const points = friend.status === "in_game" && friend.points != null
       ? `<span class="friend-pts" aria-label="${e(`${status}: ${friend.points} points`)}">${stickerText(String(friend.points), { split: true, idle: false, key: `fp:${i}` })}${stickerText("pts", { cls: "pts", idle: false, key: `fpp:${i}` })}</span>`
       : `<span class="friend-status">${status}</span>`;
-    return `<div class="friend-row ${friend.status}" style="--i:${i}"><span class="friend-ava">${tilted(avatarIcon(friend.avatar), 34, { key: `fa:${friend.unique_name}` })}</span><span class="friend-name"><b>${e(friend.display_name)}</b>${friend.mmr != null ? `<small>${statNumber(friend.mmr)}</small>` : ""}</span>${points}${watch}</div>`;
+    return `<div class="friend-row ${friend.status}" style="--i:${i}"><span class="friend-ava">${tilted(avatarIcon(friend.avatar), 34, { key: `fa:${friend.unique_name}` })}</span><button type="button" class="friend-name" data-stats-player="${e(friend.id)}" aria-label="${e(friend.display_name)}'s profile"><b>${e(friend.display_name)}</b>${friend.mmr != null ? `<small>${statNumber(friend.mmr)}</small>` : ""}</button>${points}${watch}</div>`;
   }).join("");
   return boxed("c-fw", "Friends", `${rows || `<p class="friends-empty">No friends yet. Add someone by their @name.</p>`}${add}`, "friends-box");
 }
@@ -2204,6 +2204,7 @@ const FLAGS = [
   { name: "Washed?", reward: "face", emote: "poop", detail: "Lose 100 PvP games." },
   { name: "Take 5!", reward: "face", emote: "crocscreech", detail: "Finish a game with 5 rules in play in your final hand." },
   { name: "No longer a casual", reward: "word", word: "ranked", detail: "Play 3 Ranked matches." },
+  { name: "Good Sport", reward: "word", word: "gg", detail: "Play 5 minutes of Golf." },
   { name: "Under Pressure", reward: "word", word: "isit", detail: "Win 3 games with at least 1 spectator watching." },
   // (a secret: how it is earned stays hidden until it is)
   { name: "Chat disabled for 3s.", reward: "word", word: "save", secret: true, detail: "Send the same emote 3 times in a row within 2 seconds while a game is being played." },
@@ -2422,6 +2423,9 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
   // their numbers: a row each, as the leaderboards draw a player
   const row = (color, symbol, label, value, unit) =>
     `<div class="list-item board-row ${color}"><span class="rank">${tilted(symbol, 30, { key: `profile:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${value}<small>${unit}</small></b></div>`;
+  // a streak: the most ever in a row, and beside it, smaller, the run they are on now
+  const streakRow = (color, label, best, now) =>
+    `<div class="list-item board-row ${color} streak-row"><span class="rank">${tilted("flame.fill", 30, { key: `profile:${label}` })}</span><div class="grow"><strong>${label}</strong></div><b class="rate">${statNumber(best)}<small>best</small></b><b class="rate streak-now">${statNumber(now)}<small>now</small></b></div>`;
   const [played, playedUnit] = timeParts(profile.seconds_played || 0);
   const wins = (n) => (n === 1 ? "win" : "wins");
   // (Golfbot's numbers are from its games against people)
@@ -2436,7 +2440,7 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
     ? vs
       ? `<div class="list leader-list profile-rows">${row("c-p3", "person.2.fill", "Record vs People", `${statNumber(vs.wins)}–${statNumber(vs.draws)}–${statNumber(vs.losses)}`, "")}${row("c-s4", "trophy.fill", "Win Rate", statPercent(vs.games ? vs.wins / vs.games : 0), "")}${row("c-p2", "flame.fill", "Best Win Streak", statNumber(profile.personal?.pvp_streak?.streak || 0), wins(profile.personal?.pvp_streak?.streak || 0))}${row("c-p4", "hourglass", "Time Played", botTime[0], botTime[1])}</div>`
       : ""
-    : `<div class="list leader-list profile-rows">${row("c-p3", "crown.fill", "Current MMR", mmr ?? "—", mmr ? "MMR" : "")}${row("c-s4", "flame.fill", "Solo Win Streak", statNumber(profile.solo_streak || 0), wins(profile.solo_streak))}${row("c-p2", "flame.fill", "PvP Win Streak", statNumber(profile.pvp_streak || 0), wins(profile.pvp_streak))}${row("c-p4", "hourglass", "Time Played", statNumber(played), playedUnit)}</div>`;
+    : `<div class="list leader-list profile-rows">${row("c-p3", "crown.fill", "Current MMR", mmr ?? "—", mmr ? "MMR" : "")}${streakRow("c-s4", "Solo Win Streak", profile.solo_streak || 0, profile.current_solo_streak || 0)}${streakRow("c-p2", "PvP Win Streak", profile.pvp_streak || 0, profile.current_pvp_streak || 0)}${row("c-p4", "hourglass", "Time Played", statNumber(played), playedUnit)}</div>`;
   // side by side with you
   const rating = (side) => {
     const shown = side?.ratings?.series;

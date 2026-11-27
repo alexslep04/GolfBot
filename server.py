@@ -131,7 +131,7 @@ class Emote(BaseModel):
     emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous",
                    "pogcat", "woah", "what", "giveheart", "crocscreech", "poop",
                    "thanks", "oops", "wow", "save", "ofc", "luck", "tempo", "ranked", "rushing", "dragging",
-                   "isit"]
+                   "isit", "gg"]
 
 
 class Settings(BaseModel):
@@ -2330,12 +2330,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         profile['personal'] = await asyncio.to_thread(personal_records, results, ratings, player)
         profile['mine'] = (await asyncio.to_thread(personal_records, results, ratings, viewer)
                            if viewer and viewer != player else None)
-        # games in a row won against Golfbot, as their own table counts them
+        # games in a row won against Golfbot: the most ever (every patch), as the Solo board
+        # ranks them; and the run they are on now
         with store.progression.lock:
             row = store.progression.db.execute(
-                'SELECT current_streak, best_streak FROM progression_players WHERE patch=? AND id=?',
+                'SELECT current_streak FROM progression_players WHERE patch=? AND id=?',
                 (PATCH_VERSION, player)).fetchone()
-        profile['solo_streak'], profile['best_solo_streak'] = (row[0], row[1]) if row else (0, 0)
+            best = store.progression.db.execute(
+                'SELECT MAX(best_streak) FROM progression_players WHERE id=?', (player,)).fetchone()
+        profile['current_solo_streak'] = row[0] if row else 0
+        profile['solo_streak'] = profile['best_solo_streak'] = max((best[0] if best else 0) or 0, profile['current_solo_streak'])
         profile.update(label=None, unique_name=None, avatar=None, status=None, last_seen=None, friend=None)
         if player == 'bot:golfbot':
             profile['label'], profile['avatar'] = 'Golfbot', BOT_AVATAR
