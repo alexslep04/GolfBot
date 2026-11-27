@@ -539,7 +539,7 @@ class GolfTests(unittest.TestCase):
 
     def test_five_hundred_rounds_with_rules_and_every_path(self):
         for seed in range(500):
-            # this driver plays no guess or arrange phases, so Beggars and 4 of a Kind stay off
+            # this driver plays no guess or arrange phases, so Beggars and Fantastic 4 stay off
             keys = [key for key in Rules.__dataclass_fields__ if key not in ('beggars', 'four_kind')]
             game = self.start(seed, Rules(**{key: bool(seed & (1 << i)) for i, key in enumerate(keys)}))
             for step in range(100):

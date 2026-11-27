@@ -40,7 +40,7 @@ const RULE_SHORT = {
   ripped_five: "Ripped 5",
   roman_fives: "V2",
   beggars: "Beggars",
-  four_kind: "4 of a Kind",
+  four_kind: "Fantastic 4",
   poisoned_card: "Poison",
   suited_rows: "Suited rows",
   all_in_color: "All in",
@@ -62,6 +62,12 @@ const emoteNames = {
   laughing: "Laughing",
   cackling: "Cackling",
   nervous: "Nervous",
+  pogcat: "Pog cat",
+  woah: "Woah",
+  what: "What?",
+  giveheart: "Heart",
+  crocscreech: "Croc screech",
+  poop: "Poop",
   thanks: "Thanks!",
   oops: "Oops!",
   wow: "Wow!",
@@ -73,10 +79,15 @@ const emoteNames = {
   // (each unlocked by its flag: see FLAGS)
   rushing: "Rushing.",
   dragging: "Dragging.",
+  isit: "Is it in you?",
 };
 // these are said in words, as a speech bubble, rather than shown as a face
-const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo", "ranked", "rushing", "dragging"];
-const FACE_EMOTES = Object.keys(emoteNames).filter((id) => !TEXT_EMOTES.includes(id));
+const TEXT_EMOTES = ["luck", "thanks", "oops", "wow", "save", "ofc", "tempo", "ranked", "rushing", "dragging", "isit"];
+// faces kept out of sight for now: not offered on the bar or in Settings (one sent
+// from elsewhere still shows, by its name above)
+// (Heart, Pog cat, Croc screech and Poop are not hidden: they are flags' to unlock)
+const HIDDEN_EMOTES = ["woah", "what"];
+const FACE_EMOTES = Object.keys(emoteNames).filter((id) => !TEXT_EMOTES.includes(id) && !HIDDEN_EMOTES.includes(id));
 // Which emotes are on a player's emote bar, and in what order, is theirs to
 // choose (Settings > Emotes): any of each kind, or none. Any emote can still
 // be received.
@@ -436,6 +447,40 @@ function fillSheet(holder, html, then = null) {
   if (wait > 0) setTimeout(put, wait);
   else put();
 }
+/*
+ * While a sheet is up, the page under it holds still (the root stops scrolling: see
+ * :root:has(#sheet:not([hidden])) in style.css), and an up-and-down swipe on the sheet
+ * only ever scrolls the sheet (or a list in it). Safari otherwise hands a swipe that
+ * the sheet cannot take, at its top or bottom or too short to scroll, to the page
+ * behind it. Sideways swipes are left alone, for what scrolls that way inside a sheet.
+ */
+let sheetTouch = null;
+sheetRoot.addEventListener(
+  "touchstart",
+  (event) => {
+    const touch = event.touches[0];
+    sheetTouch = event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null;
+  },
+  { passive: true },
+);
+sheetRoot.addEventListener(
+  "touchmove",
+  (event) => {
+    if (!sheetTouch || event.touches.length !== 1 || !event.cancelable) return;
+    const touch = event.touches[0];
+    const dx = touch.clientX - sheetTouch.x,
+      dy = touch.clientY - sheetTouch.y;
+    sheetTouch = { x: touch.clientX, y: touch.clientY };
+    if (Math.abs(dx) > Math.abs(dy) || !dy) return;
+    // the nearest thing under the finger that can still scroll this way takes it
+    for (let el = event.target; el && el !== sheetRoot; el = el.parentElement) {
+      if (el.scrollHeight <= el.clientHeight + 1 || !/auto|scroll/.test(getComputedStyle(el).overflowY)) continue;
+      if (dy > 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1) return;
+    }
+    event.preventDefault();
+  },
+  { passive: false },
+);
 function closeSheet() {
   rememberRulesScroll();
   sheetRoot.hidden = true;
@@ -926,6 +971,7 @@ function renderSocial() {
  * Accept hanging below. It drops in from the top, and leaves the same way.
  */
 let shownInvite = null;
+let flagDemoAt = -1;
 function renderInvitePill(invitation) {
   const banner = document.getElementById("invite-banner");
   if (!banner) return;
@@ -1259,21 +1305,30 @@ function togglePref(key) {
   if (help) help.outerHTML = padHelpHtml();
   if (state?.game && page === "room") renderBoard();
 }
-function settingsSheet() {
-  openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Settings">
-    <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
-    <div class="menu-list">
-      ${session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
+/**
+ * What Settings offers, the same everywhere (the home screen, a table, watching one):
+ * the pages, the preferences, the controller's buttons and the note at the end. A table's
+ * menu puts its own actions above these (see gameMenuSheet).
+ */
+function settingsBodyHtml({ resume = true } = {}) {
+  return `<div class="menu-list">
+      ${resume && session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
       <button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} Rules</button>
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p2" data-nav="notifications">${tilted("bell.fill", 26)} Notifications</button>
-      ${voidOfferButton()}
       <button type="button" class="btn c-p4" data-nav="patches">${tilted("newspaper.fill", 26)} Patch notes</button>
       <a class="btn c-fw" href="privacy">${tilted("lock.fill", 26)} Privacy</a>
     </div>
     ${prefsHtml()}
     ${padHelpHtml()}
-    <p class="hint dark sheet-note">This website has been programmed by Claude Fable 5.2. Front-end design was handmade in <a href="https://www.figma.com/design/OtrBljPuG5YggsJYThYGpq/Golf?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma${textSymbol("arrow.up.right", "out-arrow")}</a> by Spencer.</p>
+    <p class="hint dark sheet-note">This website has been programmed by Claude Fable 5.2. Front-end design was handmade in <a href="https://www.figma.com/design/OtrBljPuG5YggsJYThYGpq/Golf?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma${textSymbol("arrow.up.right", "out-arrow")}</a> by Spencer.</p>`;
+}
+function settingsSheet() {
+  const offer = voidOfferButton();
+  openSheet(`<section class="sheet c-fw" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="sheet-head"><h2>Settings</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    ${offer ? `<div class="menu-list">${offer}</div>` : ""}
+    ${settingsBodyHtml()}
   </section>`);
 }
 /* ---------- Settings > Theme: every theme, drawn in its own colors ----------
@@ -1516,11 +1571,14 @@ const DEBUG_TOOLS = {
   edit: ["Change a card", "Tap a card to pick its suit and value"],
 };
 function debugMenuHtml() {
-  if (!DEBUG || !(state?.practice || state?.local || state?.debug_table) || state.spectator) return "";
+  if (!DEBUG || !state?.game || state.spectator) return "";
+  // (the card tools only where the table may be changed: Practice, pass & play, the debug table)
+  const tools = state.practice || state.local || state.debug_table;
   return `<p class="hint dark debug-label">Debug</p>
-      <button type="button" class="btn c-p2" data-debug-end>${tilted("flag.pattern.checkered", 26)} End game: flip all cards</button>
+      ${tools ? `<button type="button" class="btn c-p2" data-debug-end>${tilted("flag.pattern.checkered", 26)} End game: flip all cards</button>
       <button type="button" class="btn c-p1" data-debug-tool="flip">${tilted("sparkles", 26)} God mode: flip any card</button>
-      <button type="button" class="btn c-p4" data-debug-tool="edit">${tilted("pencil", 26)} Change a card's suit and value</button>`;
+      <button type="button" class="btn c-p4" data-debug-tool="edit">${tilted("pencil", 26)} Change a card's suit and value</button>` : ""}
+      <button type="button" class="btn c-p4" data-flag-demo>${tilted("flag.2.crossed.fill", 26)} Demo flag notification</button>`;
 }
 async function debugEdit(body) {
   accept(await api(`/api/debug/practice/${state.id}`, "POST", body));
@@ -1617,20 +1675,17 @@ function gameMenuSheet() {
     <div class="sheet-head"><h2>${e(state.name)}<small class="sheet-sub">${e(tableMenuLine())}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     ${state.spectator ? `<div class="menu-list">
       <button type="button" class="btn c-p1" data-rules-for="me">${tilted("checklist", 26)} Rules &amp; scores</button>
-      <button type="button" class="btn c-p4" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
       <button type="button" class="btn c-p2" data-leave>${tilted("eye.fill", 26)} Stop watching</button>
     </div>` : `<div class="menu-list">
       <button type="button" class="btn c-p1" data-rules-for="me">${tilted("checklist", 26)} Rules &amp; scores</button>
       ${state.solo ? "" : `<button type="button" class="btn c-p3" data-copy="${e(link)}">${tilted("link", 26)} Copy invite link</button>`}
-      <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
-      <button type="button" class="btn c-p4" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
       ${voidOfferButton()}
       ${debugMenuHtml()}
       ${state.puzzle ? `<button type="button" class="btn c-p1" data-puzzle-retry>${tilted("arrow.clockwise", 26)} Restart the puzzle</button>` : ""}
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
     </div>`}
-    ${prefsHtml()}
-    ${padHelpHtml()}
+    <p class="hint dark debug-label">Settings</p>
+    ${settingsBodyHtml({ resume: false })}
   </section>`);
 }
 
@@ -2443,7 +2498,10 @@ function accept(next) {
   const changed =
     state?.game?.phase !== next.game?.phase ||
     state?.game?.decision_player !== next.game?.decision_player;
+  // a game just finished and saved: any flag it earned is announced (see loadMyFlags)
+  const finished = state?.id === next.id && state.status === "playing" && ["round_over", "finished"].includes(next.status) && !next.spectator;
   state = next;
+  if (finished && typeof loadMyFlags === "function") setTimeout(loadMyFlags, 700);
   renderVoidOffer();
   // pass & play: when the turn moves to someone else, the device is handed over
   if (next.local) holdForPass(next);
@@ -3701,6 +3759,13 @@ document.addEventListener("click", async (event) => {
     }
     if ("socialClose" in data) return closeSocial();
     if ("patchClose" in data) return closePatchPopup();
+    if ("flagDismiss" in data) return dismissFlagNews();
+    // (debug: a flag earned, 3 seconds after the sheet closes, a different one each time)
+    if ("flagDemo" in data) {
+      closeSheet();
+      const flag = FLAGS[(flagDemoAt = (flagDemoAt + 1) % FLAGS.length)];
+      return void setTimeout(() => announceFlag(flag.name), 3000);
+    }
     if (data.invitePlayer || data.inviteReply) {
       button.disabled = true;
       try {
@@ -4084,6 +4149,11 @@ function bootData() {
     loadMyFlags();
     // (your custom card designs, for the tables you sit at)
     if (Object.keys(deckChoices).length) syncDeck();
+    // (your time zone, so the server knows the hour your games end where you are: Just one more game)
+    try {
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (zone) api("/api/clock", "POST", { zone }).catch(() => {});
+    } catch {}
     if (alertsWanted(prefs).turn || alertsWanted(prefs).queue) subscribeAlerts(false).catch(() => setPref("alerts", false));
     const firstPoll = pollPresence();
     // while in the queue the server is asked far more often, so a match shows at once

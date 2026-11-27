@@ -348,7 +348,11 @@ function stackCycleName(holder) {
    ones you have collected wait in Your Deck (the You tab), a box for each suit;
    tap one and it takes the place of that card's design, on every table you see.
    (The ones here are for trying the idea out: debug servers only.) */
-const CARD_SKINS = (document.documentElement.dataset?.debug !== undefined
+const CARD_SKINS = [
+  // the 5 of diamonds torn across, as the Ripped 5 rule draws it, at any table (the
+  // Tear it up! flag's to unlock)
+  { id: "ripped-5d", card: "5D", name: "Ripped", ripped: true },
+  ...(document.documentElement.dataset?.debug !== undefined
   ? [
       // a card in a color of its own: `tint` its face, `ink` its corners on a dark one
       { id: "gold-as", card: "AS", name: "Gold", tint: "#f6d77a" },
@@ -361,8 +365,8 @@ const CARD_SKINS = (document.documentElement.dataset?.debug !== undefined
       { id: "coral-3c", card: "3C", name: "Coral", tint: "#ffc9b0" },
       { id: "sky-3c", card: "3C", name: "Sky", tint: "#bfe6ff" },
     ]
-  : []
-).map((skin) => ({ ...skin, suit: skin.card.slice(-1), label: skin.card.slice(0, -1) }));
+  : []),
+].map((skin) => ({ ...skin, suit: skin.card.slice(-1), label: skin.card.slice(0, -1) }));
 const cardSkin = (id) => CARD_SKINS.find((skin) => skin.id === id) || null;
 /** The design each card wears: {"AS": "hole-in-one"} (a card not in it wears the ordinary face). */
 let deckChoices = {};
@@ -374,7 +378,7 @@ try {
 /** The custom design `card` ("AS", "10H") wears, if any. */
 function equippedSkin(card) {
   const skin = cardSkin(deckChoices[card]);
-  return skin && skin.card === card ? skin : null;
+  return skin && skin.card === card && flagUnlocked("card", skin.id) ? skin : null;
 }
 /** Wear `id` on `card` (null: back to the ordinary face). */
 function equipSkin(card, id) {
@@ -410,12 +414,15 @@ function faceHtml(card, rippedFive = !!state?.rules?.ripped_five, skin = null) {
     return `<span class="face front"></span><span class="face back"></span>`;
   const red = card.suit === "H" || card.suit === "D";
   const corner = `<span class="corner"><b>${e(card.label)}</b>${icon(SUIT_ICON[card.suit], 16, { idle: false, flat: true, sw: 2.4 })}</span>`;
-  // the 5 of diamonds is the ripped 5: torn across the middle (and only when that rule is on)
-  const ripped = rippedFive && card.suit === "D" && card.rank === 5 ? " ripped" : "";
+  // (your own design for this card, from Your Deck: `skin` false for the ordinary face, or a design to show)
+  const rule = rippedFive && card.suit === "D" && card.rank === 5;
+  let worn = rule || skin === false ? null : skin || equippedSkin(card.label + card.suit);
+  // the 5 of diamonds is the ripped 5: torn across the middle, when that rule is on (or
+  // when it wears the Ripped design)
+  const ripped = rule || worn?.ripped ? " ripped" : "";
+  if (worn?.ripped) worn = null;
   // (its two halves are drawn apart, so they can tear open as it turns over)
   const halves = ripped ? `<span class="rip-half top"></span><span class="rip-half bottom"></span>` : "";
-  // (your own design for this card, from Your Deck: `skin` false for the ordinary face, or a design to show)
-  const worn = ripped || skin === false ? null : skin || equippedSkin(card.label + card.suit);
   // (a custom card is its color: the face tinted, inside its drawn border)
   const custom = worn ? ` skin${worn.ink ? " inked" : ""}" style="--skin-tint:${worn.tint}${worn.ink ? `;--skin-ink:${worn.ink}` : ""}` : "";
   return `<span class="face front${red ? " red" : ""} suit-${card.suit}${ripped}${custom}">${halves}${corner}${corner}</span><span class="face back"></span>`;
@@ -784,7 +791,7 @@ function syncCards(prev, view) {
         after[other].key === before[key].key,
     );
     if (partner) {
-      // two face-up cards traded places (bonus swap, Beggars trade, 4 of a Kind)
+      // two face-up cards traded places (bonus swap, Beggars trade, Fantastic 4)
       fly(partner, key, after[key].card, true);
       fly(key, partner, after[partner].card, true);
       handled.add(key).add(partner);
@@ -1500,6 +1507,34 @@ function renderEmotes() {
     () =>
       board.emotesOpen ? `<div class="emote-pop" role="group" aria-label="Quick emotes">${emoteButtons()}</div>` : "",
   );
+  keepEmoteScroll(pop);
+}
+/*
+ * The emote menu opens where it was left (its faces and its sayings scrolled as they
+ * were) when it was closed less than EMOTE_SCROLL_KEPT_MS ago; after that, back at the start.
+ */
+const EMOTE_SCROLL_KEPT_MS = 3000;
+const emoteScroll = { faces: 0, words: 0, open: false, closedAt: -Infinity };
+const EMOTE_STRIPS = { faces: ".emote-faces", words: ".emote-words" };
+function keepEmoteScroll(pop) {
+  const menu = pop?.querySelector?.(".emote-pop");
+  if (!menu) {
+    if (emoteScroll.open) emoteScroll.closedAt = performance.now();
+    emoteScroll.open = false;
+    return;
+  }
+  if (menu.dataset.scrollKept) return;
+  menu.dataset.scrollKept = "1";
+  // (drawn again while open, it keeps its place too)
+  const keep = emoteScroll.open || performance.now() - emoteScroll.closedAt < EMOTE_SCROLL_KEPT_MS;
+  emoteScroll.open = true;
+  for (const [kind, selector] of Object.entries(EMOTE_STRIPS)) {
+    if (!keep) emoteScroll[kind] = 0;
+    const strip = menu.querySelector(selector);
+    if (!strip) continue;
+    strip.scrollLeft = emoteScroll[kind];
+    strip.classList.toggle("at-end", strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2);
+  }
 }
 /** The quick emotes and the mute bell: in the chat bubble's pop-up, and under the results. */
 function emoteButtons() {
@@ -1521,15 +1556,20 @@ function emoteButtons() {
     .filter((row) => row.length)
     .map((row) => `<div class="emote-words-row">${row.map(word).join("")}</div>`)
     .join("");
-  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words">${words}</div>` : ""}`;
+  // (the faces scroll sideways in a strip four and a half wide: the half hints at more;
+  // four or fewer fit whole, with no fade)
+  return `<div class="emote-row"><div class="emote-faces${emoteBar("faces").length <= 4 ? " at-end" : ""}">${faces}</div><button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words">${words}</div>` : ""}`;
 }
-// the text emotes' fade at the edge goes once they are scrolled to the end
+// the emotes' fade at the edge (the sayings', the faces') goes once they are scrolled to the end
 document.addEventListener?.(
   "scroll",
   (event) => {
     const row = event.target;
-    if (row.classList?.contains("emote-words"))
+    if (row.classList?.contains("emote-words") || row.classList?.contains("emote-faces")) {
       row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
+      // (the menu's place, kept for a while after it closes: see keepEmoteScroll)
+      if (row.closest?.("[data-emote-pop]")) emoteScroll[row.classList.contains("emote-faces") ? "faces" : "words"] = row.scrollLeft;
+    }
   },
   true,
 );
@@ -2040,7 +2080,7 @@ function matchProgress(finished) {
 function fitSummary() {
   const summary = board.el?.querySelector(".summary.floating");
   // sayings that fit whole need no fade hinting at more to scroll to
-  for (const row of summary?.querySelectorAll(".emote-words") || [])
+  for (const row of summary?.querySelectorAll(".emote-words, .emote-faces") || [])
     row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
   const plot = summary?.querySelector(".eval-plot");
   if (!plot) return;
@@ -2086,7 +2126,7 @@ function renderModal() {
       holder,
       `arrange${JSON.stringify(g.legal.arrange)}`,
       () =>
-        `<div class="modal-shade"><section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Arrange four of a kind"><h2>4 of a Kind</h2><p>Choose two columns for the four matching cards, or keep your layout. Hidden cards stay hidden.</p><div class="cols">${[
+        `<div class="modal-shade"><section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Arrange four of a kind"><h2>Fantastic 4</h2><p>Choose two columns for the four matching cards, or keep your layout. Hidden cards stay hidden.</p><div class="cols">${[
           [0, 1],
           [0, 2],
           [1, 2],

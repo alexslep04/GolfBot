@@ -197,7 +197,9 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.guest.post(path, json={'emote': 'nervous'}).status_code, 200)
         self.assertEqual(self.guest.post(path, json={'emote': 'luck'}).status_code, 200)  # "Good luck!"
         self.assertEqual(self.guest.post(path, json={'emote': 'tempo'}).status_code, 200)  # "Not my tempo"
-        self.assertEqual(self.guest.post(path, json={'emote': 'ranked'}).status_code, 200)  # "Join Ranked!"
+        # ("Join Ranked!" is the No longer a casual flag's: held back until it is earned)
+        self.assertEqual(self.guest.post(path, json={'emote': 'ranked'}).status_code, 403)
+        self.assertEqual(self.guest.post(path, json={'emote': 'oops'}).status_code, 200)
         self.assertEqual(len(self.state()['emotes']), 2)
         self.host.post(f'/api/lobbies/{self.id}/leave')
         self.assertEqual(self.guest.post(path, json={'emote': 'shocked'}).status_code, 409)
@@ -241,7 +243,7 @@ class WebTests(unittest.TestCase):
         response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': 'laughing'})
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['solo'])
-        for text in ('thanks', 'oops', 'wow', 'save'):
+        for text in ('thanks', 'oops', 'wow'):
             response = self.host.post(f"/api/lobbies/{state['id']}/emote", json={'emote': text})
             self.assertEqual(response.status_code, 200, text)
             self.assertEqual([emote['id'] for emote in response.json()['emotes']], [text])

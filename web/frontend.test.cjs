@@ -394,8 +394,8 @@ test('a profile shows who the player is, their numbers, how they compare with yo
   assert.match(html,/aria-label="Their Flags"/);
   // only the flags they have completed are shown, in their own color (none yet: a line says so)
   assert.doesNotMatch(html,/Adult swim/);assert.match(html,/hasn(&#39;|')t completed any flags yet/);
-  const done=h.run(`profileHtml(${JSON.stringify({...profile,flags:["Let's Go Gambling!"]})},null,{accent:'c-s3'})`);
-  assert.match(done,/class="panel c-s3 earned record-card flag-card"[^]*?Let(&#39;|')s Go Gambling!/);assert.doesNotMatch(done,/Adult swim|hourglass|flag-art/);
+  const done=h.run(`profileHtml(${JSON.stringify({...profile,flags:["Let's go gambling!"]})},null,{accent:'c-s3'})`);
+  assert.match(done,/class="panel c-s3 earned record-card flag-card"[^]*?Let(&#39;|')s go gambling!/);assert.doesNotMatch(done,/Adult swim|hourglass|flag-art/);
   // friends already: no button to press
   assert.match(h.run(`profileHtml(${JSON.stringify({...profile,friend:'friend'})},null)`),/disabled>[^]*?Friends/);
 });
@@ -627,12 +627,13 @@ test('a double-tap flips whatever else has happened at the table, and waits its 
   assert.equal(h.requests.length,count);assert.equal(h.run('board.queuedFlip'),null);
 });
 
-test('settings offer the Original, Poker, Night Golf and (debug only) Focus themes on their own sheet, and the choice re-skins the page',()=>{
-  // without debug there is no Focus, and a saved choice of it can't be picked
+test('settings offer the Original, Poker, Night Golf, Pool and Focus themes on their own sheet, and the choice re-skins the page',()=>{
+  // Focus is a flag's to unlock (Black out!): listed, locked, and a saved choice of it can't be picked
   const plain=harness();
   assert.doesNotMatch(plain.run('themeListHtml()'),/data-theme-pick="focus"/);
+  assert.match(plain.run('themeListHtml()'),/Earn &quot;Black out!&quot;/);
   plain.run('pickTheme("focus")');assert.equal(plain.run('prefs.theme'),'golf');
-  const h=harness({debug:true});
+  const h=harness();
   // Settings names the theme in use on a row that opens the themes' sheet (no longer a switch that cycles them)
   h.run('settingsSheet()');
   assert.match(h.nodes.get('sheet').innerHTML,/<button type="button" class="btn c-fw pref" data-theme-settings>[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Original<\/b>/);
@@ -642,11 +643,11 @@ test('settings offer the Original, Poker, Night Golf and (debug only) Focus them
   // (Poker and Pool are a flag's to unlock: locked, they are listed but can't be picked)
   h.run('themeSheet()');
   let sheet=h.nodes.get('sheet').innerHTML;
-  assert.match(sheet,/class="theme-choice locked"[^>]*aria-disabled="true"[^]*?<span class="grow"><small class="theme-flag">Earn &quot;Let(&#39;|')s Go Gambling!&quot;/);
+  assert.match(sheet,/class="theme-choice locked"[^>]*aria-disabled="true"[^]*?<span class="grow"><small class="theme-flag">Earn &quot;Let(&#39;|')s go gambling!&quot;/);
   assert.doesNotMatch(sheet,/>Poker<|>Pool<|Poker,|Pool,/);
   assert.doesNotMatch(sheet,/data-theme-pick="poker"/);
   h.run('pickTheme("poker")');assert.equal(h.run('prefs.theme'),'golf');
-  h.run('myFlags.themes=["poker","pool"]');h.run('themeSheet()');sheet=h.nodes.get('sheet').innerHTML;
+  h.run('myFlags.themes=["poker","pool","focus","night"]');h.run('themeSheet()');sheet=h.nodes.get('sheet').innerHTML;
   assert.match(sheet,/aria-label="Theme"/);assert.equal(sheet.match(/class="theme-preview"/g).length,5);
   for(const [key,name] of [['golf','Original'],['poker','Poker'],['night','Night Golf'],['focus','Focus']])
     assert.match(sheet,new RegExp(`role="radio" aria-checked="${key==='golf'}" data-theme-pick="${key}"[^]*?<span class="grow">${name}</span>`));
@@ -971,7 +972,8 @@ test('Flags: each flag is locked for now, with what it would unlock; You has the
   const edit=h.run('emoteEditHtml()');
   assert.match(edit,/class="emote-compact"/);assert.match(edit,/Emote Bar/);assert.match(edit,/Unequipped Emotes/);
   assert.match(edit,/class="emote-choices bar faces" data-kind="faces"/);assert.match(edit,/class="emote-choices bar words" data-kind="words"/);
-  assert.match(edit,/Every emote is on your bar\./);
+  // (the newer faces are hidden for now: every face there is to pick is on the bar)
+  assert.match(edit,/Every emote is on your bar\./);assert.doesNotMatch(edit,/pogcat|crocscreech/);
   h.run('dropEmote("faces","nervous")');assert.match(h.run('emoteEditHtml()'),/class="emote-choices faces" data-kind="faces"[^>]*><span class="emote-none"><\/span><span class="emote-item" data-emote-item="faces:nervous"/);
 });
 
@@ -986,9 +988,15 @@ test('dates within the last 24 hours read as how long ago',()=>{
 
 test('the emote bar shows the emotes chosen in Settings > Emotes, in their order, with the sayings in two rows',()=>{
   const h=harness();const bar=kind=>h.run(`emoteBar("${kind}").join()`);
+  // (What a save! is a secret flag's to unlock: off the bar until it is earned)
+  assert.equal(bar('words'),'luck,thanks,oops,wow,ofc,tempo');assert.ok(h.run('!flagUnlocked("word","save") && !flagUnlocked("word","ranked")'));
+  h.run('myFlags.emotes=["save","ranked"]');
   assert.equal(h.run('emoteNames.ranked'),'Join Ranked!');assert.ok(h.run('TEXT_EMOTES.includes("ranked")'));
-  // every emote there is starts on the bar
-  assert.equal(bar('faces'),h.run('FACE_EMOTES.join()'));assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');
+  // every face there is to pick starts on the bar (the newer faces are hidden for now, and
+  // Heart is the Cupid's porcelain throne flag's: held back until it is earned)
+  assert.equal(h.run('FACE_EMOTES.join()'),'unamused,shocked,laughing,cackling,nervous,pogcat,giveheart,crocscreech,poop');
+  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.ok(h.run('!flagUnlocked("word","giveheart")'));
+  assert.doesNotMatch(h.run('emoteEditHtml()'),/giveheart/);
   // (every one, that is, but those a flag holds back: Rushing. and Dragging. until earned)
   assert.equal(bar('words'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');assert.ok(h.run('!flagUnlocked("word","rushing") && flagUnlocked("word","luck")'));
   h.run('state={status:"playing"}');
@@ -1026,7 +1034,7 @@ test('the emote bar shows the emotes chosen in Settings > Emotes, in their order
 });
 
 test('an emote added to the game later starts off the bar, for a new player and for one with a saved bar',()=>{
-  const fresh=harness();
+  const fresh=harness();fresh.run('myFlags.emotes=["save","ranked"]');
   fresh.run('TEXT_EMOTES.push("gg");emoteNames.gg="Good game!";FACE_EMOTES.push("smug");emoteNames.smug="Smug"');
   assert.equal(fresh.run('emoteBar("words").join()'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
   assert.equal(fresh.run('emoteBar("faces").join()'),'unamused,shocked,laughing,cackling,nervous');

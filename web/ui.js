@@ -365,20 +365,27 @@ const THEMES = [
   ["poker", "Poker", "#021b14"], // the dark room around the table
   ["night", "Night Golf", "#0f2018"],
   ["pool", "Pool", "#a8ecea"], // a bright day at the pool
-  ["focus", "Focus", "#000000", "debug"], // one dark gray on black; fewer icons
+  ["focus", "Focus", "#000000"], // one dark gray on black; fewer icons
   // a theme marked "debug" is offered only on a debug server (and a saved
   // choice of one falls back to Original anywhere else)
 ].filter((theme) => theme[3] !== "debug" || document.documentElement.dataset?.debug !== undefined);
 // What a flag holds back until it is earned (the flags are FLAGS in tabs.js; who
 // has earned which, the server's flags.py). What this device last heard it has
 // unlocked is kept, so a theme earned shows from the first page on.
-const FLAG_LOCKED = { word: ["rushing", "dragging"], theme: ["poker", "pool"] };
-let myFlags = { earned: [], emotes: [], themes: [] };
+// ("word" is any emote a flag holds back, a saying or a face)
+const FLAG_LOCKED = { word: ["rushing", "dragging", "isit", "save", "ranked", "giveheart", "pogcat", "poop", "crocscreech"], theme: ["poker", "pool", "focus", "night"], card: ["ripped-5d"] };
+let myFlags = { earned: [], emotes: [], themes: [], cards: [], progress: {} };
+// (whether this device has heard which flags you have before: only then is one newly
+// earned announced)
+let flagsHeard = false;
 try {
-  myFlags = { ...myFlags, ...JSON.parse(localStorage.getItem("golf-flags") || "{}") };
+  const heard = localStorage.getItem("golf-flags");
+  myFlags = { ...myFlags, ...JSON.parse(heard || "{}") };
+  flagsHeard = !!heard;
 } catch {}
-/** Whether an emote ("word") or theme is yours to use: none holds it back, or you have earned the flag that does. */
-const flagUnlocked = (kind, id) => !FLAG_LOCKED[kind].includes(id) || (kind === "word" ? myFlags.emotes : myFlags.themes).includes(id);
+/** Whether an emote ("word"), theme or custom card is yours to use: none holds it back, or you have earned the flag that does. */
+const flagUnlocked = (kind, id) =>
+  !FLAG_LOCKED[kind].includes(id) || ((kind === "word" ? myFlags.emotes : kind === "card" ? myFlags.cards : myFlags.themes) || []).includes(id);
 /**
  * Every setting is saved together, so a saved emote bar may be one that was
  * never chosen. For a short while the bar started with only five sayings: one

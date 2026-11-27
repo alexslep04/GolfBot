@@ -47,6 +47,18 @@ class DeckServerTests(unittest.TestCase):
         self.host.post('/api/deck', json={'choices': {}})
         self.assertEqual(state()['skins'], [{}, {}])
 
+    def test_a_flags_design_is_worn_only_once_it_is_earned(self):
+        state = lambda: server.snapshot(self.room, next(iter(self.room.seats)))
+        self.host.post('/api/deck', json={'choices': {'5D': 'ripped-5d', 'AS': 'hole-in-one'}})
+        self.assertEqual(state()['skins'][0], {'AS': 'hole-in-one'})
+        # three saved games where the ripped 5 tore up a 5 earn Tear it up!, and the design with it
+        self.room.history = [{'moves': ['', ''], 'ended_at': i, 'activations': [['ripped_five'], []], 'scores': [5, 9], 'winner': 0}
+                             for i in range(10)]
+        self.store.history.save(self.room)
+        self.assertEqual(self.host.get('/api/flags').json()['cards'], ['ripped-5d'])
+        self.host.post('/api/deck', json={'choices': {'5D': 'ripped-5d'}})
+        self.assertEqual(state()['skins'][0], {'5D': 'ripped-5d'})
+
 
 if __name__ == '__main__':
     unittest.main()

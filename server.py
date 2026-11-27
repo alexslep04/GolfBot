@@ -1,7 +1,8 @@
 """Single-process, server-authoritative Golf lobbies served by FastAPI/Uvicorn."""
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo, available_timezones
 import multiprocessing
 import base64
 from contextlib import asynccontextmanager
@@ -77,6 +78,23 @@ class VersionedStatic(StaticFiles):
 # A card in someone's hand wears their design; the top discard, the design of whoever
 # put it there; a drawn card, the drawer's.
 DECK_SKINS = {}
+# the same emote this many times in a row, inside this many seconds, while a game is
+# played: the "Chat disabled for 3s." flag
+EMOTE_SPAM_COUNT, EMOTE_SPAM_SECONDS = 3, 2.0
+# each player's time zone (as their browser names it), for the hour their games end
+# where they are (the Just one more game flag): {player id: "America/New_York"}
+PLAYER_ZONES = {}
+
+
+def local_hour(player, at):
+    """The hour (0-23) it was where `player` is at the time `at`, or None if unknown."""
+    name = PLAYER_ZONES.get(player)
+    if not name:
+        return None
+    try:
+        return datetime.fromtimestamp(at, ZoneInfo(name)).hour
+    except Exception:
+        return None
 DECK_CARD = re.compile(r"^(A|[2-9]|10|J|Q|K)[SHDC]$")
 DECK_SKIN = re.compile(r"^[a-z0-9-]{1,32}$")
 
@@ -86,10 +104,17 @@ class Deck(BaseModel):
     choices: dict[str, str] = Field(default_factory=dict, max_length=52)
 
 
+class Clock(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    zone: str = Field(max_length=64)
+
+
 class Emote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous", "thanks", "oops", "wow", "save", "ofc", "luck", "tempo", "ranked",
-                   "rushing", "dragging"]
+    emote: Literal["unamused", "shocked", "laughing", "cackling", "nervous",
+                   "pogcat", "woah", "what", "giveheart", "crocscreech", "poop",
+                   "thanks", "oops", "wow", "save", "ofc", "luck", "tempo", "ranked", "rushing", "dragging",
+                   "isit"]
 
 
 class Settings(BaseModel):
@@ -274,6 +299,10 @@ class Room:
     emote_counts: list = field(default_factory=list)
     # each seat's moves this game, as flag codes (see flags.MOVE_CODES), saved with it
     move_log: list = field(default_factory=list)
+    # each seat's emotes while this game is played: [(when, which)]; and whether they sent
+    # one emote three times in a row inside two seconds (a flag, saved with the game)
+    emote_log: list = field(default_factory=list)
+    emote_spam: list = field(default_factory=list)
     participants: list = field(default_factory=lambda: [None, None])
     house_rules: bool = False
     house_version: str | None = None
@@ -484,6 +513,8 @@ class Room:
         self.watched_by = {token for token, sockets in self.watchers.items() if sockets}
         self.resize_seats()
         self.move_log = [[] for _ in self.seats]
+        self.emote_log = [[] for _ in self.seats]
+        self.emote_spam = [False for _ in self.seats]
         if self.practice and self.house_rules:
             # A saved Play solo run outlives updates, so each new deal is played with
             # the House rules as they are now. Compared rule by rule, not by version:
@@ -582,12 +613,16 @@ class Room:
                              "started_at": self.round_started_at,
                              # the scores showing after each turn (for the comeback record)
                              "timeline": [point["scores"] for point in self.timeline if not point["final"]],
-                             "ended_at": time.time(),
+                             "ended_at": (ended_at := time.time()),
+                             # the hour it was where each player is, as it ended (None: not known)
+                             "local_hours": [local_hour((profile or {}).get("id"), ended_at) for profile in self.participants],
                              # time each person spent on the turns they were at the table for
                              "move_seconds": [round(seconds, 1) for seconds in self.move_seconds],
                              "move_counts": list(self.move_counts),
                              # every seat's moves, as codes (what flags are earned by)
                              "moves": ["".join(log) for log in self.move_log],
+                             # who spammed an emote while it was played (see send_emote)
+                             "emote_spam": [bool(spam) for spam in self.emote_spam],
                              "activations": [sorted(keys) for keys in self.game.activated_rules],
                              "divisors": [self.game.score_divisor(p) for p in range(len(self.seats))]})
         self.history[-1].update(modifier_data(self.game, visible_only=False))
@@ -2732,21 +2767,28 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
 
     flag_cache = {}
 
-    def flags_for(player):
-        """The flags a player has earned (see flags.py), kept until another match is saved."""
+    def flag_standing(player):
+        """How a player stands on every flag (see flags.standing), kept until another match is saved."""
         key = (player, store.history.saves)
         if key not in flag_cache:
             flag_cache.clear() if len(flag_cache) > 500 else None
-            flag_cache[key] = achievements.earned(store.history.stats_results(), player)
+            flag_cache[key] = achievements.standing(store.history.stats_results(), player)
         return flag_cache[key]
+
+    def flags_for(player):
+        """The flags a player has earned: {name: when}."""
+        return {name: at for name, (at, _) in flag_standing(player).items() if at is not None}
 
     @app.get("/api/flags")
     async def my_flags(request: Request):
-        """The flags you have earned, and the emotes they unlock."""
+        """The flags you have earned, the emotes and themes they unlock, and how far
+        along you are on each (a whole percent)."""
         session = session_for(request)
-        earned = await asyncio.to_thread(flags_for, puzzle_player(session))
+        standing = await asyncio.to_thread(flag_standing, puzzle_player(session))
+        earned = [name for name, (at, _) in standing.items() if at is not None]
         return {"earned": sorted(earned), "emotes": achievements.unlocked_emotes(earned),
-                "themes": achievements.unlocked(earned, "theme")}
+                "themes": achievements.unlocked(earned, "theme"), "cards": achievements.unlocked(earned, "card"),
+                "progress": {name: int(progress * 100) for name, (_, progress) in standing.items()}}
 
     async def keep_puzzles_made():
         """Today's puzzle and tomorrow's, made ahead (checked every half hour)."""
@@ -2990,12 +3032,27 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             kick_bot(room)
             return snapshot(room, session.token)
 
+    zones = available_timezones()
+
+    @app.post("/api/clock")
+    async def set_clock(body: Clock, request: Request):
+        """Your time zone, for the hour your games end where you are."""
+        if body.zone not in zones:
+            raise HTTPException(422, "Unknown time zone")
+        PLAYER_ZONES[puzzle_player(session_for(request))] = body.zone
+        return {"ok": True}
+
     @app.post("/api/deck")
     async def set_deck(body: Deck, request: Request):
         """Your custom card designs, for the tables you sit at to draw your cards in."""
         session = session_for(request)
         player = puzzle_player(session)
         choices = {card: skin for card, skin in body.choices.items() if DECK_CARD.match(card) and DECK_SKIN.match(skin)}
+        # (a design a flag unlocks only for those who have earned it)
+        if any(skin in achievements.FLAG_CARDS for skin in choices.values()):
+            earned = await asyncio.to_thread(flags_for, player)
+            choices = {card: skin for card, skin in choices.items()
+                       if skin not in achievements.FLAG_CARDS or achievements.FLAG_CARDS[skin] in earned}
         if (DECK_SKINS.get(player) or {}) == choices:
             return {"ok": True}
         if choices:
@@ -3029,6 +3086,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             if not watching:
                 room.emote_counts += [0] * (len(room.seats) - len(room.emote_counts))
                 room.emote_counts[player] += 1
+                note_emote_spam(room, player, body.emote)
             room.emote_sequence += 1
             room.emotes[player] = {"id": body.emote, "player": player, "sequence": room.emote_sequence,
                                    "expires_at": time.time() + EMOTE_SECONDS,
@@ -3036,6 +3094,21 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             # Cosmetic events must not invalidate a simultaneous card action.
             await broadcast(room)
             return snapshot(room, session.token, watch=watching)
+
+    def note_emote_spam(room, seat, emote):
+        """The same emote sent three times in a row inside two seconds, while the game is
+        being played (not once it is over: the results screen), marks the seat for the
+        flag that rewards it."""
+        if room.status != "playing" or room.game is None or room.game.phase == "over":
+            return
+        if seat >= len(room.emote_log):
+            room.emote_log += [[] for _ in range(seat + 1 - len(room.emote_log))]
+            room.emote_spam += [False] * (len(room.emote_log) - len(room.emote_spam))
+        log = room.emote_log[seat]
+        log.append((time.time(), emote))
+        del log[:-EMOTE_SPAM_COUNT]
+        if len(log) == EMOTE_SPAM_COUNT and len({which for _, which in log}) == 1 and log[-1][0] - log[0][0] <= EMOTE_SPAM_SECONDS:
+            room.emote_spam[seat] = True
 
     # ---------- spectating ----------
     def watchable(room):

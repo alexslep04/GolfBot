@@ -68,7 +68,7 @@ RULE_OPTIONS = [
     ("ripped_five", "The ripped 5"),
     ("roman_fives", "V2"),
     ("beggars", "Beggars Will be Choosers"),
-    ("four_kind", "4 of a Kind"),
+    ("four_kind", "Fantastic 4"),
     ("poisoned_card", "Poisoned Card"),
     ("suited_rows", "Suited rows"),
     ("all_in_color", "All in red/black"),
@@ -454,7 +454,7 @@ class GolfGame:
                     self.activated_rules[player].add("four_kind")
                     self.arrange_pending = {"player": player, "rank": rank, "resume": resume, "finish": finish}
                     self.phase = "arrange"
-                    self.message = "4 of a Kind: choose two columns, or keep the layout."
+                    self.message = "Fantastic 4: choose two columns, or keep the layout."
                     return True
         return False
 

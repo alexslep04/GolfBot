@@ -1265,6 +1265,8 @@ async function homeClick(button, data, event) {
     if (data.homeTab !== homeTab) homePage(data.homeTab);
     // Aces tapped again: on to its next view (Records, Solo, PvP, and round again)
     else if (homeTab === "aces") setAcesView(ACES_VIEWS[(ACES_VIEWS.findIndex((view) => view.key === acesView) + 1) % ACES_VIEWS.length].key);
+    // You likewise: Profile, Your Deck, and back
+    else if (homeTab === "you") setYouView(YOU_VIEWS[(YOU_VIEWS.findIndex((view) => view.key === youView) + 1) % YOU_VIEWS.length].key);
     else {
       // the tab already showing: back to its top (and Watch looks for games again)
       window.scrollTo({ top: 0, behavior: reducedMotion.matches ? "instant" : "smooth" });
@@ -1379,18 +1381,30 @@ function puzzleRowsHtml(info, size = 19, { ranked = false, from = 0 } = {}) {
 const PUZZLE_ROWS = 8,
   PUZZLE_MOST = 50; // (as many as the server keeps on the day's board)
 let puzzleRowsLoading = false;
+const puzzleMoreToCome = (info) => info.board.length > 0 && info.board.length < Math.min(info.players, PUZZLE_MOST);
 async function morePuzzleScores(list) {
   const info = homeData.puzzle;
-  if (puzzleRowsLoading || !info || info.board.length >= Math.min(info.players, PUZZLE_MOST)) return;
+  if (puzzleRowsLoading || !info || !puzzleMoreToCome(info)) return;
   puzzleRowsLoading = true;
   try {
     const next = await api(`/api/puzzle?limit=${Math.min(PUZZLE_MOST, info.board.length + PUZZLE_ROWS)}`);
-    if (homeData.puzzle !== info || next.board.length <= info.board.length) return;
+    if (homeData.puzzle !== info) return;
+    if (next.board.length <= info.board.length) {
+      // (nothing more after all: the loading line goes)
+      info.players = info.board.length;
+      list.querySelector(".pb-loading")?.remove();
+      return;
+    }
     const had = info.board.length;
     info.board = next.board;
     info.players = next.players;
-    // (only the new rows are added: the list keeps its place)
-    if (list.isConnected) (list.querySelector(".pb-list") || list).insertAdjacentHTML("beforeend", puzzleRowsHtml({ board: next.board }, 19, { from: had }));
+    if (!list.isConnected) return;
+    // (only the new rows are added, above the loading line: the list keeps its place,
+    // and the line stays put until there are no more to come)
+    const rows = list.querySelector(".pb-list") || list;
+    const loading = rows.querySelector(".pb-loading");
+    (loading || rows).insertAdjacentHTML(loading ? "beforebegin" : "beforeend", puzzleRowsHtml({ board: next.board }, 19, { from: had }));
+    if (!puzzleMoreToCome(info)) loading?.remove();
   } catch {
     // (tried again the next time the end comes into view)
   } finally {
@@ -1413,7 +1427,7 @@ function puzzleHtml() {
   const hand = exampleHand(info.hand.map((slot) => (slot.card ? slot.card.label + slot.card.suit : null)));
   // every score fetched so far, a set gap apart, in a list that scrolls inside the card
   // (more are fetched as its end comes into view: see morePuzzleScores)
-  const board = boxed("c-p1", "Best Margins", `<div class="pb-scroll" data-pb-list><div class="pb-list${info.board.length ? "" : " empty"}">${puzzleRowsHtml(info)}</div></div>`, "puzzle-board");
+  const board = boxed("c-p1", "Best Margins", `<div class="pb-scroll" data-pb-list><div class="pb-list${info.board.length ? "" : " empty"}">${puzzleRowsHtml(info)}${puzzleMoreToCome(info) ? `<p class="pb-empty pb-loading">Loading…</p>` : ""}</div></div>`, "puzzle-board");
   // how you have done today sits under the title, as a tab's subtitle does
   const mine = info.best == null ? "" : `Your best: ${puzzleMargin(info.best)}${info.rank ? ` · #${info.rank}` : ""} · can you do better?`;
   // (before your first finish, what the puzzle asks of you)
@@ -1671,7 +1685,7 @@ function cupCardHtml(cup, i) {
   const [kind, rulesName] = rulesIcon(cup.settings || {});
   const live = `${cup.live} match${cup.live === 1 ? "" : "es"} in play`;
   const watching = cup.watchers ? `${cup.watchers} spectating now` : "Tap to follow!";
-  return `<button type="button" class="watch-card cup-card boxed c-s4" data-tournament-open="${e(cup.id)}" style="--i:${i}" aria-label="${e(cup.name)}: ${live}"><span class="box-label">${label}</span><span class="box-label right">${e(agoShort(cup.started_at || cup.created_at))}</span><div class="cup-main"><span class="cup-trophy">${tilted("trophy.fill", 48, { key: `cup:${cup.id}`, sw: 6 })}</span><div class="cup-text"><b class="cup-name">${e(cup.name)}</b><span class="cup-live">${tilted("figure.golf", 24, { key: `cupg:${i}` })}<span>${live}</span></span></div></div><div class="wc-foot">${tilted("binoculars.fill", 24, { key: `cupb:${i}` })}<span>${watching}</span><span class="wc-kind" role="img" aria-label="${rulesName}" title="${rulesName}">${tilted(kind, 24, { key: `cupk:${i}` })}</span></div></button>`;
+  return `<button type="button" class="watch-card cup-card boxed c-s4" data-tournament-open="${e(cup.id)}" style="--i:${i}" aria-label="${e(cup.name)}: ${live}"><span class="box-label">${label}</span><span class="box-label right">${e(agoShort(cup.started_at || cup.created_at))}</span><div class="cup-main"><span class="cup-trophy">${tilted("trophy.fill", 40, { key: `cup:${cup.id}`, sw: 4 })}</span><div class="cup-text"><b class="cup-name">${e(cup.name)}</b><span class="cup-live">${tilted("figure.golf", 24, { key: `cupg:${i}` })}<span>${live}</span></span></div></div><div class="wc-foot">${tilted("binoculars.fill", 24, { key: `cupb:${i}` })}<span>${watching}</span><span class="wc-kind" role="img" aria-label="${rulesName}" title="${rulesName}">${tilted(kind, 24, { key: `cupk:${i}` })}</span></div></button>`;
 }
 function watchCardHtml(game, i) {
   const series = game.best_of == null ? "" : game.series_mode === "points" ? "Total pts" : "Best of";
@@ -1969,14 +1983,14 @@ function deckHtml() {
     const plural = SUIT_NAME[suit][0].toUpperCase() + SUIT_NAME[suit].slice(1);
     const cards = DECK_LABELS.map((label) => {
       const skin = equippedSkin(label + suit);
-      const others = CARD_SKINS.some((one) => one.card === label + suit);
+      const others = CARD_SKINS.some((one) => one.card === label + suit && flagUnlocked("card", one.id));
       return deckCardHtml(label, suit, skin, { key: skin ? skin.id : `classic:${label}${suit}`, swappable: others });
     }).join("");
     // (what waits in the box: every design of this suit not being worn, and the ordinary
     // face of each card wearing one)
     const spare = DECK_LABELS.flatMap((label) => {
       const worn = equippedSkin(label + suit);
-      const free = CARD_SKINS.filter((skin) => skin.card === label + suit && skin !== worn).map((skin) => deckCardHtml(label, suit, skin, { button: true, key: skin.id }));
+      const free = CARD_SKINS.filter((skin) => skin.card === label + suit && skin !== worn && flagUnlocked("card", skin.id)).map((skin) => deckCardHtml(label, suit, skin, { button: true, key: skin.id }));
       return worn ? [deckCardHtml(label, suit, null, { button: true, key: `classic:${label}${suit}` }), ...free] : free;
     });
     return `<section class="deck-suit suit-${suit}">
@@ -2173,60 +2187,182 @@ async function loadMyStats() {
 const FLAGS = [
   { name: "Wait for my cue...", reward: "word", word: "rushing", detail: "Finish a PvP game where your only moves are flips of your own cards. No swaps. No Go Fish draws." },
   { name: "Here we go...", reward: "word", word: "dragging", detail: "Finish a PvP game where you draw 5 Go Fish cards in a row and discard them all. No swaps. No flips of your own cards." },
-  { name: "Let's Go Gambling!", reward: "theme", theme: "poker", detail: "Activate the Angel Numbers' 777s rule in game." },
+  { name: "Let's go gambling!", reward: "theme", theme: "poker", detail: "Activate Angel Numbers' 777s in a game." },
   { name: "Adult swim", reward: "theme", theme: "pool", detail: "Play 50 solo games in a row against Golfbot." },
+  { name: "Black out!", reward: "theme", theme: "focus", detail: "Activate Suited Rows and All in Black in the same hand 10 times." },
+  { name: "Just one more game", reward: "theme", theme: "night", detail: "Finish a game between 11pm and 6am." },
+  { name: "Cupid's porcelain throne", reward: "face", emote: "giveheart", detail: "Finish 10 games with a heart flush in your final hand." },
+  { name: "Tear it up!", reward: "card", skin: "ripped-5d", detail: "Activate the Ripped 5 rule in 3 games." },
+  { name: "5 Fantastic 4s", reward: "face", emote: "pogcat", detail: "Finish 5 games with Fantastic 4 active in your final hand." },
+  { name: "Washed?", reward: "face", emote: "poop", detail: "Lose 100 PvP games." },
+  { name: "Take 5!", reward: "face", emote: "crocscreech", detail: "Finish a game with 5 rules in play in your final hand." },
+  { name: "No longer a casual", reward: "word", word: "ranked", detail: "Play 3 Ranked matches." },
+  { name: "Under Pressure", reward: "word", word: "isit", detail: "Win 3 games with at least 1 spectator watching." },
+  // (a secret: how it is earned stays hidden until it is)
+  { name: "Chat disabled for 3s.", reward: "word", word: "save", secret: true, detail: "Send the same emote 3 times in a row within 2 seconds while a game is being played." },
 ];
 /** The flags you have earned, and what they have unlocked (myFlags, in ui.js), as the server has them. */
 async function loadMyFlags() {
+  const before = new Set(myFlags.earned || []);
   try {
     myFlags = await api("/api/flags");
   } catch {
     return;
   }
+  // (a flag earned since this device last heard: announced. On a device that has never
+  // heard, what is already earned is only taken in, not announced all at once.)
+  if (flagsHeard) for (const name of myFlags.earned || []) if (!before.has(name)) announceFlag(name);
+  flagsHeard = true;
   try {
     localStorage.setItem("golf-flags", JSON.stringify(myFlags));
   } catch {}
   applyPrefs(); // (a theme earned, or no longer: shown as it should be)
   if (page === "home" && homeTab === "flags") redrawPane("flags");
 }
+/*
+ * A flag just earned drops in from the top, like the Ranked "Match found!" pill but
+ * purple and with the strokes the other way round: the pill in the primary outline,
+ * its button in the quieter one. What the flag is on the left (its reward's kind under
+ * its name), the reward itself on the right, and Dismiss below. Several earned at
+ * once come one after another.
+ */
+let flagNews = [];
+function announceFlag(name) {
+  if (!FLAGS.some((flag) => flag.name === name) || flagNews.includes(name)) return;
+  flagNews.push(name);
+  if (flagNews.length === 1) showFlagNews();
+}
+function showFlagNews() {
+  const banner = document.getElementById("flag-banner");
+  const flag = FLAGS.find((one) => one.name === flagNews[0]);
+  if (!banner) return;
+  if (!flag) {
+    banner.hidden = true;
+    banner.innerHTML = "";
+    return;
+  }
+  const sparkle = (mirror) => icon("sparkles", 24, { idle: false, sw: 3.4, cls: mirror ? "mirrored" : "" });
+  banner.innerHTML = `<div class="queue-pill offer open flag-pill" role="dialog" aria-label="Flag complete: ${e(flag.name)}"><div class="queue-offer-row"><span class="queue-text"><b>Flag Complete!</b><small><span class="queue-who">${e(flag.name)}</span><br>${FLAG_REWARDS[flag.reward]}</small></span><span class="flag-pill-art">${flagArtHtml(flag, true)}</span></div><button type="button" class="btn c-p4 queue-accept" data-flag-dismiss>${sparkle(false)}<span>${padTag("y")}Dismiss</span>${sparkle(true)}</button></div>`;
+  banner.hidden = false;
+  haptic("win");
+  if (reducedMotion.matches || !banner.animate) return;
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  banner.animate([{ transform: "translateY(calc(-100% - 2rem))" }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(0.3, 0.8, 0.25, 1.1)" });
+}
+function dismissFlagNews() {
+  const banner = document.getElementById("flag-banner");
+  const next = () => {
+    flagNews.shift();
+    showFlagNews();
+  };
+  if (!banner || banner.hidden || reducedMotion.matches || !banner.animate) return next();
+  banner.getAnimations().forEach((animation) => animation.cancel());
+  banner
+    .animate([{ transform: "none" }, { transform: "translateY(calc(-100% - 2rem))", opacity: 0 }], { duration: 260, easing: "cubic-bezier(0.4, 0, 0.9, 0.6)", fill: "forwards" })
+    .finished.then(() => {
+      banner.getAnimations().forEach((animation) => animation.cancel());
+      next();
+    }, next);
+}
 const FLAG_REWARDS = { theme: "Theme", word: "Text Emote", face: "Face Emote", card: "Individual Card Skin" };
-/** Cards in two columns, each only as tall as what is on it; they alternate between the columns, so they still read across. */
+/**
+ * Cards in two columns, each only as tall as what is on it. They start out alternating
+ * between the columns, so they read across; once drawn, balanceColumns moves a few if the
+ * columns would end far apart (each column keeping its cards in order).
+ */
 function hugColumns(cards) {
-  return `<div class="flag-grid">${[0, 1].map((side) => `<div class="flag-col">${cards.filter((_, at) => at % 2 === side).join("")}</div>`).join("")}</div>`;
+  const at = (card, i) => card.replace(/^<(\w+) /, `<$1 data-at="${i}" `);
+  return `<div class="flag-grid" data-balance>${[0, 1].map((side) => `<div class="flag-col">${cards.map(at).filter((_, i) => i % 2 === side).join("")}</div>`).join("")}</div>`;
+}
+/**
+ * Lay a two-column grid's cards out so the columns never end far apart, from the cards'
+ * real heights: they alternate as long as the columns end within half a card of each
+ * other, and otherwise the fewest cards move across to bring them that close.
+ */
+function balanceColumns(grid) {
+  const cols = [...grid.children];
+  if (cols.length !== 2) return;
+  const cards = cols.flatMap((col) => [...col.children]).sort((a, b) => a.dataset.at - b.dataset.at);
+  if (cards.length < 3 || cards.length > 16 || cards.some((card) => card.dataset.at === undefined)) return;
+  const gap = parseFloat(getComputedStyle(cols[0]).rowGap) || 0;
+  const tall = cards.map((card) => card.getBoundingClientRect().height + gap);
+  // (a little uneven is fine: within half a typical card of each other, the split
+  // nearest alternating wins; only beyond that do the cards move to even it out)
+  const typical = [...tall].sort((a, b) => a - b)[tall.length >> 1];
+  const slack = typical / 2;
+  let best = null;
+  for (let mask = 0; mask < 1 << cards.length; mask++) {
+    if (mask & 1) continue; // (the first card always starts the left column)
+    const sums = [0, 0];
+    let off = 0;
+    cards.forEach((_, i) => {
+      const side = (mask >> i) & 1;
+      sums[side] += tall[i];
+      off += side !== i % 2;
+    });
+    const gap = Math.abs(sums[0] - sums[1]);
+    const score = [Math.max(gap, slack), off];
+    if (!best || score[0] < best.score[0] - 1 || (Math.abs(score[0] - best.score[0]) <= 1 && score[1] < best.score[1])) best = { mask, score };
+  }
+  cards.forEach((card, i) => cols[(best.mask >> i) & 1].append(card));
+}
+// (each grid laid out once it is drawn, and again as the fonts that size it arrive)
+const balanceAll = () => document.querySelectorAll?.("[data-balance]").forEach((grid) => grid.isConnected && grid.offsetParent && balanceColumns(grid));
+if (typeof MutationObserver === "function")
+  new MutationObserver((changes) => {
+    if (changes.some((change) => [...change.addedNodes].some((node) => node.querySelector?.("[data-balance]") || node.matches?.("[data-balance]"))))
+      requestAnimationFrame(balanceAll);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+document.fonts?.ready?.then?.(balanceAll);
+/**
+ * What a flag unlocks, as its card shows it: out of focus under a lock until it is earned
+ * (`open`), then the reward itself (the Golf logo in the theme's colors, the face, the
+ * saying, the card in its design).
+ */
+function flagArtHtml({ reward: kind, theme, emote, word, skin, name }, open) {
+  // (each lock drifts a little, on its own beat)
+  const lock = (key) => icon("lock.fill", 18, { key: `flag-lock:${key}` });
+  // (the logo as the top bar draws it, but still and not a link, to stand for a theme)
+  const logo = logoHtml().replace(/^<a class="logo[^"]*" href="\." data-nav="home" aria-label="Golf home">/, `<span class="logo" aria-hidden="true">`).replace(/<\/a>$/, "</span>").replaceAll(' idle"', '"');
+  const design = cardSkin(skin);
+  const rank = (label) => ({ A: 1, J: 11, Q: 12, K: 13 })[label] || Number(label);
+  return {
+    // (the Golf logo in the colors of the theme it unlocks)
+    theme: () => `<span class="flag-art f-theme${open ? " open" : ""}">${logo.replace('<span class="logo"', `<span data-theme-art="${e(theme)}" class="logo"`)}${open ? "" : lock(name)}</span>`,
+    // (the saying itself, once it is yours)
+    word: () => `<span class="flag-art f-word${open ? " open" : ""}">${open ? e(emoteNames[word] || "") : lock(name)}</span>`,
+    face: () => `<span class="flag-art f-face${open ? " open" : ""}"><img src="${appPath(`/static/emotes/${emote || "cackling"}.png`)}" alt="">${open ? "" : lock(name)}</span>`,
+    // (the back of a card, under the lock: what it unlocks is kept face down until then;
+    // then the card face up in its design)
+    card: () => `<span class="flag-art f-card${open ? " open" : ""}"><span class="example-card" aria-hidden="true"><span class="card"><span class="card-flip">${open && design ? faceHtml({ label: design.label, suit: design.suit, rank: rank(design.label) }, false, design) : faceHtml(null)}</span></span></span>${open ? "" : lock(name)}</span>`,
+  }[kind]?.() ?? "";
 }
 /**
  * The flags as cards, for the Flags tab and a player's profile. A flag not yet
  * earned is green with an hourglass; one earned (named in `earned`) has a seal and
  * is `earnedColor` (purple, unless told otherwise). `rewards` false leaves out what
- * each unlocks; `only` shows just the earned ones. None is tracked yet, so nobody
- * has earned any.
+ * each unlocks; `only` shows just the earned ones. `progress` ({name: percent}, your
+ * own) puts how far along you are beside each one not yet earned.
  */
-function flagCardsHtml({ rewards = true, earned = new Set(), only = false, earnedColor = "c-p4" } = {}) {
+function flagCardsHtml({ rewards = true, earned = new Set(), only = false, earnedColor = "c-p4", progress = null } = {}) {
   const color = "c-fw";
-  // (each lock drifts a little, on its own beat)
-  const lock = (key) => icon("lock.fill", 18, { key: `flag-lock:${key}` });
-  // (the logo as the top bar draws it, but still and not a link, to stand for a theme)
-  const logo = logoHtml().replace(/^<a class="logo[^"]*" href="\." data-nav="home" aria-label="Golf home">/, `<span class="logo" aria-hidden="true">`).replace(/<\/a>$/, "</span>").replaceAll(' idle"', '"');
-  const art = ({ reward: kind, theme, emote, name }) =>
-    ({
-      // (the Golf logo as it always looks, blurred under the lock: not in the theme's colors)
-      theme: `<span class="flag-art f-theme">${logo}${lock(name)}</span>`,
-      word: `<span class="flag-art f-word">${lock(name)}</span>`,
-      face: `<span class="flag-art f-face"><img src="${appPath(`/static/emotes/${emote || "cackling"}.png`)}" alt="">${lock(name)}</span>`,
-      card: `<span class="flag-art f-card"><span class="example-card" aria-hidden="true"><span class="card"><span class="card-flip">${faceHtml(null)}</span></span></span>${lock(name)}</span>`,
-    })[kind];
+  const art = flagArtHtml;
   // each flag is a card exactly as a record's is (only green): its badge on the corner,
   // its name, what it unlocks where a record's number would be, how to earn it, and a note
-  const cards = FLAGS.filter((flag) => !only || earned.has(flag.name)).map(
+  // (with your progress known, the nearest to done come first: earned ones, then by percent)
+  const pct = (flag) => (earned.has(flag.name) ? 100 : progress?.[flag.name] || 0);
+  const shown = FLAGS.filter((flag) => !only || earned.has(flag.name));
+  if (progress) shown.sort((a, b) => pct(b) - pct(a));
+  const cards = shown.map(
     (flag, i) =>
-      `<div class="record-slot ${earned.has(flag.name) ? earnedColor : color}" style="--i:${i}"><section class="panel ${earned.has(flag.name) ? `${earnedColor} earned` : color} record-card flag-card"><span class="record-ico" role="img" aria-label="${earned.has(flag.name) ? "Earned" : "Not earned yet"}">${tilted(earned.has(flag.name) ? "checkmark.seal.fill" : "hourglass", 40, { key: `flag:${i}` })}</span><h3>${e(flag.name)}</h3>${rewards ? art(flag) : ""}<p>${e(flag.detail)}</p>${rewards ? `<p class="record-note">${FLAG_REWARDS[flag.reward]}</p>` : ""}</section></div>`,
+      `<div class="record-slot ${earned.has(flag.name) ? earnedColor : color}" style="--i:${i}"><section class="panel ${earned.has(flag.name) ? `${earnedColor} earned` : color} record-card flag-card"><span class="record-ico" role="img" aria-label="${earned.has(flag.name) ? "Earned" : "Not earned yet"}">${tilted(earned.has(flag.name) ? "checkmark.seal.fill" : "hourglass", 40, { key: `flag:${i}` })}${!earned.has(flag.name) && progress ? `<span class="flag-pct">${stickerText(`${progress[flag.name] || 0}%`, { key: `flag-pct:${i}` })}</span>` : ""}</span><h3>${e(flag.name)}</h3>${rewards ? art(flag, earned.has(flag.name)) : ""}<p${flag.secret && !earned.has(flag.name) ? ' class="flag-secret"' : ""}>${flag.secret && !earned.has(flag.name) ? "???" : e(flag.detail)}</p>${rewards ? `<p class="record-note">${FLAG_REWARDS[flag.reward]}</p>` : ""}</section></div>`,
   );
-  // two columns, each card only as tall as what is on it (they alternate between the columns,
-  // so they still read across: first left, then right)
+  // two columns, each card only as tall as what is on it, laid out so the columns never
+  // end far apart (see balanceColumns)
   return hugColumns(cards);
 }
 function flagsPaneHtml() {
-  return `<div class="tab-body flags-body">${tabTitle("Your Flags", "Complete flags to unlock new items... and bragging rights!", "flags")}${flagCardsHtml({ earned: new Set(myFlags.earned) })}</div>`;
+  return `<div class="tab-body flags-body">${tabTitle("Your Flags", "Complete flags to unlock new items... and bragging rights!", "flags")}${flagCardsHtml({ earned: new Set(myFlags.earned), progress: myFlags.progress || {} })}<p class="hint dark flags-note">A flag that names a rule only counts games with that rule active.</p></div>`;
 }
 
 /* ---------- another player's profile ----------

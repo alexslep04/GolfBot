@@ -397,6 +397,7 @@
    on it, every button, panel, seat and sticker alike. Only the cards keep a
    suit color (red, or the high contrast orange and blue), and the decorative
    icons beside labels go (see the end of the file). */
+[data-theme-art="focus"],
 :root[data-theme="focus"] {
   --f-edge: #4a4a4a; /* every border and sticker outline */
   --f-fill: #161616; /* every panel and button */
@@ -3305,10 +3306,10 @@ button.tag-rules:active > .tag-in {
 .emote-pop:not(.summary-emotes) {
   max-width: calc(100vw - 8.2rem);
 }
-/* with sayings to show it keeps the width of five faces and the bell, however
-   few faces are on it (the sayings take the faces' width); the bell keeps to the end */
+/* with sayings to show it keeps the width of four and a half faces and the bell,
+   however few faces are on it (the sayings take the faces' width); the bell keeps to the end */
 .emote-pop:not(.summary-emotes):has(.emote-word) {
-  min-width: min(36.6rem, calc(100vw - 8.2rem));
+  min-width: min(33.2rem, calc(100vw - 8.2rem));
 }
 .emote-row > [data-emote-mute] {
   margin-left: auto;
@@ -3321,6 +3322,36 @@ button.tag-rules:active > .tag-in {
   max-width: 5.2rem;
   height: auto;
   aspect-ratio: 1;
+}
+/* the faces: a strip that scrolls sideways, four and a half faces wide (4 faces,
+   their 4 gaps and half a face), the half fading out to show there are more */
+.emote-faces {
+  display: flex;
+  gap: 0.6rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(4.5 * 5.2rem + 4 * 0.6rem + 0.6rem);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  /* (room for a face's tilt and its controller ring, taken back by the margin) */
+  padding: 0.3rem;
+  margin: -0.3rem;
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.6rem), transparent);
+}
+.emote-faces.at-end {
+  mask-image: none;
+}
+.emote-faces::-webkit-scrollbar {
+  display: none;
+}
+.emote-faces > button {
+  flex: none;
+  width: 5.2rem;
+  max-width: none;
+  scroll-snap-align: start;
 }
 .emote-row img {
   width: 88%;
@@ -4698,6 +4729,15 @@ button.tag-rules:active > .tag-in {
   gap: 0.6rem;
   margin: 1.2rem 0;
 }
+/* (while a sheet is up, the page under it holds still: see the sheet's touchmove in
+   app.js. Only for a finger: a mouse's wheel stays in the sheet anyway, and taking the
+   page's scrollbar away would shift everything sideways.) */
+@media (pointer: coarse) {
+  :root:has(#sheet:not([hidden])),
+  :root:has(#sheet:not([hidden])) body {
+    overflow: hidden;
+  }
+}
 .sheet-shade {
   align-items: flex-end;
   padding: 0;
@@ -5302,6 +5342,47 @@ button:disabled > .haptic-switch {
   --fill: var(--p1b);
   --stroke: var(--p1);
 }
+/* A flag just earned: the invitation pill in purple, with the strokes the other way
+   round (the pill in the primary outline, Dismiss in the quieter one), and the reward on
+   the right where Decline would be. Over an invitation, if both come at once. */
+.flag-banner {
+  z-index: 96;
+}
+.queue-pill.flag-pill {
+  border-color: var(--p4);
+  background: var(--p4b);
+  color: var(--p4t);
+  --c: var(--p4);
+  --c2: var(--p4b);
+  --ct: var(--p4t);
+}
+.queue-pill.flag-pill .queue-accept {
+  border-color: color-mix(in srgb, var(--p4) 45%, var(--p4b));
+  --fill: var(--p4b);
+  --stroke: color-mix(in srgb, var(--p4) 45%, var(--p4b));
+}
+.flag-pill-art {
+  flex: none;
+  display: grid;
+  place-items: center;
+  min-width: 5.6rem;
+}
+.flag-pill-art .flag-art {
+  margin: 0;
+}
+/* (the logo, a touch smaller here) */
+.flag-pill-art .flag-art.f-theme {
+  width: 10rem;
+  height: 4.6rem;
+}
+.flag-pill-art .flag-art.f-theme .logo {
+  transform: translate(-50%, -50%) scale(0.45);
+}
+.flag-pill-art .flag-art.open.f-word {
+  min-width: 0;
+  height: 3.4rem;
+  font-size: 1.4rem;
+}
 .social-dialog {
   width: min(42rem, calc(100vw - 3.2rem));
   max-height: 86dvh;
@@ -5769,6 +5850,10 @@ button:disabled > .haptic-switch {
 .record-card .record-note {
   font-size: 1.15rem;
   opacity: 0.7;
+}
+/* (a record nobody holds yet says so in the card's own text color, as its words would be) */
+.record-card p.hint.dark {
+  color: var(--ct);
 }
 /* the note under a board (what it's ranked by, or where its records come from) */
 .leader-foot {
@@ -6565,6 +6650,10 @@ button:disabled > .haptic-switch {
 .puzzle-board .pb-name {
   color: var(--ct);
 }
+/* (more scores on the way: the line at the end of the list) */
+.puzzle-board .pb-loading {
+  color: var(--ct);
+}
 .puzzle-board > .box-label {
   z-index: 1;
 }
@@ -7173,6 +7262,22 @@ button:disabled > .haptic-switch {
   top: -2.2rem;
   left: -1.4rem;
 }
+/* how far along a flag not yet earned is: a sticker percent to the right of the hourglass,
+   in its colors */
+.flag-card > .record-ico {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+/* (the note under the flags, on which games count) */
+.flags-note {
+  margin-top: 0.4rem;
+  text-align: center;
+}
+.flag-pct {
+  font: 700 2.8rem/1 var(--round);
+  --sw: 0.6rem;
+}
 /* (what a flag unlocks is named in the card's own color, as large as the card's words) */
 .flag-card .record-note {
   color: var(--c);
@@ -7191,8 +7296,8 @@ button:disabled > .haptic-switch {
   --stroke: var(--ink);
 }
 .flag-art.f-word {
-  width: 7rem;
-  height: 3rem;
+  width: 10rem;
+  height: 3.6rem;
   border: 0.3rem solid var(--ink);
   border-radius: 1.2rem;
   background: var(--paper);
@@ -7201,8 +7306,8 @@ button:disabled > .haptic-switch {
    on the card, nothing behind it), with the lock (in focus) over it */
 .flag-art.f-theme {
   position: relative;
-  width: 10.4rem;
-  height: 4.4rem;
+  width: 13.6rem;
+  height: 6rem;
   /* (the blurred logo painted as one piece; its glow free to spread past the box) */
   isolation: isolate;
 }
@@ -7217,28 +7322,35 @@ button:disabled > .haptic-switch {
   position: absolute;
   left: 50%;
   top: 50%;
-  /* (the top bar's logo, at a little under half its size) */
-  transform: translate(-50%, -50%) scale(0.42);
-  /* (measured before the logo is scaled down: about 0.75rem as seen) */
-  filter: blur(1.8rem);
-  /* (the logo in Original's colors whatever the theme: the "f" in a dark theme's
-     fairway green was a dark blot under the blur) */
-  --fw: #73d542;
-  --fw3: #c3f3a4;
-  --p1: #53aaef;
-  --p1b: #c8f8f8;
-  --p2: #f55753;
-  --p2b: #f6cbc5;
-  --p3: #ffcb20;
-  --p3b: #f6e7c5;
-  --paper: #fff;
+  /* (the top bar's logo, at a little under two thirds its size) */
+  transform: translate(-50%, -50%) scale(0.6);
+  /* (measured before the logo is scaled down: about 1.2rem as seen) */
+  filter: blur(2rem);
+  /* (in the colors of the theme the flag unlocks: given by tabs.js, on the logo itself) */
   --shadow-alpha: 0.25;
   pointer-events: none;
 }
 .flag-art.f-theme > .ico {
   position: relative;
-  --fill: #fff;
-  --stroke: #222;
+}
+/* Earned: the reward itself, in focus and unlocked (the logo, the face, the saying, the card) */
+.flag-art.open.f-theme .logo,
+.flag-art.open.f-face img {
+  filter: none;
+}
+.flag-art.open.f-word {
+  width: auto;
+  min-width: 10rem;
+  padding: 0 1.2rem;
+  color: var(--ink);
+  font: 700 1.6rem/1 var(--text);
+  white-space: nowrap;
+}
+.flag-art.open.f-card .face.front {
+  display: flex;
+}
+.flag-art.open.f-card .face.back {
+  display: none;
 }
 /* a face emote: the emote itself, out of focus, under the lock */
 .flag-art.f-face {
@@ -7252,7 +7364,7 @@ button:disabled > .haptic-switch {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: blur(0.75rem);
+  filter: blur(1.6rem);
 }
 /* a card skin: the back of a card, under the lock */
 .flag-art.f-card {
@@ -7845,7 +7957,7 @@ button.mt-player:active {
   font-family: "Golf Rough Round 80", var(--round) !important;
 }
 .flag-art.f-theme .logo {
-  --grain-scale: 0.42;
+  --grain-scale: 0.6;
 }
 
 /* At most three players to a row on a Watch card: each takes a third of the card (a
@@ -8493,8 +8605,10 @@ table.standings th {
 button.record-card {
   width: 100%;
   font: inherit;
-  color: inherit;
-  text-align: inherit;
+  /* (its words in the card's own text color, centered, as on every record card: not the
+     page's green, left-aligned, that a button would otherwise take on) */
+  color: var(--ct);
+  text-align: center;
   cursor: pointer;
   transition: transform 0.28s var(--spring);
 }
@@ -8643,25 +8757,44 @@ section.panel.stats-card {
   gap: 0.6rem;
   margin: 0;
   font: 700 2.2rem/1.2 var(--text);
-  color: var(--ink);
-  --fill: var(--ink);
-  --stroke: var(--paper);
+  /* the suit's name in the primary text color; its icon in its cards' colors: their
+     edge (the suit's color) and their face's own background (sampled from the card
+     face images) */
+  color: var(--black);
+  --suit: var(--ink);
+  --stroke: var(--suit);
+  --fill: #e7e7e7;
+}
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit-head {
+  --fill: #1e211f;
 }
 .deck-suit.suit-H .deck-suit-head,
 .deck-suit.suit-D .deck-suit-head {
-  color: var(--red);
-  --fill: var(--red);
+  --suit: var(--red);
+  --fill: #fce5e5;
+}
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) :is(.deck-suit.suit-H, .deck-suit.suit-D) .deck-suit-head {
+  --suit: #f08a86;
+  --fill: #2e1c1c;
+}
+:root[data-theme="focus"] :is(.deck-suit.suit-H, .deck-suit.suit-D) .deck-suit-head {
+  --suit: #c25e59;
 }
 :root.contrast-cards .deck-suit.suit-D .deck-suit-head {
-  color: #e8782a;
-  --fill: #e8782a;
+  --suit: #e8782a;
+  --fill: #fcede2;
 }
 :root.contrast-cards .deck-suit.suit-C .deck-suit-head {
-  color: #3f7fd6;
-  --fill: #3f7fd6;
+  --suit: #3f7fd6;
+  --fill: #e5f0fc;
 }
-:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit-head {
-  color: var(--paper);
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit.suit-D .deck-suit-head {
+  --suit: #f2a061;
+  --fill: #2e2219;
+}
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit.suit-C .deck-suit-head {
+  --suit: #7fb0f2;
+  --fill: #1c242e;
 }
 .deck-grid {
   display: grid;
@@ -8791,15 +8924,23 @@ button.deck-card:not(.selected):active {
    card of their own */
 .aces-tabs.top-tabs {
   /* on a green card, as the tab bar is */
-  padding: 0.6rem 0.4rem 0.8rem;
+  padding: 0.4rem 0.4rem 0.7rem;
   border: 0.4rem solid var(--fw);
   border-radius: 2rem;
   background: var(--fw3);
   box-shadow: 0.3rem 0.3rem 0 var(--shadow);
 }
+.aces-tabs.top-tabs .aces-tab {
+  padding: 0.1rem 0;
+}
+/* (their words in the text color of the tab's own color: the picked one's, the rest the green's) */
+.aces-tabs.top-tabs .aces-tab,
+.aces-tabs.top-tabs .aces-tab.on {
+  color: var(--ct);
+}
 /* (its arrow under the view showing, pointing up at it, half over the card's edge) */
 .aces-tabs.top-tabs .aces-pointer {
   top: auto;
-  bottom: 0.1rem;
+  bottom: -0.45rem;
 }
 
