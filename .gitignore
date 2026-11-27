@@ -4,3 +4,5 @@ __pycache__/
 .artifacts/
 data/*.sqlite3*
 data/*.json
+data/logs/
+data/deploy-request

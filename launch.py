@@ -10,6 +10,8 @@ import webbrowser
 
 import uvicorn
 
+from logs import setup_logging
+
 
 def open_when_ready(port):
     url = f"http://127.0.0.1:{port}"
@@ -27,6 +29,8 @@ def main():
     parser = argparse.ArgumentParser(description="Host Golf on your computer.")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--access-log", action="store_true",
+                        help="also log every request (a lot: each player's page asks every few seconds)")
     parser.add_argument("--debug", action="store_true",
                         help="mark the site as a debug build: DEBUG in the title and a bug on the icon")
     args = parser.parse_args()
@@ -50,7 +54,10 @@ def main():
     pid_file.parent.mkdir(exist_ok=True)
     pid_file.write_text(str(os.getpid()))
     try:
-        uvicorn.run("server:app", host="0.0.0.0", port=args.port, workers=1)
+        # one log for the game and for Uvicorn: the console and data/logs/golf.log (see logs.py)
+        print(f"Log: {setup_logging()}")
+        uvicorn.run("server:app", host="0.0.0.0", port=args.port, workers=1, log_config=None,
+                    access_log=args.access_log)
     finally:
         if pid_file.exists() and pid_file.read_text().strip() == str(os.getpid()):
             pid_file.unlink()
