@@ -89,6 +89,8 @@ class DemoTablesTests(unittest.TestCase):
                 self.assertEqual(client.get('/api/spectate').json(), [])
                 self.assertEqual(client.get('/api/tournaments').json(), [])
                 self.assertFalse(any(row['id'].startswith('demo:') for row in client.get('/api/leaderboards').json()['pvp']))
+                # (nor does it make up a demo player's profile or numbers when asked for one)
+                self.assertIsNone(client.get('/api/profile', params={'player': 'demo:ace'}).json().get('mmr'))
 
 
 if __name__ == '__main__':

@@ -1,8 +1,36 @@
 """Release labels stored with results; older unlabelled games stay unlabelled."""
-PATCH_VERSION = "1.4.0"
+PATCH_VERSION = "1.5.0"
 
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
+    # a line of its own, above the headings
+    "intro": "New Home Screen UI! I hope you like it 🫡",
+    "rules": {"revisions": [], "additions": []},
+    "sections": [
+        {"title": "Daily Puzzle", "notes": [
+            "All new daily puzzle where players have a set amount of turns against PuzzleBot to achieve the highest difference in scores.",
+            "Players' scores are displayed on a leaderboard for all to see!",
+            "Puzzles are auto-generated.",
+        ]},
+        {"title": "Flags", "notes": [
+            "Complete in-game achievements we're calling \"flags\" to receive rewards like skins, emotes, themes and more.",
+            "More coming soon!",
+        ]},
+        {"title": "New Spectating UI", "notes": [
+            "Renamed to \"Watch\".",
+            "Watch game scores update live from the Watch tab without needing to refresh.",
+            "Watch tournaments happen live with the new bracket UI, without needing to refresh.",
+        ]},
+        {"title": "Friends", "notes": [
+            "Friend people and see their activity!",
+        ]},
+        {"title": "Profile Pages", "notes": [
+            "View players' records, stats, flags and more on their profile pages.",
+        ]},
+    ],
+    "changes": [],
+}, {
+    "version": "1.4.0",
     "rules": {"revisions": [], "additions": []},
     # this patch sorts its changes under headings
     "sections": [

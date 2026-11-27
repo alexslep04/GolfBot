@@ -97,6 +97,9 @@ def local_hour(player, at):
         return None
 DECK_CARD = re.compile(r"^(A|[2-9]|10|J|Q|K)[SHDC]$")
 DECK_SKIN = re.compile(r"^[a-z0-9-]{1,32}$")
+# the card designs every server offers (Your Deck); the colored ones in web/board.js
+# CARD_SKINS are a debug server's only, and any other server turns them away
+PUBLIC_DECK_SKINS = {"ripped-5d"}
 
 
 class Deck(BaseModel):
@@ -2148,7 +2151,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             # their own, not every guest's added together)
             merge = player is None and opponent is None
             # (a demo player's numbers are filled in below; one with no saved games yet has none)
-            demo = lambda who: bool(who) and str(who).startswith('demo:')
+            demo = lambda who: debug_mode() and bool(who) and str(who).startswith('demo:')
             build_selected = viewer_profile['id'] if demo(selected) else selected
             build_compared = None if demo(compared) else compared
             try:
@@ -2161,7 +2164,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                                                                     profiles=profiles, merge_guests=merge))
             # a debug server's demo players have no saved games: their numbers are their demo record
             for key, wanted in (('player', selected), ('comparison', compared)):
-                if wanted and str(wanted).startswith('demo:'):
+                if debug_mode() and wanted and str(wanted).startswith('demo:'):
                     stats[key] = demo_stats_entry(wanted)
             # a signed-in player's two ratings: MMR (by series) and their game rating
             for entry in (stats['player'], stats['comparison']):
@@ -2260,7 +2263,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                 seen = await asyncio.to_thread(store.puzzles.last_seen, player)
                 if seen:
                     profile['label'], profile['avatar'] = seen
-        if player.startswith('demo:'):
+        if debug_mode() and player.startswith('demo:'):
             # (a debug server's demo player: named, with their avatar and demo MMR)
             name = player.split(':', 1)[1].title()
             profile['label'], profile['avatar'] = name, DEMO_AVATARS.get(name)
@@ -3047,7 +3050,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         """Your custom card designs, for the tables you sit at to draw your cards in."""
         session = session_for(request)
         player = puzzle_player(session)
-        choices = {card: skin for card, skin in body.choices.items() if DECK_CARD.match(card) and DECK_SKIN.match(skin)}
+        choices = {card: skin for card, skin in body.choices.items() if DECK_CARD.match(card) and DECK_SKIN.match(skin)
+                   and (skin in PUBLIC_DECK_SKINS or debug_mode())}
         # (a design a flag unlocks only for those who have earned it)
         if any(skin in achievements.FLAG_CARDS for skin in choices.values()):
             earned = await asyncio.to_thread(flags_for, player)

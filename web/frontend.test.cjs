@@ -648,7 +648,7 @@ test('settings offer the Original, Poker, Night Golf, Pool and Focus themes on t
   assert.doesNotMatch(sheet,/data-theme-pick="poker"/);
   h.run('pickTheme("poker")');assert.equal(h.run('prefs.theme'),'golf');
   h.run('myFlags.themes=["poker","pool","focus","night"]');h.run('themeSheet()');sheet=h.nodes.get('sheet').innerHTML;
-  assert.match(sheet,/aria-label="Theme"/);assert.equal(sheet.match(/class="theme-preview"/g).length,5);
+  assert.match(sheet,/aria-label="Theme"/);assert.equal(sheet.match(/class="theme-swatches"/g).length,5);assert.equal(sheet.match(/class="ts-(p1|p2|p3|p4|text|bg)"/g).length,30);
   for(const [key,name] of [['golf','Original'],['poker','Poker'],['night','Night Golf'],['focus','Focus']])
     assert.match(sheet,new RegExp(`role="radio" aria-checked="${key==='golf'}" data-theme-pick="${key}"[^]*?<span class="grow">${name}</span>`));
   for(const [key,name] of [['poker','Poker'],['night','Night Golf'],['focus','Focus'],['golf','Original']]){
@@ -791,18 +791,21 @@ test('the notes of a new patch pop up once, with an x and Start golfing!',async(
   h.context.fetch=async()=>({ok:true,json:async()=>({current:'1.4.0',patches:[{version:'1.4.0',labels:{changes:"What's new"},rules:{revisions:[],additions:[]},changes:['Tournaments! <b>']},{version:'1.3.0',rules:{revisions:[],additions:[]},changes:['Old news']}]})});
   h.run('session.patch="1.4.0";session.account=null;page="home"');
   await h.run('patchPopup()');
-  const dialog=h.nodes.get('patch-dialog');
-  assert.equal(dialog.open,true);
-  assert.match(dialog.innerHTML,/class="dialog-x" data-patch-close aria-label="Close"/);
-  assert.match(dialog.innerHTML,/Patch 1\.4\.0/);assert.match(dialog.innerHTML,/Tournaments! &lt;b&gt;/);assert.doesNotMatch(dialog.innerHTML,/Old news/);
-  assert.match(dialog.innerHTML,/data-patch-close>.*Start golfing!/);
-  h.run('closePatchPopup()');assert.equal(dialog.open,false);
-  // seen on this patch: it does not come back
-  h.run('markPatchSeen();patchPopupDone=false');
-  await h.run('patchPopup()');assert.equal(dialog.open,false);
+  // (a sheet, like Settings)
+  const sheet=()=>h.nodes.get('sheet');
+  assert.equal(sheet().hidden,false);
+  assert.match(sheet().innerHTML,/class="sheet c-fw patch-sheet"/);
+  assert.match(sheet().innerHTML,/class="close-btn" data-patch-close/);
+  assert.match(sheet().innerHTML,/Patch 1\.4\.0/);assert.match(sheet().innerHTML,/Tournaments! &lt;b&gt;/);assert.doesNotMatch(sheet().innerHTML,/Old news/);
+  assert.match(sheet().innerHTML,/data-patch-close>[^]*Start golfing!/);
+  h.run('closePatchPopup()');assert.equal(sheet().hidden,true);
+  // seen on this patch (closing it says so): it does not come back
+  assert.equal(stored['golf-played-patch'],'1.4.0');
+  h.run('patchPopupDone=false');
+  await h.run('patchPopup()');assert.equal(sheet().hidden,true);
   // and a first visit has nothing to catch up on
   const fresh=harness();fresh.run('session.patch="1.4.0";page="home"');await fresh.run('patchPopup()');
-  assert.equal(fresh.nodes.get('patch-dialog'),undefined);
+  assert.equal(fresh.nodes.get('sheet').hidden,true);
 });
 
 test('a patch can sort its notes under headings of its own',()=>{

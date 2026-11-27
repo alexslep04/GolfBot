@@ -3406,40 +3406,77 @@ button.tag-rules:active > .tag-in {
     transform: scale(1.06) rotate(-2deg);
   }
 }
-/* Settings > Theme: a row for each theme, wearing that theme's own color
-   tokens (app.js puts them on it), so every color here is the theme's and not
-   the one in use. Its preview is a small table: a card and four players. */
+/* Settings > Theme: a row for each theme, wearing that theme's own color tokens
+   (app.js puts them on it), so every color here is the theme's and not the one in
+   use: six tall swatches (its four player colors, its text on white, its table),
+   then its name on a pill, with a check on the one chosen. */
 .theme-list {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 1rem;
 }
 .theme-choice {
   display: flex;
-  align-items: center;
-  gap: 1.4rem;
-  min-height: 8rem;
-  padding: 0.8rem 1.6rem 0.8rem 0.8rem;
-  border: 0.4rem solid var(--fw);
-  border-radius: 2.4rem;
-  background: var(--fw3);
+  align-items: stretch;
+  gap: 0.6rem;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--fw-text);
   font: 700 2rem/1.2 var(--text);
   text-align: left;
-  --fill: var(--fw);
-  --stroke: var(--paper);
   transition: transform 0.28s var(--spring);
 }
 .theme-choice:active {
   transform: scale(0.97);
 }
-.theme-choice[aria-checked="true"] {
+.theme-swatches {
+  flex: none;
+  display: flex;
+  gap: 0.4rem;
+}
+.theme-swatches i {
+  width: 1.9rem;
+  min-height: 6.4rem;
+  /* (the same stroke as the name's button beside them) */
+  border: 0.4rem solid var(--sw-edge);
+  border-radius: 99rem;
+  background: var(--sw-fill);
+}
+.theme-swatches .ts-p1 { --sw-edge: var(--p1); --sw-fill: var(--p1b); }
+.theme-swatches .ts-p2 { --sw-edge: var(--p2); --sw-fill: var(--p2b); }
+.theme-swatches .ts-p3 { --sw-edge: var(--p3); --sw-fill: var(--p3b); }
+.theme-swatches .ts-p4 { --sw-edge: var(--p4); --sw-fill: var(--p4b); }
+.theme-swatches .ts-text { --sw-edge: var(--ink); --sw-fill: var(--paper); }
+.theme-swatches .ts-bg { --sw-edge: var(--fw); --sw-fill: var(--bg); }
+/* the name: a pill in the theme's own green */
+.theme-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem 0.6rem 1.6rem;
+  border: 0.4rem solid var(--fw);
+  border-radius: 2.4rem;
+  background: var(--fw3);
+  --fill: var(--fw);
+  --stroke: var(--paper);
+}
+.theme-choice[aria-checked="true"] .theme-name {
   box-shadow: 0.3rem 0.3rem 0 var(--shadow);
 }
-/* a theme its flag holds back: there to see, faded, with the flag that unlocks it */
+/* a theme its flag holds back: there to see, greyed out, with the flag that unlocks it
+   and a lock on the right */
 .theme-choice.locked {
-  opacity: 0.6;
+  opacity: 0.55;
+  filter: grayscale(1);
   cursor: default;
+}
+.theme-choice.locked .theme-name > .ico {
+  margin-left: auto;
+  --fill: var(--paper);
+  --stroke: var(--ink);
 }
 .theme-choice.locked:active {
   transform: none;
@@ -3447,33 +3484,10 @@ button.tag-rules:active > .tag-in {
 /* (a locked theme goes unnamed: just the flag that unlocks it) */
 .theme-choice .theme-flag {
   display: block;
-  font: 700 1.6rem/1.25 var(--text);
+  font: 700 1.3rem/1.25 var(--text);
 }
-.theme-preview {
+.theme-name > .ico {
   flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  width: 11.6rem;
-  height: 5.6rem;
-  border: 0.3rem solid var(--fw);
-  border-radius: 1.4rem;
-  background: var(--bg);
-}
-.theme-preview .tp-card {
-  width: 2rem;
-  height: 2.8rem;
-  margin-right: 0.3rem;
-  border: 0.25rem solid var(--ink);
-  border-radius: 0.5rem;
-  background: var(--paper);
-  rotate: -6deg;
-}
-.theme-preview i {
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
 }
 /* Settings > Emotes: the bar as it stands, drawn like the bar itself, over the
    emotes left off it. One chosen on the bar is lifted, and wears an x that
@@ -3958,22 +3972,19 @@ button.tag-rules:active > .tag-in {
   position: relative;
   overflow: visible;
 }
-/* the notes of a new patch, the first time it is opened: they scroll inside the card */
-.patch-dialog {
-  width: min(92vw, 56rem);
-  text-align: left;
+/* the notes of a new patch, the first time it is opened: a sheet, its "New update" pill
+   over the title, and Start golfing! at the end of the notes */
+.patch-sheet .sheet-head h2 .pill {
+  display: table;
+  margin-bottom: 0.4rem;
+  font-size: 1.4rem;
 }
-.patch-dialog h2 {
-  margin-top: 0.8rem;
-}
-.patch-dialog .patch-notes {
-  max-height: 52dvh;
-  overflow-y: auto;
-  margin: 0.4rem -0.6rem 1.2rem 0;
-  padding-right: 0.6rem;
-}
-.patch-dialog .patch-notes p {
+.patch-sheet .patch-notes p {
   margin: 0.5rem 0;
+}
+.patch-sheet .patch-start {
+  width: 100%;
+  margin-top: 1.6rem;
 }
 .dialog-x {
   position: absolute;
@@ -4729,12 +4740,12 @@ button.tag-rules:active > .tag-in {
   gap: 0.6rem;
   margin: 1.2rem 0;
 }
-/* (while a sheet is up, the page under it holds still: see the sheet's touchmove in
-   app.js. Only for a finger: a mouse's wheel stays in the sheet anyway, and taking the
-   page's scrollbar away would shift everything sideways.) */
+/* (while a pop-up is up, the page under it holds still: see the pop-ups' touchmove in
+   app.js. Only for a finger: a mouse's wheel is held by the pop-ups' wheel listener
+   instead, as taking the page's scrollbar away would shift everything sideways.) */
 @media (pointer: coarse) {
-  :root:has(#sheet:not([hidden])),
-  :root:has(#sheet:not([hidden])) body {
+  :root:has(#sheet:not([hidden]), dialog[open], .modal-shade),
+  :root:has(#sheet:not([hidden]), dialog[open], .modal-shade) body {
     overflow: hidden;
   }
 }
@@ -8944,3 +8955,8 @@ button.deck-card:not(.selected):active {
   bottom: -0.45rem;
 }
 
+/* a patch's opening line, above its headings */
+.patch-intro {
+  margin: 0.4rem 0 0.2rem;
+  font: 700 1.8rem/1.3 var(--text);
+}

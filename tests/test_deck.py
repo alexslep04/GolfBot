@@ -1,6 +1,8 @@
 """Your Deck: each player's custom card designs, shown at the tables they sit at."""
 from contextlib import ExitStack
+import os
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -38,6 +40,8 @@ class DeckServerTests(unittest.TestCase):
         self.room = self.store.rooms[self.id]
 
     def test_each_seats_designs_are_in_the_table_state(self):
+        # (the colored designs are a debug server's)
+        self.enterContext(mock.patch.dict(os.environ, {'GOLFBOT_DEBUG': '1'}))
         sent = self.host.post('/api/deck', json={'choices': {'AS': 'hole-in-one', 'ZZ': 'bad', 'KH': 'Not OK!'}})
         self.assertEqual(sent.status_code, 200)
         state = lambda: server.snapshot(self.room, next(iter(self.room.seats)))
@@ -47,7 +51,14 @@ class DeckServerTests(unittest.TestCase):
         self.host.post('/api/deck', json={'choices': {}})
         self.assertEqual(state()['skins'], [{}, {}])
 
+    def test_a_server_that_is_not_debug_turns_the_debug_designs_away(self):
+        self.enterContext(mock.patch.dict(os.environ, {'GOLFBOT_DEBUG': ''}))
+        state = lambda: server.snapshot(self.room, next(iter(self.room.seats)))
+        self.host.post('/api/deck', json={'choices': {'AS': 'gold-as', '7S': 'midnight-7s'}})
+        self.assertEqual(state()['skins'][0], {})
+
     def test_a_flags_design_is_worn_only_once_it_is_earned(self):
+        self.enterContext(mock.patch.dict(os.environ, {'GOLFBOT_DEBUG': '1'}))
         state = lambda: server.snapshot(self.room, next(iter(self.room.seats)))
         self.host.post('/api/deck', json={'choices': {'5D': 'ripped-5d', 'AS': 'hole-in-one'}})
         self.assertEqual(state()['skins'][0], {'AS': 'hole-in-one'})

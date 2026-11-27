@@ -448,40 +448,63 @@ function fillSheet(holder, html, then = null) {
   else put();
 }
 /*
- * While a sheet is up, the page under it holds still (the root stops scrolling: see
- * :root:has(#sheet:not([hidden])) in style.css), and an up-and-down swipe on the sheet
- * only ever scrolls the sheet (or a list in it). Safari otherwise hands a swipe that
- * the sheet cannot take, at its top or bottom or too short to scroll, to the page
- * behind it. Sideways swipes are left alone, for what scrolls that way inside a sheet.
+ * While a pop-up is up (a sheet, a dialog, a modal over the table), the page under it
+ * holds still: on a touch screen the root stops scrolling (see :root:has(...) in
+ * style.css), and a swipe or a mouse wheel only ever scrolls the pop-up (or a list in
+ * it). What it cannot take, at its top or bottom or too short to scroll, or a swipe on
+ * the dim around it, goes nowhere rather than to the page behind. Sideways swipes are
+ * left alone, for what scrolls that way inside a pop-up.
  */
-let sheetTouch = null;
-sheetRoot.addEventListener(
+const POPUPS = "#sheet:not([hidden]), dialog[open], .modal-shade";
+const popupOpen = () => !!document.querySelector(POPUPS);
+/** Whether something under `target` (inside a pop-up) can still scroll `dy`'s way. */
+function popupScrolls(target, dy) {
+  const popup = target?.closest?.(POPUPS);
+  if (!popup) return false;
+  for (let el = target; el; el = el.parentElement) {
+    if (el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY))
+      if (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0) return true;
+    if (el === popup) break;
+  }
+  return false;
+}
+let popupTouch = null;
+document.addEventListener(
   "touchstart",
   (event) => {
     const touch = event.touches[0];
-    sheetTouch = event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null;
+    popupTouch = event.touches.length === 1 && popupOpen() ? { x: touch.clientX, y: touch.clientY } : null;
   },
   { passive: true },
 );
-sheetRoot.addEventListener(
+document.addEventListener(
   "touchmove",
   (event) => {
-    if (!sheetTouch || event.touches.length !== 1 || !event.cancelable) return;
+    if (!popupTouch || event.touches.length !== 1 || !event.cancelable) return;
     const touch = event.touches[0];
-    const dx = touch.clientX - sheetTouch.x,
-      dy = touch.clientY - sheetTouch.y;
-    sheetTouch = { x: touch.clientX, y: touch.clientY };
+    const dx = touch.clientX - popupTouch.x,
+      dy = touch.clientY - popupTouch.y;
+    popupTouch = { x: touch.clientX, y: touch.clientY };
     if (Math.abs(dx) > Math.abs(dy) || !dy) return;
-    // the nearest thing under the finger that can still scroll this way takes it
-    for (let el = event.target; el && el !== sheetRoot; el = el.parentElement) {
-      if (el.scrollHeight <= el.clientHeight + 1 || !/auto|scroll/.test(getComputedStyle(el).overflowY)) continue;
-      if (dy > 0 ? el.scrollTop > 0 : el.scrollTop + el.clientHeight < el.scrollHeight - 1) return;
-    }
-    event.preventDefault();
+    // (a finger moving down scrolls up)
+    if (!popupScrolls(event.target, -dy)) event.preventDefault();
+  },
+  { passive: false },
+);
+document.addEventListener(
+  "wheel",
+  (event) => {
+    if (!popupOpen() || event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+    if (!popupScrolls(event.target, event.deltaY)) event.preventDefault();
   },
   { passive: false },
 );
 function closeSheet() {
+  // (a new patch's notes, put away: seen)
+  if (sheetRoot.querySelector(".patch-sheet")) {
+    markPatchSeen();
+    document.querySelector(".patch-chip")?.remove();
+  }
   rememberRulesScroll();
   sheetRoot.hidden = true;
   sheetRoot.innerHTML = "";
@@ -1095,7 +1118,9 @@ function patchNotesHtml(patch) {
     items?.length ? `<h3 style="margin-top:1.2rem">${title}</h3>${items.map((note) => `<p>• ${e(note)}</p>`).join("")}` : "";
   // (a patch may sort its changes under headings of its own)
   const sections = (patch.sections || []).map((section) => list(e(section.title), section.notes)).join("");
-  return `${list(patch.labels?.revisions || "Rule revisions", patch.rules?.revisions)}${list(patch.labels?.additions || "Rule additions", patch.rules?.additions)}${sections}${list(patch.labels?.changes || "Play and interface", patch.changes)}`;
+  // (and may open with a line of its own, above them)
+  const intro = patch.intro ? `<p class="patch-intro">${e(patch.intro)}</p>` : "";
+  return `${intro}${list(patch.labels?.revisions || "Rule revisions", patch.rules?.revisions)}${list(patch.labels?.additions || "Rule additions", patch.rules?.additions)}${sections}${list(patch.labels?.changes || "Play and interface", patch.changes)}`;
 }
 /* The first time someone opens Golf on a new patch, its notes pop up over the
    home screen, with an x on the corner and "Start golfing!" at the foot. A
@@ -1114,27 +1139,17 @@ async function patchPopup() {
     patchPopupDone = false; // not shown: try again the next time the home screen is up
     return;
   }
-  let dialog = document.getElementById("patch-dialog");
-  if (!dialog) {
-    dialog = document.createElement("dialog");
-    dialog.id = "patch-dialog";
-    dialog.className = "social-dialog leave-dialog patch-dialog";
-    dialog.setAttribute("aria-labelledby", "patch-dialog-title");
-    dialog.addEventListener("close", () => {
-      markPatchSeen();
-      document.querySelector(".patch-chip")?.remove();
-    });
-    // a tap outside the card closes it too
-    dialog.addEventListener("click", (event) => {
-      if (event.target === dialog) dialog.close();
-    });
-    document.body.append(dialog);
-  }
-  dialog.innerHTML = `<button type="button" class="dialog-x" data-patch-close aria-label="Close">${icon("xmark.circle.fill", 26)}</button><span class="pill">New update</span><h2 id="patch-dialog-title">Patch ${e(current)}</h2><div class="patch-notes">${patchNotesHtml(patch)}</div><div class="dialog-actions"><button type="button" class="btn c-p3 grow" data-patch-close>${tilted("figure.golf", 28)}<span>Start golfing!</span></button></div>`;
-  if (!dialog.open) dialog.showModal();
+  // (a sheet like Settings, rising from the bottom, in the fairway's green: its title
+  // with the x beside it, the notes, and Start golfing! at the end of them)
+  openSheet(`<section class="sheet c-fw patch-sheet" role="dialog" aria-modal="true" aria-labelledby="patch-sheet-title">
+    <div class="sheet-head"><h2 id="patch-sheet-title"><span class="pill">New update</span>Patch ${e(current)}</h2><button type="button" class="close-btn" data-patch-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="patch-notes">${patchNotesHtml(patch)}</div>
+    <button type="button" class="btn c-p3 patch-start" data-patch-close>${tilted("figure.golf", 28)}<span>Start golfing!</span></button>
+  </section>`);
 }
+/** The patch's notes, closed (however they are closed): seen, on this patch. */
 function closePatchPopup() {
-  document.getElementById("patch-dialog")?.close();
+  if (sheetRoot.querySelector(".patch-sheet")) closeSheet();
 }
 function patchChip() {
   const seen = seenPatch();
@@ -1341,15 +1356,14 @@ function themeTokens(key) {
   if (key in themeTokenCache) return themeTokenCache[key];
   const tokens = new Map();
   try {
-    for (const sheet of document.styleSheets || [])
-      for (const rule of sheet.cssRules || []) {
-        const selector = rule.selectorText || "";
-        // the tokens every theme starts from, then the ones this theme changes
-        const base = selector === ":root";
-        const themed = /^:root(\[data-theme="[\w-]+"\]|:is\([^)]*\))$/.test(selector) && selector.includes(`[data-theme="${key}"]`);
-        if (!base && !themed) continue;
-        for (const name of rule.style) if (name.startsWith("--")) tokens.set(name, rule.style.getPropertyValue(name).trim());
-      }
+    // the tokens every theme starts from, then (over them, wherever they sit in the
+    // stylesheet) the ones this theme changes
+    const rules = [...(document.styleSheets || [])].flatMap((sheet) => [...(sheet.cssRules || [])]);
+    const base = (selector) => selector === ":root";
+    const themed = (selector) => selector.split(",").map((part) => part.trim()).some((part) => /^:root(\[data-theme="[\w-]+"\]|:is\([^)]*\))$/.test(part) && part.includes(`[data-theme="${key}"]`));
+    for (const pick of [base, themed])
+      for (const rule of rules)
+        if (rule.style && pick(rule.selectorText || "")) for (const name of rule.style) if (name.startsWith("--")) tokens.set(name, rule.style.getPropertyValue(name).trim());
   } catch {} // (a stylesheet that can't be read: the rows keep the theme in use)
   tokens.delete("--u"); // the page's own scale
   return (themeTokenCache[key] = [...tokens].map(([name, value]) => `${name}:${value}`).join(";"));
@@ -1361,7 +1375,10 @@ function themeListHtml() {
   return `<div class="theme-list" role="radiogroup" aria-label="Theme" data-themes>${THEMES.map(([key, name]) => {
     const locked = !flagUnlocked("theme", key);
     const flag = locked ? flagFor(key) : null;
-    return `<button type="button" class="theme-choice${locked ? " locked" : ""}" role="radio" aria-checked="${key === chosen}" ${locked ? `aria-disabled="true" aria-label="A locked theme: earn the flag ${e(flag?.name || "")}"` : `data-theme-pick="${key}"`} style="${e(themeTokens(key))}"><span class="theme-preview" aria-hidden="true"><span class="tp-card"></span>${[1, 2, 3, 4].map((p) => `<i style="background:var(--p${p})"></i>`).join("")}</span><span class="grow">${locked ? `<small class="theme-flag">Earn &quot;${e(flag?.name || "")}&quot;</small>` : e(name)}</span>${key === chosen ? icon("checkmark.circle.fill", 30, { idle: false }) : locked ? icon("lock.fill", 26, { idle: false }) : ""}</button>`;
+    // its colors as six swatches (the four players', the text on white, the table), then
+    // its name on a pill of its own
+    const swatches = ["p1", "p2", "p3", "p4", "text", "bg"].map((part) => `<i class="ts-${part}"></i>`).join("");
+    return `<button type="button" class="theme-choice${locked ? " locked" : ""}" role="radio" aria-checked="${key === chosen}" ${locked ? `aria-disabled="true" aria-label="A locked theme: earn the flag ${e(flag?.name || "")}"` : `data-theme-pick="${key}"`} style="${e(themeTokens(key))}"><span class="theme-swatches" aria-hidden="true">${swatches}</span><span class="theme-name"><span class="grow">${locked ? `<small class="theme-flag">Earn &quot;${e(flag?.name || "")}&quot;</small>` : e(name)}</span>${key === chosen ? icon("checkmark.circle.fill", 30, { idle: false }) : locked ? icon("lock.fill", 30, { idle: false }) : ""}</span></button>`;
   }).join("")}</div>`;
 }
 function themeSheet() {
