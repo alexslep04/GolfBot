@@ -200,4 +200,8 @@ class MatchHistory:
         return json.loads(row[0]) if row else None
 
     def close(self):
-        self.connection.close()
+        # (under the lock every reader and writer holds: a query still running in a worker
+        # thread, as one the server's shutdown has stopped waiting for can be, finishes
+        # first. Closed under its feet, SQLite crashed the whole process.)
+        with self.lock:
+            self.connection.close()

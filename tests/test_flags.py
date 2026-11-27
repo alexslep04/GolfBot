@@ -183,6 +183,27 @@ class FinalHandTests(unittest.TestCase):
         self.assertEqual(scoring.final_hand_keys(quads, Rules()), set())
 
 
+class ShutdownTests(unittest.TestCase):
+    def test_closing_the_history_waits_for_a_query_still_running(self):
+        import threading
+        import time as clock
+        from match_history import MatchHistory
+        history = MatchHistory()
+        done = []
+
+        def slow_query():
+            with history.lock:
+                clock.sleep(0.2)  # (a query running in a worker thread)
+                done.append(history.connection.execute('SELECT 1').fetchone())
+
+        worker = threading.Thread(target=slow_query)
+        worker.start()
+        clock.sleep(0.05)
+        history.close()  # (must wait for it, not close the connection out from under it)
+        worker.join()
+        self.assertEqual(done, [(1,)])
+
+
 class NameTests(unittest.TestCase):
     def test_display_names_take_emoji_and_stop_at_twelve_characters(self):
         import server
