@@ -30,7 +30,7 @@ function harness({debug=false}={}) {
     setTimeout(){return 1;},clearTimeout(){},setInterval(){},clearInterval(){},confirm:()=>true,
     fetch:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({pvp:[{label:'Alice <admin>',mmr:1210,provisional:true,wins:3,draws:1,losses:2,win_rate:.5,games:{wins:11,draws:2,losses:9}}],solo:[],patch:'1.2.0'})};}
   });
-  for(const file of ['icons.js','ui.js','board.js','gamepad.js','tournament.js','app.js']) {
+  for(const file of ['icons.js','ui.js','board.js','gamepad.js','tournament.js','tabs.js','app.js']) {
     // debug: a debug server's page, as far as ui.js's theme list goes (app.js's
     // debug tools need more of a browser than this harness has)
     if(debug && file==='ui.js') context.document.documentElement.dataset.debug='';
@@ -44,19 +44,22 @@ function harness({debug=false}={}) {
   return {run,context,nodes,requests,listeners};
 }
 
-// The leaderboard page is drawn once; each view then lands in its body, under the header and tabs.
-const leaderHtml=h=>{const app=h.nodes.get('app');return app.innerHTML+app.querySelector('[data-leader-shell]').querySelector('[data-leader-body]').innerHTML;};
-test('leaderboard defaults PVP, escapes names, formats fractional win rate',async()=>{
-  const h=harness();await h.run('leaderboardPage()');
-  const html=leaderHtml(h);
-  assert.match(html,/data-leader-tab="pvp" aria-pressed="true"/);
+// Aces: the leaderboards and records, a view at a time, under the tab's big title.
+test('Aces PvP ranks by MMR, escapes names, formats fractional win rate; it loads the leaderboards',async()=>{
+  const h=harness();
+  await h.run('loadTab("aces")');
+  assert.equal(h.requests[0].url,'/golf/api/leaderboards');
+  h.run('acesView="pvp"');
+  const html=h.run('acesPaneHtml()');
+  assert.match(html,/PvP Rankings/);
   // the leader's card and a ranked row for each player, with MMR (still settling: "?") and the series W–D–L
   assert.match(html,/class="panel c-p3 stat-hero leader-hero"/);assert.match(html,/class="list-item board-row c-p3"/);
   assert.match(html,/1,210\?<small>MMR<\/small>/);assert.match(html,/Series 3–1–2/);assert.match(html,/series W–D–L/);
-  assert.match(html,/Games 11–2–9/);assert.match(html,/\? = still settling/);assert.doesNotMatch(html,/Elo/);
+  assert.match(html,/Games 11–2–9/);assert.doesNotMatch(html,/still settling|leader-foot/);assert.doesNotMatch(html,/Elo/);
   assert.match(html,/Alice &lt;admin&gt;/);assert.match(html,/50%/);
-  assert.equal(h.requests[0].url,'/golf/api/leaderboards');
-  await h.run('leaderboardPage("solo")');assert.match(leaderHtml(h),/No solo streaks yet/);assert.doesNotMatch(leaderHtml(h),/Best reached/);
+  h.run('acesView="solo"');assert.match(h.run('acesPaneHtml()'),/No solo streaks yet/);
+  // the views sit above the tab bar, the one showing marked
+  assert.match(h.run('acesTabsHtml()'),/data-aces-view="solo" aria-pressed="true"/);
 });
 
 test('Play solo starts a House rules game straight away, with no lobby, without abandoning a saved game',async()=>{
@@ -69,11 +72,11 @@ test('Play solo starts a House rules game straight away, with no lobby, without 
   assert.doesNotMatch(h.nodes.get('app').innerHTML,/data-rules-picker|continues with the rules/);
 });
 
-test('advanced defaults account vs bot and all time even without history',async()=>{
-  const h=harness();await h.run('statsPage()');
+test('Your stats (once Advanced stats) are yours against everyone, over every game',async()=>{
+  const h=harness();await h.run('loadMyStats()');
   const query=new URL(h.requests[0].url,'https://example.test').searchParams;
-  assert.equal(query.get('player'),'account:42');assert.equal(query.get('opponent'),'bot:golfbot');
-  assert.equal(query.get('patch'),null); // no patch filter: every patch counts
+  assert.equal(query.get('player'),'account:42');assert.equal(query.get('opponent'),'');
+  assert.equal(query.get('house_rules'),'false');assert.equal(query.get('patch'),null); // every patch counts
 });
 
 test('PVP ranks by MMR from series, with games counted apart; Solo is all time',()=>{
@@ -84,7 +87,7 @@ test('PVP ranks by MMR from series, with games counted apart; Solo is all time',
   assert.doesNotMatch(pvp,/1,090/);assert.doesNotMatch(pvp,/Patch 1\.4\.0/);assert.doesNotMatch(pvp,/still settling/);
   assert.match(h.run('leaderboardBody("pvp",{pvp:[]})'),/Finish a Ranked series to get on the board/);
   const solo=h.run('leaderboardBody("solo",{patch:"1.3.0",solo:[{id:"account:1",label:"Ann",best_streak:9,current_streak:2,wins:20,draws:1,losses:5,win_rate:.77}]})');
-  assert.match(solo,/All time/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);assert.doesNotMatch(solo,/MMR/);
+  assert.doesNotMatch(solo,/Ranked by best solo streak/);assert.doesNotMatch(solo,/Patch 1\.3\.0/);assert.doesNotMatch(solo,/Series/);assert.doesNotMatch(solo,/MMR/);
 });
 
 test('records show the biggest yapper, the longest 1v1 game, the bogey monster and the party',()=>{
@@ -172,8 +175,29 @@ test('guest exit offers sign-in, and No leaves through the API',async()=>{
   assert.equal(h.requests[0].url,'/golf/api/lobbies/room/leave');
 });
 
-test('guest sign-in choice retains the table while opening the account screen',async()=>{
-  const h=harness();h.run('session.account=null;session.room_id="room";state={id:"room",practice:true,game:{phase:"choose"}};accountPage=()=>{globalThis.signinOpened=true;}');
+test('Sign in goes straight to Google where it can, and says why where it cannot; there is no account page',async()=>{
+  const h=harness();let said='';h.run('session.account=null');h.context.toastSaid=t=>{said=t;};h.run('toast=t=>toastSaid(t)');
+  // ours to look at, with a place for Google's own button over it
+  const button=h.run('signInButton("small c-p1","Sign in")');
+  assert.match(button,/<span class="signin-wrap small c-p1"><button type="button" class="btn small c-p1" data-signin>Sign in<\/button><span class="google-cover" data-google-cover/);
+  assert.match(h.run('youPaneHtml()'),/data-signin>.*Sign in<span class="sub">Keep your stats and add friends/);
+  // no Google sign-in on this server: it says so
+  await h.run('signIn()');assert.match(said,/not available on this server/);
+  // at a table that is not a solo game of theirs: leave it first
+  h.run('session.google_client_id="id";session.room_id="room";state=null');said='';
+  await h.run('signIn()');assert.match(said,/Leave your current table/);assert.equal(h.run('canSignIn()'),false);
+  h.run('session.room_id=null');assert.equal(h.run('canSignIn()'),true);
+  // signed in: the button is the account's (its sheet has Sign out); a new account picks its unique name
+  h.run('session.account={id:"1",unique_name:"ann"}');
+  assert.match(h.run('youPaneHtml()'),/data-account-sheet>.*@ann<span class="sub">Your account/);assert.doesNotMatch(h.run('youPaneHtml()'),/data-signin/);
+  h.run('accountSheet()');assert.match(h.nodes.get('sheet').innerHTML,/data-signout/);
+  h.run('session.account={id:"1",unique_name:null}');assert.match(h.run('youPaneHtml()'),/data-unique-name>/);
+  h.run('uniqueNameSheet()');assert.match(h.nodes.get('sheet').innerHTML,/id="account-name-form"/);
+  assert.equal(h.run('typeof accountPage'),'undefined');
+});
+
+test('guest sign-in choice retains the table while starting sign-in',async()=>{
+  const h=harness();h.run('session.account=null;session.room_id="room";state={id:"room",practice:true,game:{phase:"choose"}};signIn=()=>{globalThis.signinOpened=true;}');
   const leaving=h.run('abandonExisting()');
   h.run('resolveLeavePrompt("signin")');
   assert.equal(await leaving,false);
@@ -323,32 +347,58 @@ test('the player popup lists that player\'s points for each finished game of a s
   assert.match(h.run('seriesTally(0)'),/Wins<\/span><b>1 win</);assert.match(h.run('seriesTally(0)'),/Total<\/span><b>13 pts/);
   h.run('state.history=[]');
   assert.match(h.run('seriesTally(1)'),/No games finished yet/);assert.match(h.run('seriesTally(1)'),/Wins<\/span><b>0 wins/);assert.match(h.run('seriesTally(1)'),/Total<\/span><b>0 pts/);
-  h.run('state.best_of=1');assert.equal(h.run('seriesTally(1)'),'');
+  // a single game has no tally, only what is being played
+  h.run('state.best_of=1');assert.match(h.run('seriesTally(1)'),/Game 1 of 1<\/h3><div class="meta"><span class="pill">Single game<\/span>/);assert.doesNotMatch(h.run('seriesTally(1)'),/data-series-tally/);
+  // a series says how it is decided, how long it runs, which game this is and its rules
+  h.run('state.best_of=5;state.series_mode="wins";state.house_rules=true;state.status="playing";state.history=[]');
+  assert.doesNotMatch(h.run('seriesTally(1)'),/class="pill">Game \d/);
+  for(const text of ['<h3>Game 1 of 5</h3>','Best of','5 games · first to 3','House rules']) assert.match(h.run('seriesTally(1)'),new RegExp(text));
+  h.run('state.best_of=null;state.house_rules=false;state.rules={v2:true,poison:true,king_queen:false}');
+  for(const text of ['<h3>Game 1</h3>','Play until you leave','No set length','2 rules in play']) assert.match(h.run('seriesTally(1)'),new RegExp(text));
 });
 
-test('the ranking shows guests as one row that opens no player page, and times read as seconds',()=>{
+test('rows on the board open that player (the combined Guest row opens nothing), and times read as seconds',()=>{
   const h=harness();
-  const row=(id,label,rounds)=>({profile:{id,label},rounds,round_wins:1,round_losses:0,round_draws:0,round_win_rate:1});
-  const html=h.run(`leaderboardHtml(${JSON.stringify({leaderboard:[row('account:1','@alice',2),row('guests','Guest',5)]})})`);
-  assert.match(html,/<button type="button" data-stats-player="account:1"/);
-  assert.match(html,/<div class="list-item board-row c-fw" aria-label="2\. Guest/);assert.doesNotMatch(html,/data-stats-player="guests"/);
+  const html=h.run(`leaderboardBody("pvp",${JSON.stringify({pvp:[{id:'account:1',label:'@alice',mmr:1100,wins:1,draws:0,losses:0,win_rate:1},{id:'guests',label:'Guest',mmr:1000,wins:0,draws:0,losses:1,win_rate:0}]})})`);
+  assert.match(html,/<button type="button" data-stats-player="account:1"/);assert.doesNotMatch(html,/data-stats-player="guests"/);
   assert.equal(h.run('statSeconds(8.42)'),'8.4 s');assert.equal(h.run('statSeconds(72)'),'1 min 12 s');assert.equal(h.run('statSeconds(null)'),'—');
   // a guest's own page is the browser's profile the server names, not their display name
   h.run('session={username:"Sam",player_id:"browser:abc"}');assert.equal(h.run('myPlayerId()'),'browser:abc');
   assert.equal(h.run('emoteNames.ofc'),'Ofc!');assert.ok(h.run('TEXT_EMOTES.includes("ofc")'));
 });
 
-test('the player popup has one View stats button for that player, and loads only their player card',()=>{
+test('a name tag at the table opens that player\'s profile in a sheet of their color, loading their profile and how they compare',()=>{
   const h=harness();const before=h.requests.length;
   h.run('state={id:"t",viewer:0,best_of:5,names:["Alice","Bob"],player_ids:["account:42","browser:abc"],seats:[1,2],history:[]};playerStatsSheet(1)');
   const html=h.nodes.get('sheet').innerHTML;
-  assert.match(html,/data-stats-player="browser:abc">[\s\S]*View stats<\/button>/);
-  assert.doesNotMatch(html,/Leaderboard|Advanced stats|Full stats|Loading stats/);
-  assert.deepEqual(h.requests.slice(before).map(r=>r.url),['/golf/api/player-card?player=browser%3Aabc']);
-  h.run('state.player_ids=[null,null];playerStatsSheet(1)');
-  assert.match(h.nodes.get('sheet').innerHTML,/data-nav="stats">[\s\S]*View stats<\/button>/);
+  assert.match(html,/class="sheet c-s1 profile-sheet"|class="sheet c-p2 profile-sheet"|class="sheet [a-z0-9-]+ profile-sheet"/);assert.match(html,/data-profile-sheet="browser:abc"/);
+  assert.doesNotMatch(html,/Leaderboard|Advanced stats|Full stats|View stats/);
+  const urls=h.requests.slice(before).map(r=>r.url);
+  // (and the all-time records, the first time, to mark the ones they hold)
+  assert.equal(urls.filter((url)=>!url.endsWith('/api/leaderboards')).length,2);assert.ok(urls.includes('/golf/api/profile?player=browser%3Aabc'));assert.ok(urls.some((url)=>url.startsWith('/golf/api/stats?player=browser%3Aabc')));
+  // (a seat with no player id has only the table's own tally)
+  const count=h.requests.length;h.run('state.player_ids=[null,null];playerStatsSheet(1)');
+  assert.equal(h.requests.length,count);assert.match(h.nodes.get('sheet').innerHTML,/class="sheet [a-z0-9-]+ profile-sheet"/);
 });
-
+test('a profile shows who the player is, their numbers, how they compare with you, their bests with yours under them, and their flags',()=>{
+  const h=harness();
+  h.run('session.account={id:"me",unique_name:"spence"};session.avatar="dog"');
+  const profile={id:'account:42',label:'Nathan',unique_name:'nathan',avatar:'dog',status:'offline',last_seen:Date.now()/1000-180,friend:'none',self:false,mmr:1320,provisional:false,pvp_streak:5,solo_streak:8,seconds_played:187200,
+    personal:{highest_mmr:{mmr:1320,at:1},pvp_streak:{streak:5,at:2}},mine:{highest_mmr:{mmr:1210,at:3}}};
+  const side=(label,unique,rounds)=>({profile:{id:label,label,unique_name:unique},overall:{rounds,round_win_rate:0.563,average_turns:11.3},ratings:{series:{rating:1146,rd:132,provisional:true}}});
+  const html=h.run(`profileHtml(${JSON.stringify(profile)},${JSON.stringify({player:side('Nathan','nathan',668),comparison:side('You','spence',398)})})`);
+  assert.match(html,/class="profile-name">Nathan<small>1,?320<\/small>/);assert.match(html,/@nathan · active 3m ago/);
+  assert.match(html,/data-profile-friend="nathan"[^]*?Add friend/);
+  for(const text of ['Current MMR','Solo Win Streak','PvP Win Streak','Time Played','Compare Players','Other Player','@nathan','@spence','Games played','Avg turns per game']) assert.match(html,new RegExp(text));
+  assert.match(html,/aria-label="Their Records"/);assert.match(html,/Your best/);
+  assert.match(html,/aria-label="Their Flags"/);
+  // only the flags they have completed are shown, in their own color (none yet: a line says so)
+  assert.doesNotMatch(html,/Adult swim/);assert.match(html,/hasn(&#39;|')t completed any flags yet/);
+  const done=h.run(`profileHtml(${JSON.stringify({...profile,flags:["Let's go gambling!"]})},null,{accent:'c-s3'})`);
+  assert.match(done,/class="panel c-s3 earned record-card flag-card"[^]*?Let(&#39;|')s go gambling!/);assert.doesNotMatch(done,/Adult swim|hourglass|flag-art/);
+  // friends already: no button to press
+  assert.match(h.run(`profileHtml(${JSON.stringify({...profile,friend:'friend'})},null)`),/disabled>[^]*?Friends/);
+});
 test('previous display names are one plain line of text, with no buttons',()=>{
   const h=harness();
   assert.equal(h.run('previousNamesHtml(["Ace","B & C","Dee"])'),'<p class="hint dark">Previously: Ace, B &amp; C, Dee</p>');
@@ -497,11 +547,11 @@ test('match eye toggles remain open across live updates and are isolated by play
   assert.match(h.run('ruleHelpCard(catalog[1],{player:0,on:true})'),/aria-expanded="false"/);
 });
 
-test('Solo shows best streak with W-D-L and win rate instead of current streak',async()=>{
-  const h=harness();h.context.fetch=async()=>({ok:true,json:async()=>({patch:'1.2.0',solo:[{label:'Alice',best_streak:8,current_streak:3,wins:6,draws:2,losses:2,win_rate:.6}]})});
-  await h.run('leaderboardPage("solo")');
-  assert.match(h.nodes.get('app').innerHTML,/data-leader-shell/);
-  const html=leaderHtml(h);
+test('Solo shows best streak with W-D-L and win rate instead of current streak',()=>{
+  const h=harness();
+  h.run(`homeData.boards=${JSON.stringify({patch:'1.2.0',solo:[{label:'Alice',best_streak:8,current_streak:3,wins:6,draws:2,losses:2,win_rate:.6}]})};acesView="solo"`);
+  const html=h.run('acesPaneHtml()');
+  assert.match(html,/Solo Streaks/);
   assert.match(html,/best streak/);assert.match(html,/best streak 8/);
   assert.match(html,/W–D–L/);assert.match(html,/win rate/);
   assert.match(html,/6–2–2/);assert.match(html,/60%/);
@@ -577,21 +627,28 @@ test('a double-tap flips whatever else has happened at the table, and waits its 
   assert.equal(h.requests.length,count);assert.equal(h.run('board.queuedFlip'),null);
 });
 
-test('settings offer the Original, Poker, Night Golf and (debug only) Focus themes on their own sheet, and the choice re-skins the page',()=>{
-  // without debug there is no Focus, and a saved choice of it can't be picked
+test('settings offer the Original, Poker, Night Golf, Pool and Focus themes on their own sheet, and the choice re-skins the page',()=>{
+  // Focus is a flag's to unlock (Black out!): listed, locked, and a saved choice of it can't be picked
   const plain=harness();
   assert.doesNotMatch(plain.run('themeListHtml()'),/data-theme-pick="focus"/);
+  assert.match(plain.run('themeListHtml()'),/Earn &quot;Black out!&quot;/);
   plain.run('pickTheme("focus")');assert.equal(plain.run('prefs.theme'),'golf');
-  const h=harness({debug:true});
+  const h=harness();
   // Settings names the theme in use on a row that opens the themes' sheet (no longer a switch that cycles them)
   h.run('settingsSheet()');
   assert.match(h.nodes.get('sheet').innerHTML,/<button type="button" class="btn c-fw pref" data-theme-settings>[^]*?<span class="grow">Theme<\/span><b class="pref-value on">Original<\/b>/);
   assert.doesNotMatch(h.nodes.get('sheet').innerHTML,/data-pref="theme"/);
   assert.equal(h.run('document.documentElement.dataset.theme'),undefined);
   // the sheet lists each theme with a preview, the one in use checked
+  // (Poker and Pool are a flag's to unlock: locked, they are listed but can't be picked)
   h.run('themeSheet()');
   let sheet=h.nodes.get('sheet').innerHTML;
-  assert.match(sheet,/aria-label="Theme"/);assert.equal(sheet.match(/class="theme-preview"/g).length,4);
+  assert.match(sheet,/class="theme-choice locked"[^>]*aria-disabled="true"[^]*?<span class="grow"><small class="theme-flag">Earn &quot;Let(&#39;|')s go gambling!&quot;/);
+  assert.doesNotMatch(sheet,/>Poker<|>Pool<|Poker,|Pool,/);
+  assert.doesNotMatch(sheet,/data-theme-pick="poker"/);
+  h.run('pickTheme("poker")');assert.equal(h.run('prefs.theme'),'golf');
+  h.run('myFlags.themes=["poker","pool","focus","night"]');h.run('themeSheet()');sheet=h.nodes.get('sheet').innerHTML;
+  assert.match(sheet,/aria-label="Theme"/);assert.equal(sheet.match(/class="theme-swatches"/g).length,5);assert.equal(sheet.match(/class="ts-(p1|p2|p3|p4|text|bg)"/g).length,30);
   for(const [key,name] of [['golf','Original'],['poker','Poker'],['night','Night Golf'],['focus','Focus']])
     assert.match(sheet,new RegExp(`role="radio" aria-checked="${key==='golf'}" data-theme-pick="${key}"[^]*?<span class="grow">${name}</span>`));
   for(const [key,name] of [['poker','Poker'],['night','Night Golf'],['focus','Focus'],['golf','Original']]){
@@ -641,12 +698,12 @@ test('the records added in 1.4.0 each have a card',()=>{
     spectacle:{count:4,players:["Ann","Bob <b>"],scores:[14,6],label:"Bob"},
     recruit:{id:"account:3",label:"Lily",at:Date.now()/1000-3*86400},
     upset:{id:"account:2",label:"Bob",opponent:"Ann",gap:230,ratings:[950,1180],points:[14,6],winner:1}})`);
-  assert.match(html,/AI vs\. all players/);assert.match(html,/Golfbot<\/strong> is behind everyone put together: 25,673 pts to the players' 24,846 over 2,173 games/);
-  assert.match(html,/Luck of the draw/);assert.match(html,/Ann<\/strong> gets to go first 66\.7% of the time \(14 of 21 games\)… because of course they do!/);
+  assert.match(html,/CPU vs\. all players/);assert.match(html,/Golfbot<\/strong><\/p><p>is behind everyone put together: 25,673 pts to the players' 24,846 over 2,173 games/);
+  assert.match(html,/Luck of the draw/);assert.doesNotMatch(html,/988|1012/);assert.match(html,/Ann<\/strong><\/p><p>gets to go first 66\.7% of the time \(14 of 21 games\)… because of course they do!/);
   assert.match(html,/Spreading the gospel/);assert.match(html,/through invite links/);
   assert.match(html,/Quite the spectacle/);assert.match(html,/Ann vs Bob &lt;b&gt;<\/strong> finished 14 to 6/);
-  assert.match(html,/Newest recruit/);assert.match(html,/Lily<\/strong> is the newest Golf account/);assert.match(html,/days ago/);
-  assert.match(html,/David vs\. Goliath/);assert.match(html,/Bob<\/strong> \(950\) won a series against Ann \(1,180\), 6 to 14/);
+  assert.match(html,/Newest recruit/);assert.match(html,/Lily<\/strong><\/p><p>is the newest Golf account/);assert.match(html,/days ago/);
+  assert.match(html,/David vs\. Goliath/);assert.match(html,/Bob<\/strong><\/p><p>\(950\) won a series against Ann \(1,180\), 6 to 14/);
   // the comeback modifier says what it leaves out
   assert.match(html,/in the most comeback wins<\/p><p class="record-note">Leaves out Poisoned Card\./);
   assert.match(html,/Highest MMR/);assert.doesNotMatch(html,/Elo/);
@@ -663,7 +720,9 @@ test('advanced stats show both ratings and the first-turn rows',()=>{
   assert.match(html,/Went first<\/th><td>62\.5% <small>\(5 of 8\)<\/small>/);
   assert.match(html,/Win rate going first<\/th><td>80% <small>\(4 of 5\)/);
   assert.match(html,/Win rate not going first<\/th><td>33\.3% <small>\(1 of 3\)/);
-  assert.match(html,/recorded since patch 1\.4\.0/);
+  assert.doesNotMatch(html,/recorded since patch 1\.4\.0/);
+  // (the rule activations are a card of their own, after the stats)
+  assert.match(html,/<\/section><section class="panel [^"]*rule-activations stats-card"><h2>Rule Activations[^<]*<\/h2>/);assert.doesNotMatch(html,/View rule activation|no activation records|Indented rows/);
   // head to head has no ratings rows: they belong to the player, not the pairing
   assert.doesNotMatch(h.run(`statsTable([{profile:{label:"@ann"},ratings:{series:{rating:1,rd:1,wins:0,draws:0,losses:0},game:{rating:1,rd:1,wins:0,draws:0,losses:0}},head_to_head:${stats}}],"head_to_head","Head to head","c-p1")`),/MMR/);
 });
@@ -681,24 +740,26 @@ test('Host a Table offers Solo, which starts a custom match against Golfbot',asy
   assert.equal(body.practice,false);assert.equal(body.game_type,'1v1');assert.equal(body.best_of,3);assert.equal(body.series_mode,'points');
 });
 
-test('Spectate shows everything: running tournaments above every game, with the streak of a player against Golfbot',async()=>{
+test('Watch shows tournaments being played as cards of their own, then PvP and Solo games (a tournament\'s matches only in its card)',async()=>{
   const h=harness();
   h.context.fetch=async(url)=>({ok:true,json:async()=>url.includes('/api/tournaments')
     ?[{id:'t1',name:'Friday Cup',status:'live',format_name:'Single elimination',ranked:true,entrants:4,live:2,host:'Ann',champion:null,mine:false},
       {id:'t2',name:'Open one',status:'open',format_name:'Round robin',ranked:false,entrants:1,live:0,host:'Bob',champion:null,mine:false}]
-    :[{id:'g1',names:['Ann','Golfbot'],scores:[3,9],avatars:[],solo:true,round:2,best_of:null,house_rules:true,streak:{current:5,draws:0}},
-      {id:'g2',names:['Cy','Di'],scores:[1,2],avatars:[],solo:false,game_type:'1v1',round:1,best_of:1,streak:null,tournament:{id:'t1',name:'Friday Cup',label:'Semifinal'}},
-      {id:'g3',names:['Eve <i>','Flo'],scores:[4,4],avatars:[],solo:false,game_type:'1v1',round:1,best_of:3,streak:null}]});
-  await h.run('spectatePage()');
-  const html=h.nodes.get('app').innerHTML;
-  // one page, with no PVP / Solo / Tournaments pills: those are Match history's
-  assert.doesNotMatch(html,/data-list-tab|list-tabs/);
-  assert.match(html,/data-watch="g1"/);assert.match(html,/data-watch="g2"/);assert.match(html,/data-watch="g3"/);assert.match(html,/Eve &lt;i&gt;/);
-  assert.match(html,/class="watch-streak hot" style="--heat:5" role="img" aria-label="Win streak against Golfbot: 5"/);
-  assert.equal(html.match(/watch-streak/g).length,1);
-  assert.match(html,/Tournaments<\/h2>/);assert.match(html,/data-tournament-open="t1"/);assert.match(html,/Single elimination · Ranked · 4 players · 2 matches in play/);
-  assert.doesNotMatch(html,/Open one/);  // a tournament still gathering players is under Play with Friends
-  assert.match(html,/Friday Cup · Semifinal · Game 1/);
+    :[{id:'g1',names:['Ann','Golfbot'],scores:[3,9],points:[20,30],wins:[2,1],avatars:[],solo:true,round:4,best_of:null,watchers:0,started_at:Date.now()/1000-600},
+      {id:'g2',names:['Cy','Di'],scores:[1,2],points:[0,0],wins:[0,0],avatars:[],mmr:[1100,null],solo:false,round:1,best_of:5,series_mode:'points',watchers:3,rated:true,tournament:{id:'t1',name:'Friday Cup',label:'Semifinal'}},
+      {id:'g3',names:['Eve <i>','Flo'],scores:[4,4],points:[0,0],wins:[1,0],avatars:[],solo:false,round:2,best_of:3,series_mode:'wins',watchers:1},
+      {id:'g4',names:['Me','Golfbot'],scores:[0,0],solo:true,round:1,best_of:null,mine:true}]});
+  await h.run('loadTab("watch")');
+  const html=h.run('watchPaneHtml()');
+  assert.match(html,/data-watch="g1"/);assert.doesNotMatch(html,/data-watch="g2"/);assert.match(html,/data-watch="g3"/);assert.doesNotMatch(html,/data-watch="g4"/);
+  assert.match(html,/Eve &lt;i&gt;/);
+  // PvP first, then Solo
+  assert.ok(html.indexOf('PvP Games')<html.indexOf('data-watch="g3"')&&html.indexOf('Solo Games')<html.indexOf('data-watch="g1"'));
+  // each card says which game of the series it is, how long ago it began, and who is watching
+  assert.match(html,/Game 2 of 3 · Best of/);assert.match(html,/Game 4<\/span>/);
+  assert.match(html,/10m ago/);assert.match(html,/1 spectating now/);assert.match(html,/Tap to spectate!/);
+  // a tournament: its format and size, its matches in play
+  assert.match(html,/Tournaments/);assert.match(html,/data-tournament-open="t1"/);assert.match(html,/4-players/);assert.match(html,/2 matches in play/);assert.doesNotMatch(html,/Open one/);
 });
 
 test('Match history has the same three lists, with finished tournaments under Tournaments',async()=>{
@@ -708,18 +769,19 @@ test('Match history has the same three lists, with finished tournaments under To
   h.context.fetch=async(url)=>{h.requests.push({url});return {ok:true,json:async()=>url.includes('/api/tournament-history')
     ?[{id:'t9',name:'Old Cup',status:'finished',format_name:'Round robin',ranked:false,entrants:3,live:0,host:'Ann',champion:'Bob <b>',finished_at:1700000000,mine:true}]
     :{matches:[saved('m1',url.includes('kind=tournament')?'Old Cup: Final':url.includes('kind=solo')?'Solo table':'Friendly Golf')],next_offset:null}};};
-  h.run('page="history"');await h.run('historyPage()');
-  let html=h.nodes.get('app').innerHTML;
-  assert.equal(h.requests.at(-1).url,'/golf/api/history?kind=pvp&offset=0');
-  assert.match(html,/data-list-tab="pvp" aria-pressed="true"/);assert.match(html,/Friendly Golf/);assert.match(html,/games between players/);
+  h.run('page="home"');h.run('historyPage()');
+  await h.run('Promise.all(LIST_TABS.map(item=>loadHistoryList(item.key)))');
+  // (one page, laid out as the home screen is, with the home screen's bar at its foot)
+  assert.match(h.nodes.get('app').innerHTML,/class="tab-btn c-p2 on" data-list-tab="pvp" aria-current="page"/);
+  assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=pvp&offset=0')));
+  let html=h.run('historyPaneHtml("pvp")');
+  assert.match(html,/Friendly Golf/);assert.match(html,/games between players/);
   assert.doesNotMatch(html,/data-tournament-open/);
-  h.run('historyTab="solo"');await h.run('historyPage()');
-  assert.match(h.nodes.get('app').innerHTML,/Solo table/);assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=solo&offset=0')));
-  h.run('historyTab="tournament"');await h.run('historyPage()');
-  html=h.nodes.get('app').innerHTML;
+  assert.match(h.run('historyPaneHtml("solo")'),/Solo table/);assert.ok(h.requests.some(r=>r.url.endsWith('/api/history?kind=solo&offset=0')));
+  html=h.run('historyPaneHtml("tournament")');
   assert.ok(h.requests.some(r=>r.url.endsWith('/api/tournament-history')));
   assert.match(html,/data-tournament-open="t9"/);assert.match(html,/Round robin · 3 players · [^<]* · Bob &lt;b&gt; won/);
-  assert.match(html,/Tournament matches<\/h2>/);assert.match(html,/Old Cup: Final/);
+  assert.match(html,/aria-label="Tournament Matches"/);assert.match(html,/Old Cup: Final/);
 });
 
 test('the notes of a new patch pop up once, with an x and Start golfing!',async()=>{
@@ -729,18 +791,21 @@ test('the notes of a new patch pop up once, with an x and Start golfing!',async(
   h.context.fetch=async()=>({ok:true,json:async()=>({current:'1.4.0',patches:[{version:'1.4.0',labels:{changes:"What's new"},rules:{revisions:[],additions:[]},changes:['Tournaments! <b>']},{version:'1.3.0',rules:{revisions:[],additions:[]},changes:['Old news']}]})});
   h.run('session.patch="1.4.0";session.account=null;page="home"');
   await h.run('patchPopup()');
-  const dialog=h.nodes.get('patch-dialog');
-  assert.equal(dialog.open,true);
-  assert.match(dialog.innerHTML,/class="dialog-x" data-patch-close aria-label="Close"/);
-  assert.match(dialog.innerHTML,/Patch 1\.4\.0/);assert.match(dialog.innerHTML,/Tournaments! &lt;b&gt;/);assert.doesNotMatch(dialog.innerHTML,/Old news/);
-  assert.match(dialog.innerHTML,/data-patch-close>.*Start golfing!/);
-  h.run('closePatchPopup()');assert.equal(dialog.open,false);
-  // seen on this patch: it does not come back
-  h.run('markPatchSeen();patchPopupDone=false');
-  await h.run('patchPopup()');assert.equal(dialog.open,false);
+  // (a sheet, like Settings)
+  const sheet=()=>h.nodes.get('sheet');
+  assert.equal(sheet().hidden,false);
+  assert.match(sheet().innerHTML,/class="sheet c-fw patch-sheet"/);
+  assert.match(sheet().innerHTML,/class="close-btn" data-patch-close/);
+  assert.match(sheet().innerHTML,/Patch 1\.4\.0/);assert.match(sheet().innerHTML,/Tournaments! &lt;b&gt;/);assert.doesNotMatch(sheet().innerHTML,/Old news/);
+  assert.match(sheet().innerHTML,/data-patch-close>[^]*Start golfing!/);
+  h.run('closePatchPopup()');assert.equal(sheet().hidden,true);
+  // seen on this patch (closing it says so): it does not come back
+  assert.equal(stored['golf-played-patch'],'1.4.0');
+  h.run('patchPopupDone=false');
+  await h.run('patchPopup()');assert.equal(sheet().hidden,true);
   // and a first visit has nothing to catch up on
   const fresh=harness();fresh.run('session.patch="1.4.0";page="home"');await fresh.run('patchPopup()');
-  assert.equal(fresh.nodes.get('patch-dialog'),undefined);
+  assert.equal(fresh.nodes.get('sheet').hidden,true);
 });
 
 test('a patch can sort its notes under headings of its own',()=>{
@@ -767,7 +832,7 @@ test('Host a Tournament sends the format, seeding, fill and ranked choices with 
   assert.equal(h.run('draft.style'),'wins');assert.equal(h.run('draft.length'),1);
   h.run('draft.format="round_robin";draft.fill="ai";draft.seeding="mmr";draft.ranked="on";draft.tournamentName="Friday Cup";draft.style="wins";draft.length=3;setupPage()');
   page=h.nodes.get('app').innerHTML;
-  assert.match(page,/Everyone plays everyone once\./);assert.match(page,/an AI opponent joins so nobody sits out/);
+  assert.match(page,/Everyone plays everyone once\./);assert.match(page,/a CPU opponent joins so nobody sits out/);
   assert.match(page,/count toward MMR, and are played on House rules/);
   h.context.fetch=async(url,options)=>{h.requests.push({url,options});return {ok:true,json:async()=>({id:'cup1',name:'Friday Cup'})};};
   await h.run('submitSetup()');
@@ -791,7 +856,7 @@ test('the tournament page is a lobby before the start and a bracket with standin
   // the host's buttons are a table host's: Invite a Player above Start, and Back closes the tournament
   assert.ok(html.indexOf('data-invite-open')>0&&html.indexOf('data-invite-open')<html.indexOf('data-tournament-start'));
   assert.match(html,/back-btn" data-tournament-leave/);assert.doesNotMatch(html,/data-tournament-ai|Add AI|Cancel/);
-  assert.match(html,/Bob &lt;b&gt;/);assert.match(html,/AI opponent/);assert.match(html,/tournament\/cup1/);
+  assert.match(html,/Bob &lt;b&gt;/);assert.match(html,/CPU opponent/);assert.match(html,/tournament\/cup1/);
   // someone who has not joined sees Join, and no host controls
   h.run(`tournament.you={entrant:null,host:false,match:null,room_id:null};renderTournament()`);
   html=h.nodes.get('app').innerHTML;
@@ -804,17 +869,23 @@ test('the tournament page is a lobby before the start and a bracket with standin
   h.run(`tournament=${JSON.stringify({...base,status:'live',can_start:false,entrants,matches,standings,you:{entrant:'e4',host:false,match:'W1-1',room_id:'r1'}})};renderTournament()`);
   html=h.nodes.get('app').innerHTML;
   assert.match(html,/Your match is on/);assert.match(html,/data-tournament-play="r1"/);
-  assert.match(html,/Matches in play/);assert.match(html,/this game 3 to 7/);
-  assert.match(html,/class="bracket-round"><h4>Semifinal<\/h4>/);assert.match(html,/class="bracket-round"><h4>Final<\/h4>/);
-  assert.match(html,/To be decided/);assert.match(html,/bracket-player won/);
-  assert.match(html,/Standings/);assert.match(html,/<td>Out<\/td>/);
+  // the matches in play are in the bracket (its live cards open them), with no list or title of their own
+  assert.doesNotMatch(html,/<h[12][^>]*aria-label="Matches in Play"/);assert.doesNotMatch(html,/<h[12][^>]*aria-label="Bracket"/);
+  // each player in the standings opens their profile
+  assert.match(html,/<button type="button" data-stats-player="[^"]+" aria-label="[^"]+'s profile" class="st-player/);
+  // the bracket: a column a round, each match a card in the colors of where it has got to
+  assert.match(html,/class="bracket-round" aria-label="Semifinal"/);assert.match(html,/class="bracket-round" aria-label="Final"/);
+  assert.match(html,/To be decided/);assert.match(html,/bk-player c-s\d won/);assert.match(html,/bk-trophy/);
+  assert.match(html,/Match finished/);assert.match(html,/Still Seeding/);
+  // standings: a card with each player's record and where they stand
+  assert.match(html,/Standings/);assert.match(html,/standings-card/);assert.match(html,/>Out<\/span>/);
   assert.doesNotMatch(html,/Host tools/);  // only the host can award a match
   // a spectator of the same tournament can watch the live match
   h.run(`tournament.you={entrant:null,host:false,match:null,room_id:null};renderTournament()`);
-  assert.match(h.nodes.get('app').innerHTML,/data-watch="r1">.*Watch · 2/);
+  assert.match(h.nodes.get('app').innerHTML,/class="bk-match boxed c-s4 live" data-match="[^"]+" data-watch="r1"/);assert.match(h.nodes.get('app').innerHTML,/2 spectating now/);
   // finished: the champion is named
   h.run(`tournament.status="finished";tournament.champion="e2";tournament.matches.forEach(m=>{m.status="done";m.winner=m.winner??1;delete m.live;});renderTournament()`);
-  assert.match(h.nodes.get('app').innerHTML,/Bob &lt;b&gt;<\/strong> wins the tournament!/);
+  assert.match(h.nodes.get('app').innerHTML,/cup-won[^>]*>.*Bob &lt;b&gt;<span class="sub">Wins the Tournament!<\/span>/);
 });
 
 test('a tournament host invites players as a table host does, and the invitation says what it is to',async()=>{
@@ -833,21 +904,13 @@ test('a tournament host invites players as a table host does, and the invitation
   assert.equal(h.run('typeof tournamentChip'),'undefined');
 });
 
-test('Advanced stats lists the records a player holds, and a player card every record they are part of',async()=>{
+test('a player card shows every record they are part of; Golfbot\'s only its records',async()=>{
   const h=harness();
-  const stats={rounds:4,round_wins:3,round_losses:1,round_draws:0,round_win_rate:.75,average_points:5};
-  const entry={profile:{id:'account:7',label:'@ann'},overall:stats,
-    records:{longest_pvp:{turns:41,players:['Ann','Bob'],ids:['account:7','account:8'],id:'account:8',label:'Bob',scores:[9,4],at:1700000000}}};
-  h.run('statsTable=()=>""');
-  let html=h.run(`playerStatsHtml(${JSON.stringify({player:entry,comparison:null,leaderboard:[],players:[]})})`);
-  assert.match(html,/<p class="hint dark">Records held<\/p>/);assert.match(html,/Longest 1v1 game/);assert.doesNotMatch(html,/Highest MMR/);
-  assert.ok(html.indexOf('Records held')<html.indexOf('Compare With')&&html.indexOf('stat-hero')<html.indexOf('Records held'));
-  html=h.run(`playerStatsHtml(${JSON.stringify({player:{...entry,records:{}},comparison:null,leaderboard:[],players:[]})})`);
-  assert.match(html,/Records held<\/p><p class="hint dark">None yet\./);
+  const records={longest_pvp:{turns:41,players:['Ann','Bob'],ids:['account:7','account:8'],id:'account:8',label:'Bob',scores:[9,4],at:1700000000}};
   // the name-tag popup: Ann did not win the longest game, but she played it, so it is on her card
   const holder=Object.assign(h.context.document.createElement(),{dataset:{playerCard:'account:7'}});
   h.context.document.querySelectorAll=()=>[holder];
-  h.context.fetch=async()=>({ok:true,json:async()=>({id:'account:7',mmr:null,pvp_streak:2,seconds_played:60,records:entry.records})});
+  h.context.fetch=async()=>({ok:true,json:async()=>({id:'account:7',mmr:null,pvp_streak:2,seconds_played:60,records})});
   await h.run('loadPlayerCard("account:7")');
   assert.match(holder.innerHTML,/Records held/);assert.match(holder.innerHTML,/Longest 1v1 game/);assert.match(holder.innerHTML,/Best PvP win streak/);
   // Golfbot's card has only its records
@@ -855,7 +918,66 @@ test('Advanced stats lists the records a player holds, and a player card every r
   h.context.document.querySelectorAll=()=>[bot];
   h.context.fetch=async()=>({ok:true,json:async()=>({id:'bot:golfbot',mmr:null,pvp_streak:0,seconds_played:0,records:{ai_vs_players:{id:'bot:golfbot',label:'Golfbot',bot_points:10,player_points:20,games:3}}})});
   await h.run('loadPlayerCard("bot:golfbot")');
-  assert.match(bot.innerHTML,/AI vs\. all players/);assert.doesNotMatch(bot.innerHTML,/Best PvP win streak/);
+  assert.match(bot.innerHTML,/CPU vs\. all players/);assert.doesNotMatch(bot.innerHTML,/Best PvP win streak/);
+});
+
+test('the home screen has five tabs, Play in the middle; the one showing is lifted with arrows to its neighbors',()=>{
+  const h=harness();
+  const bar=h.run('tabBarHtml("play")');
+  assert.deepEqual([...bar.matchAll(/data-home-tab="(\w+)"/g)].map(m=>m[1]),['flags','you','play','watch','aces']);
+  assert.match(bar,/class="tab-btn c-p3 on" data-home-tab="play" aria-current="page"/);
+  // the first tab has no way further left
+  const first=h.run('tabBarHtml("flags")');
+  assert.match(first,/class="tab-arrow prev c-p4 off" data-home-step="-1" aria-label="Previous tab" disabled>/);assert.match(first,/class="tab-arrow next c-p4" data-home-step="1" aria-label="Next tab">/);
+  // one pair of arrows for the whole bar, in the colors of the tab showing
+  assert.equal(bar.match(/class="tab-arrow /g).length,2);assert.match(bar,/class="tab-arrow prev c-p3" data-home-step="-1"/);
+  assert.equal(h.run('tabPath("watch")'),'/watch');h.run('acesView="pvp"');assert.equal(h.run('tabPath("aces")'),'/aces/pvp');
+  // Start a Game opens on the four ways to play
+  h.run('startOpen=true');const start=h.run('startGameHtml()');
+  for(const way of ['data-nav="friends"','data-queue-toggle','data-nav="solo"','data-nav="rules"']) assert.ok(start.includes(way),way);
+  assert.match(start,/aria-expanded="true"/);assert.match(start,/Close/);
+});
+
+test('the Daily Puzzle shows its starting hand, every score fetched in a scrolling list, and your best',()=>{
+  const h=harness();
+  const card=(label,suit)=>({visible:true,card:{label,suit,rank:1,points:1}});const down={visible:false,card:null};
+  h.run(`homeData.puzzle=${JSON.stringify({number:7,hand:[down,down,card('10','H'),down,card('6','C'),down],players:6,best:-3,rank:2,
+    board:[{name:'Ann <b>',avatar:'dog',score:-9,mine:false},{name:'Me',avatar:'cat',score:-3,mine:true},{name:'C',score:1},{name:'D',score:2},{name:'E',score:3}]})}`);
+  const html=h.run('puzzleHtml()');
+  assert.match(html,/Daily Puzzle #7/);
+  assert.equal(html.match(/example-card is-face/g).length,2);assert.equal(html.match(/class="pb-row/g).length,5);
+  assert.match(html,/Ann &lt;b&gt;/);
+  // your own row has the star before your name; nobody else's does
+  assert.match(html,/<span class="pb-name"><svg class="[^"]*you-star[^"]*"[^]*?<\/svg>Me<\/span>/);assert.equal(html.match(/you-star/g).length,1);assert.match(html,/<div class="pb-scroll" data-pb-list><div class="pb-list">/);assert.doesNotMatch(html,/view more/);assert.match(html,/<p class="tab-sub">Your best: -3 · #2 · can you do better\?<\/p>/);assert.doesNotMatch(html,/class="sub"/);
+  h.run('homeData.puzzle.best=null;homeData.puzzle.board=[];homeData.puzzle.players=0');
+  const fresh=h.run('puzzleHtml()');assert.match(fresh,/<p class="tab-sub">In 5 moves, get the biggest margin vs PuzzleBot<\/p>/);assert.match(fresh,/<div class="pb-list empty"><p class="pb-empty">No scores yet/);
+});
+
+test('Friends: a guest is asked to sign in; friends show what they are up to, with a way to watch a game',()=>{
+  const h=harness();
+  h.run('homeData.friends={signed_in:false,friends:[],incoming:[],outgoing:[]}');
+  assert.match(h.run('friendsHtml()'),/Sign in to add friends/);
+  const now=Math.floor(Date.now()/1000);
+  h.run(`homeData.friends=${JSON.stringify({signed_in:true,incoming:[{unique_name:'zed',display_name:'Zed'}],outgoing:[],friends:[
+    {unique_name:'ann',display_name:'Ann',status:'in_game',room_id:'r1',mmr:1038},
+    {unique_name:'bo',display_name:'Bo',status:'puzzle'},{unique_name:'cy',display_name:'Cy',status:'online'},
+    {unique_name:'di',display_name:'Di',status:'offline',last_seen:now-7200},{unique_name:'ed',display_name:'Ed',status:'offline',last_seen:null}]})}`);
+  const html=h.run('friendsHtml()');
+  assert.match(html,/data-watch="r1" aria-label="Watch Ann"/);assert.match(html,/1,038/);
+  for(const text of ['In-game','Solving the puzzle','Online','Active 2h ago','Offline','Friend requests \\(1\\)']) assert.match(html,new RegExp(text));
+});
+
+test('Flags: each flag is locked for now, with what it would unlock; You has the emote editor in one Emote Bar box',()=>{
+  const h=harness();
+  const flags=h.run('flagsPaneHtml()');
+  assert.equal(flags.match(/class="panel c-fw record-card flag-card"/g).length,h.run('FLAGS.length'));assert.equal(flags.match(/class="record-slot c-fw"/g).length,h.run('FLAGS.length'));assert.match(flags,/<h3>Wait for my cue\.\.\.<\/h3>/);assert.doesNotMatch(flags,/5, 6, 7/);assert.match(flags,/Adult swim/);assert.match(flags,/<p class="record-note">Text Emote<\/p>/);assert.match(flags,/<p class="record-note">Theme<\/p>/);assert.doesNotMatch(flags,/Rushing\.|Theme: Pool/);
+  assert.equal(flags.match(/Not earned yet/g).length,h.run('FLAGS.length'));
+  const edit=h.run('emoteEditHtml()');
+  assert.match(edit,/class="emote-compact"/);assert.match(edit,/Emote Bar/);assert.match(edit,/Unequipped Emotes/);
+  assert.match(edit,/class="emote-choices bar faces" data-kind="faces"/);assert.match(edit,/class="emote-choices bar words" data-kind="words"/);
+  // (the newer faces are hidden for now: every face there is to pick is on the bar)
+  assert.match(edit,/Every emote is on your bar\./);assert.doesNotMatch(edit,/pogcat|crocscreech/);
+  h.run('dropEmote("faces","nervous")');assert.match(h.run('emoteEditHtml()'),/class="emote-choices faces" data-kind="faces"[^>]*><span class="emote-none"><\/span><span class="emote-item" data-emote-item="faces:nervous"/);
 });
 
 test('dates within the last 24 hours read as how long ago',()=>{
@@ -869,10 +991,17 @@ test('dates within the last 24 hours read as how long ago',()=>{
 
 test('the emote bar shows the emotes chosen in Settings > Emotes, in their order, with the sayings in two rows',()=>{
   const h=harness();const bar=kind=>h.run(`emoteBar("${kind}").join()`);
+  // (What a save! is a secret flag's to unlock: off the bar until it is earned)
+  assert.equal(bar('words'),'luck,thanks,oops,wow,ofc,tempo');assert.ok(h.run('!flagUnlocked("word","save") && !flagUnlocked("word","ranked")'));
+  h.run('myFlags.emotes=["save","ranked"]');
   assert.equal(h.run('emoteNames.ranked'),'Join Ranked!');assert.ok(h.run('TEXT_EMOTES.includes("ranked")'));
-  // every emote there is starts on the bar
-  assert.equal(bar('faces'),h.run('FACE_EMOTES.join()'));assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');
-  assert.equal(bar('words'),h.run('TEXT_EMOTES.join()'));assert.equal(bar('words'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
+  // every face there is to pick starts on the bar (the newer faces are hidden for now, and
+  // Heart is the Cupid's porcelain throne flag's: held back until it is earned)
+  assert.equal(h.run('FACE_EMOTES.join()'),'unamused,shocked,laughing,cackling,nervous,pogcat,giveheart,crocscreech,poop');
+  assert.equal(bar('faces'),'unamused,shocked,laughing,cackling,nervous');assert.ok(h.run('!flagUnlocked("word","giveheart")'));
+  assert.doesNotMatch(h.run('emoteEditHtml()'),/giveheart/);
+  // (every one, that is, but those a flag holds back: Rushing. and Dragging. until earned)
+  assert.equal(bar('words'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');assert.ok(h.run('!flagUnlocked("word","rushing") && flagUnlocked("word","luck")'));
   h.run('state={status:"playing"}');
   let html=h.run('emoteButtons()');
   assert.equal(html.match(/data-emote="/g).length,13);
@@ -901,14 +1030,14 @@ test('the emote bar shows the emotes chosen in Settings > Emotes, in their order
   h.run('dropEmote("words","wow")');assert.equal(bar('words'),'');assert.equal(h.run('prefs.emoteWords'),'');
   html=h.run('emoteButtons()');assert.doesNotMatch(html,/emote-words/);assert.match(html,/data-emote-mute/);
   assert.doesNotMatch(h.run('emoteEditHtml()'),/data-emote-pick="words:[a-z]+" aria-pressed/); // none on it
-  // the editor opens from under the preferences, in Settings and in the table's menu alike
-  assert.match(h.run('prefsHtml()'),/<button type="button" class="btn c-fw pref" data-emote-settings>.*?<\/button><\/div>$/); // the last row
+  // the editor lives on the You tab alone: Settings has no way into it
+  assert.doesNotMatch(h.run('prefsHtml()'),/emote/i);assert.match(h.run('youPaneHtml()'),/data-emote-edit/);
   // a saved bar with a name it doesn't know, or one twice, keeps the rest
   h.run('prefs.emoteWords="ranked,nope,ranked,luck"');assert.equal(bar('words'),'ranked,luck');
 });
 
 test('an emote added to the game later starts off the bar, for a new player and for one with a saved bar',()=>{
-  const fresh=harness();
+  const fresh=harness();fresh.run('myFlags.emotes=["save","ranked"]');
   fresh.run('TEXT_EMOTES.push("gg");emoteNames.gg="Good game!";FACE_EMOTES.push("smug");emoteNames.smug="Smug"');
   assert.equal(fresh.run('emoteBar("words").join()'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');
   assert.equal(fresh.run('emoteBar("faces").join()'),'unamused,shocked,laughing,cackling,nervous');
@@ -923,4 +1052,37 @@ test('an emote added to the game later starts off the bar, for a new player and 
   const h=harness();
   h.run('session.account={id:1,unique_name:"me"};session.preferences={emoteWords:"luck,thanks,oops,wow,save",emoteFaces:"nervous"};syncPrefs()');
   assert.equal(h.run('prefs.emoteWords'),'luck,thanks,oops,wow,save,ofc,tempo,ranked');assert.equal(h.run('prefs.emoteFaces'),'nervous');
+});
+test('Settings has a Reduce motion switch, off unless chosen',()=>{
+  const h=harness();
+  assert.match(h.run('prefsHtml()'),/aria-checked="false" data-pref="reduceMotion"[^]*?Reduce motion[^]*?>Off</);
+  h.run('prefs.reduceMotion=true');
+  assert.match(h.run('prefsHtml()'),/aria-checked="true" data-pref="reduceMotion"[^]*?Reduce motion[^]*?>On</);
+});
+test('the Play tab\'s matches show what a Ranked series did to each player\'s MMR',()=>{
+  const h=harness();
+  assert.match(h.run('mmrChange(12)'),/class="mh-delta up"[^>]*>\+12 MMR</);assert.match(h.run('mmrChange(-9)'),/class="mh-delta down"[^>]*>−9 MMR</);
+  assert.equal(h.run('mmrChange(0)'),'');assert.equal(h.run('mmrChange(undefined)'),'');
+  h.run(`homeData.matches=[{id:'m',names:['Ann','Bo'],avatars:['dog','cat'],viewer:0,winner:1,points:[20,9],wins:[0,1],mmr:[988,1012],rounds:[{round:1,scores:[20,9],winner:1,ended_at:1,mmr:[{delta:-12},{delta:12}]}],updated_at:1,house_rules:true}]`);
+  const html=h.run('matchesHtml()');
+  assert.doesNotMatch(html,/988|1012/);assert.match(html,/Ann<\/b><span class="mh-delta down"[^>]*>−12 MMR</);
+  assert.match(html,/mh-player won[^]*?Bo<\/b><span class="mh-delta up"[^>]*>\+12 MMR</);
+});
+test('every match on the Match history page is drawn as a whole card, not only the first',()=>{
+  const h=harness();
+  const match=(id)=>({id,lobby_name:'Table '+id,names:['Ann','Bo'],viewer:0,winner:0,points:[3,9],wins:[1,0],status:'finished',rounds:[{round:1,scores:[3,9],winner:0,ended_at:1}],updated_at:1});
+  const html=h.run(`${JSON.stringify([match('a'),match('b'),match('c')])}.map((match) => matchArticleHtml(match)).join("")`);
+  assert.equal((html.match(/<article class="panel c-fw">/g)||[]).length,3);assert.equal((html.match(/class="meta"/g)||[]).length,3);
+});
+
+test('the results leaderboard ranks each player, tied margins sharing a place, and more rows load after the first',()=>{
+  const h=harness();
+  const board=[{name:'Ann',score:9,id:'browser:a'},{name:'Bo',score:5,id:'account:b'},{name:'Cy',score:5,id:'browser:c'},{name:'Di',score:1}];
+  const ranked=h.run(`puzzleRowsHtml({board:${JSON.stringify(board)}},30,{ranked:true})`);
+  assert.deepEqual([...ranked.matchAll(/<span class="pb-rank">(\d+)<\/span>/g)].map((m)=>m[1]),['1','2','2','4']);
+  assert.equal((ranked.match(/data-stats-player=/g)||[]).length,3);
+  // (the home card's list has no places; a page of more rows is only the new ones)
+  assert.doesNotMatch(h.run(`puzzleRowsHtml({board:${JSON.stringify(board)}})`),/pb-rank/);
+  const more=h.run(`puzzleRowsHtml({board:${JSON.stringify(board)}},19,{from:2})`);
+  assert.deepEqual([...more.matchAll(/<span class="pb-name">([^<]*)/g)].map((m)=>m[1]),['Cy','Di']);
 });

@@ -119,6 +119,23 @@ class Accounts:
             row = self.db.execute('SELECT payload FROM account_preferences WHERE account_id=?', (account_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def by_unique_name(self, name):
+        """The account with this unique name (any case), or None."""
+        with self.lock:
+            row = self.db.execute('SELECT id, unique_name, display_name FROM accounts WHERE unique_name=?',
+                                  (str(name).strip().lstrip('@').lower(),)).fetchone()
+        return self.public(row)
+
+    def by_ids(self, ids):
+        """{id: account} for each of these account ids that exists."""
+        ids = list(ids)
+        if not ids:
+            return {}
+        with self.lock:
+            rows = self.db.execute(f'SELECT id, unique_name, display_name FROM accounts WHERE id IN ({",".join("?" * len(ids))})',
+                                   ids).fetchall()
+        return {row[0]: self.public(row) for row in rows}
+
     def newest(self):
         """The account made most recently (with its unique name chosen), or None."""
         with self.lock:

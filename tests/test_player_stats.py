@@ -46,7 +46,7 @@ class StatsTests(unittest.TestCase):
         ]
         data = build_stats(games, browser['id'], 'account:7', profiles=[browser], merge_guests=True)
         # tester, Rival and Sam are one choice; the account and Golfbot keep their own
-        self.assertEqual(sorted(player['label'] for player in data['players']), ['@ace', 'Golfbot (solo AI)', 'Guest'])
+        self.assertEqual(sorted(player['label'] for player in data['players']), ['@ace', 'Golfbot (solo CPU)', 'Guest'])
         self.assertEqual(data['player']['profile']['id'], GUESTS_ID)
         # tester's solo games and Sam's games against Ace count for Guest, and a guest-vs-guest
         # game (Rival v tester) counts from both seats, as the ranking sums every guest's record
@@ -96,7 +96,7 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(reverse['total_points'], 19)
         self.assertLess(head['average_advantage'], 0)
         self.assertEqual(head['average_advantage'], -reverse['average_advantage'])
-        self.assertEqual(data['comparison']['profile']['label'], 'Golfbot (solo AI)')
+        self.assertEqual(data['comparison']['profile']['label'], 'Golfbot (solo CPU)')
 
     def test_rule_activation_rates_and_conditional_win_rates_ignore_unknown_details(self):
         overall = build_stats(self.matches, 'player:tester')['player']['overall']
@@ -172,7 +172,7 @@ class SeededProfileStatsTests(unittest.TestCase):
         self.assertEqual(data['player']['profile'], {
             'id': 'account:new', 'username': 'new_user', 'unique_name': 'new_user',
             'is_bot': False, 'display_names': ['New User'], 'is_guest': False, 'label': '@new_user'})
-        self.assertEqual(data['comparison']['profile']['label'], 'Golfbot (solo AI)')
+        self.assertEqual(data['comparison']['profile']['label'], 'Golfbot (solo CPU)')
         for entry in (data['player'], data['comparison']):
             for scope in ('overall', 'head_to_head'):
                 self.assertEqual(entry[scope]['rounds'], 0)

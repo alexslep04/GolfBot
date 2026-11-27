@@ -35,10 +35,13 @@ AVATARS = (
     Avatar("tortoise", "Tortoise", "tortoise.fill"),
     Avatar("ladybug", "Ladybug", "ladybug.fill"),
     Avatar("golfbot", "Golfbot", "gamecontroller.fill", selectable=False),
+    # Golfbot under its Daily Puzzle name
+    Avatar("puzzlebot", "PuzzleBot", "puzzlepiece.fill", selectable=False),
 )
 BY_ID = {avatar.id: avatar for avatar in AVATARS}
 DEFAULT_AVATAR = "club"
 BOT_AVATAR = "golfbot"
+PUZZLE_BOT_AVATAR = "puzzlebot"
 
 
 def catalog():

@@ -425,10 +425,64 @@ def player_card(results, ratings, player, extras=None):
             'records': held_records(records, player)}
 
 
+def golfbot_records(results):
+    """Golfbot's own bests, from its games against people: its scores, its longest game and win
+    streak against them, how long it has played, and its record against everyone."""
+    games = sorted(((game.get('ended_at') or 0, match, game, seats) for match, game, seats in _played(results)
+                    if any(player == BOT_ID for _, player, _ in seats)), key=lambda item: item[0])
+    record = {'wins': 0, 'draws': 0, 'losses': 0}
+    low = high = longest = None
+    streak = best = 0
+    best_at = None
+    seconds = 0
+    now = time.time()
+    midnight = time.mktime(time.localtime(now)[:3] + (0, 0, 0, 0, 0, -1))
+    today = 0
+    for at, match, game, seats in games:
+        if game.get('forfeit'):
+            continue
+        scores = game.get('scores') or []
+        seat = next(seat for seat, player, _ in seats if player == BOT_ID)
+        winner = game.get('winner')
+        if winner is None:
+            record['draws'] += 1
+        elif winner == seat:
+            record['wins'] += 1
+        else:
+            record['losses'] += 1
+        streak = streak + 1 if winner == seat else 0
+        if streak > best:
+            best, best_at = streak, at
+        if seat < len(scores):
+            if low is None or scores[seat] < low['points']:
+                low = {'id': BOT_ID, 'label': 'Golfbot', 'points': scores[seat], 'scores': scores, 'at': at}
+            if high is None or scores[seat] > high['points']:
+                high = {'id': BOT_ID, 'label': 'Golfbot', 'points': scores[seat], 'scores': scores, 'at': at}
+        turns = game.get('turns')
+        if isinstance(turns, int) and (longest is None or turns > longest['turns']):
+            longest = {'id': BOT_ID, 'label': 'Golfbot', 'turns': turns, 'scores': scores, 'at': at}
+        started = game.get('started_at')
+        if isinstance(started, (int, float)) and isinstance(at, (int, float)) and at:
+            seconds += min(max(at - started, 0), GAME_TIME_CAP)
+        if at and at >= midnight:
+            today += 1
+    if not games:
+        return {}
+    return {'id': BOT_ID, 'vs_people': {**record, 'games': sum(record.values())},
+            'pvp_streak': {'id': BOT_ID, 'label': 'Golfbot', 'streak': best, 'at': best_at} if best else None,
+            'comeback': largest_comeback(results, BOT_ID), 'games_today': {'id': BOT_ID, 'label': 'Golfbot', 'games': today} if today else None,
+            'most_modifier': favorite_modifier(results, BOT_ID),
+            'modifiers_in_game': most_modifiers_in_a_game(results, BOT_ID),
+            'longest_pvp': longest, 'bogey': high, 'lowest': low,
+            'most_time': {'id': BOT_ID, 'label': 'Golfbot', 'seconds': seconds} if seconds else None}
+
+
 def personal_records(results, ratings, player):
     """One player's own best at each record, for the box under its card (None where they have none)."""
-    if not player or player == BOT_ID:
+    if not player:
         return {}
+    if player == BOT_ID:
+        return golfbot_records(results)
     return {'id': player, 'highest_mmr': highest_mmr(results, ratings, player),
             'pvp_streak': pvp_streaks(results).get(player),
             'comeback': largest_comeback(results, player), 'games_today': games_today(results).get(player),

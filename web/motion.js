@@ -2,7 +2,13 @@
 // Card motion: one spring simulation drives every card's drag, tilt, lift and
 // flip through CSS custom properties, so interrupted gestures blend naturally.
 
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+// Motion is reduced when the device asks for it, or by Settings > Reduce motion.
+const systemReducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const reducedMotion = {
+  get matches() {
+    return systemReducedMotion.matches || !!prefs.reduceMotion;
+  },
+};
 
 // property → [CSS variable, unit, rest value, stiffness, damping, settle epsilon]
 // (the rotations — lean, tilt, flip — are damped a little more than they

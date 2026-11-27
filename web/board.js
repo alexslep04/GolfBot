@@ -343,18 +343,89 @@ function stackCycleName(holder) {
   });
 }
 
+/* ---------- custom cards: your deck ----------
+   A custom card is one card in a color of its own (the ace of spades in gold, say). The
+   ones you have collected wait in Your Deck (the You tab), a box for each suit;
+   tap one and it takes the place of that card's design, on every table you see.
+   (The ones here are for trying the idea out: debug servers only.) */
+const CARD_SKINS = [
+  // the 5 of diamonds torn across, as the Ripped 5 rule draws it, at any table (the
+  // Tear it up! flag's to unlock)
+  { id: "ripped-5d", card: "5D", name: "Ripped", ripped: true },
+  ...(document.documentElement.dataset?.debug !== undefined
+  ? [
+      // a card in a color of its own: `tint` its face, `ink` its corners on a dark one
+      { id: "gold-as", card: "AS", name: "Gold", tint: "#f6d77a" },
+      { id: "midnight-7s", card: "7S", name: "Midnight", tint: "#2c3a66", ink: "#f6e7a3" },
+      { id: "rose-ah", card: "AH", name: "Rose", tint: "#ffc7d1" },
+      { id: "gold-kh", card: "KH", name: "Gold", tint: "#f6d77a" },
+      { id: "lavender-qd", card: "QD", name: "Lavender", tint: "#dccbff" },
+      { id: "sky-10d", card: "10D", name: "Sky", tint: "#bfe6ff" },
+      { id: "mint-jc", card: "JC", name: "Mint", tint: "#c6f0d2" },
+      { id: "coral-3c", card: "3C", name: "Coral", tint: "#ffc9b0" },
+      { id: "sky-3c", card: "3C", name: "Sky", tint: "#bfe6ff" },
+    ]
+  : []),
+].map((skin) => ({ ...skin, suit: skin.card.slice(-1), label: skin.card.slice(0, -1) }));
+const cardSkin = (id) => CARD_SKINS.find((skin) => skin.id === id) || null;
+/** The design each card wears: {"AS": "hole-in-one"} (a card not in it wears the ordinary face). */
+let deckChoices = {};
+try {
+  deckChoices = JSON.parse(localStorage.getItem("golf-deck") || "{}") || {};
+} catch {
+  deckChoices = {};
+}
+/** The custom design `card` ("AS", "10H") wears, if any. */
+function equippedSkin(card) {
+  const skin = cardSkin(deckChoices[card]);
+  return skin && skin.card === card && flagUnlocked("card", skin.id) ? skin : null;
+}
+/** Wear `id` on `card` (null: back to the ordinary face). */
+function equipSkin(card, id) {
+  if (id) deckChoices[card] = id;
+  else delete deckChoices[card];
+  try {
+    localStorage.setItem("golf-deck", JSON.stringify(deckChoices));
+  } catch {}
+  syncDeck();
+}
+/** Players' custom designs on the table. A card is drawn in the design of the player it
+ *  belongs to: in someone's hand, theirs (so a card you flip wears yours, one they flip
+ *  theirs); the top discard, that of whoever put it there; a drawn card, the drawer's.
+ *  (Yours from Your Deck as it stands; everyone else's as the table last said.) */
+function tableSkin(card, owner) {
+  if (!card || owner == null) return null;
+  const name = card.label + card.suit;
+  if (owner === state?.viewer && !state?.spectator) return equippedSkin(name);
+  const skin = cardSkin(state?.skins?.[owner]?.[name]);
+  return skin && skin.card === name ? skin : null;
+}
+/** Tell the server your designs, for the tables you are at to show. */
+function syncDeck() {
+  if (typeof api !== "function") return;
+  api("/api/deck", "POST", { choices: deckChoices }).catch(() => {});
+}
+
 /* ---------- card markup ---------- */
-/** `rippedFive`: whether the 5 of diamonds wears its torn skin (only with the rule in play at the table). */
-function faceHtml(card, rippedFive = !!state?.rules?.ripped_five) {
+/** `rippedFive`: whether the 5 of diamonds wears its torn skin (only with the rule in play at the table).
+ *  `skin`: the custom design to draw it in (null: the one it wears in Your Deck; false: the ordinary face). */
+function faceHtml(card, rippedFive = !!state?.rules?.ripped_five, skin = null) {
   if (!card)
     return `<span class="face front"></span><span class="face back"></span>`;
   const red = card.suit === "H" || card.suit === "D";
   const corner = `<span class="corner"><b>${e(card.label)}</b>${icon(SUIT_ICON[card.suit], 16, { idle: false, flat: true, sw: 2.4 })}</span>`;
-  // the 5 of diamonds is the ripped 5: torn across the middle (and only when that rule is on)
-  const ripped = rippedFive && card.suit === "D" && card.rank === 5 ? " ripped" : "";
+  // (your own design for this card, from Your Deck: `skin` false for the ordinary face, or a design to show)
+  const rule = rippedFive && card.suit === "D" && card.rank === 5;
+  let worn = rule || skin === false ? null : skin || equippedSkin(card.label + card.suit);
+  // the 5 of diamonds is the ripped 5: torn across the middle, when that rule is on (or
+  // when it wears the Ripped design)
+  const ripped = rule || worn?.ripped ? " ripped" : "";
+  if (worn?.ripped) worn = null;
   // (its two halves are drawn apart, so they can tear open as it turns over)
   const halves = ripped ? `<span class="rip-half top"></span><span class="rip-half bottom"></span>` : "";
-  return `<span class="face front${red ? " red" : ""} suit-${card.suit}${ripped}">${halves}${corner}${corner}</span><span class="face back"></span>`;
+  // (a custom card is its color: the face tinted, inside its drawn border)
+  const custom = worn ? ` skin${worn.ink ? " inked" : ""}" style="--skin-tint:${worn.tint}${worn.ink ? `;--skin-ink:${worn.ink}` : ""}` : "";
+  return `<span class="face front${red ? " red" : ""} suit-${card.suit}${ripped}${custom}">${halves}${corner}${corner}</span><span class="face back"></span>`;
 }
 function slotHtml(ref, tilt, extra = "") {
   return `<button type="button" class="slot ${extra}" data-ref='${e(JSON.stringify(ref))}' style="--rot:${tilt}deg"><span class="shadow"></span><span class="card"><span class="card-flip">${faceHtml(null)}</span></span><span class="move-label"></span></button>`;
@@ -511,25 +582,30 @@ function boardView() {
   const g = state.game,
     me = state.viewer,
     opp = opponentSeat();
+  // (each card in the custom design of the player it belongs to: see tableSkin)
   const hand = (player) =>
     g.players[player].map((slot) => ({
       key: slot.visible ? cardKey(slot.card) : "X",
       card: slot.card,
+      skin: tableSkin(slot.visible && slot.card, player),
     }));
   const table = {};
   for (const player of [me, opp])
-    hand(player).forEach((slot, i) => (table[`${player}:${i}`] = slot));
-  table["discard:"] = { key: g.discard ? cardKey(g.discard) : "", card: g.discard };
-  table["held:"] = { key: g.held ? cardKey(g.held) : "", card: g.held };
+    if (player != null) hand(player).forEach((slot, i) => (table[`${player}:${i}`] = slot));
+  table["discard:"] = { key: g.discard ? cardKey(g.discard) : "", card: g.discard, skin: tableSkin(g.discard, g.discard_owner) };
+  table["held:"] = { key: g.held ? cardKey(g.held) : "", card: g.held, skin: tableSkin(g.held, g.current) };
   table["draw:"] = { key: g.draw_count > 0 ? "X" : "", card: null };
   table["under:"] = { key: g.draw_count > 1 ? "X" : "", card: null };
   return { id: state.id, round: state.round, me, opp, table, phase: g.phase };
 }
 function applySlot(slot, entry, ref) {
   const key = entry.key;
-  if (slot.dataset.key !== key) {
+  // (drawn again when the card changes, or the design it wears does)
+  const skin = entry.skin?.id || "";
+  if (slot.dataset.key !== key || (slot.dataset.skin || "") !== skin) {
     slot.dataset.key = key;
-    slot.querySelector(".card-flip").innerHTML = faceHtml(entry.card);
+    slot.dataset.skin = skin;
+    slot.querySelector(".card-flip").innerHTML = faceHtml(entry.card, undefined, entry.skin || false);
   }
   const faceUp = key !== "" && key !== "X";
   slot.classList.toggle("is-face", faceUp);
@@ -667,7 +743,7 @@ function syncCards(prev, view) {
   }
   const fly = (fromKey, toKey, card, faceFrom, delay = 0) =>
     flyCard({
-      html: faceHtml(card),
+      html: faceHtml(card, undefined, after[toKey]?.skin || false),
       from: poses[fromKey],
       to: board.slots.get(toKey),
       faceFrom,
@@ -715,7 +791,7 @@ function syncCards(prev, view) {
         after[other].key === before[key].key,
     );
     if (partner) {
-      // two face-up cards traded places (bonus swap, Beggars trade, 4 of a Kind)
+      // two face-up cards traded places (bonus swap, Beggars trade, Fantastic 4)
       fly(partner, key, after[key].card, true);
       fly(key, partner, after[partner].card, true);
       handled.add(key).add(partner);
@@ -730,7 +806,7 @@ function syncCards(prev, view) {
 
 /** New game: the hands are dealt out of the go-fish pile. */
 function dealIn(view) {
-  const keys = [view.opp, view.me].flatMap((player) => [0, 1, 2, 3, 4, 5].map((i) => `${player}:${i}`));
+  const keys = [view.opp, view.me].filter((player) => player != null).flatMap((player) => [0, 1, 2, 3, 4, 5].map((i) => `${player}:${i}`));
   // Hide the hands now, but aim the cards a frame later: the table is still being
   // drawn (panels, the desktop action bar), and measuring now would land every
   // card short of where its slot ends up, then snap it into place.
@@ -742,7 +818,7 @@ function dealIn(view) {
     keys.forEach((key, order) => {
       const entry = view.table[key];
       flyCard({
-        html: faceHtml(entry.card),
+        html: faceHtml(entry.card, undefined, entry.skin || false),
         from,
         to: board.slots.get(key),
         faceFrom: false,
@@ -1024,7 +1100,7 @@ function renderTags() {
   for (const [side, player] of [
     ["me", state.viewer],
     ["opp", board.view.opp],
-  ]) {
+  ].filter(([, player]) => player != null)) {
     const enabled = (g.modifier_counts || state.modifier_counts || [])[player] ?? 0;
     const label = state.names[player] + (state.rated ? ` (${state.ratings[player]})` : "");
     const color = colorFor(player);
@@ -1051,12 +1127,19 @@ function renderTags() {
     const theirs = (side === "opp" || state.spectator) && theirTurn(player);
     // at a table of three or more, anyone further back in the order reads "Up in 3"
     const wait = turnsUntil(player);
-    const next = (player === upNext || wait > 1) && !theirs && !(side === "me" && turn);
+      // (PuzzleBot's band is always up between its turns: the moves it has left)
+    // (a puzzle runs a set number of moves each: both tags say how many each side has
+    // left between their turns; you have one fewer than PuzzleBot while it moves)
+    const puzzleLeft = !!state.puzzle && player <= 1 && g.bot_moves_left != null && g.phase !== "over";
+    const movesLeft = player === 1 ? g.bot_moves_left : Math.max(g.bot_moves_left - (g.current === 1 ? 1 : 0), 0);
+    const next = ((player === upNext || wait > 1) && !theirs && !(side === "me" && turn)) || (puzzleLeft && !theirs && !(side === "me" && turn));
     scoreTag.classList.toggle("their-turn", theirs);
     scoreTag.classList.toggle("up-next", next);
     if (next || theirs || (side === "me" && turn))
       scoreTag.querySelector("[data-turn-label]").textContent = next
-        ? player === upNext
+        ? puzzleLeft
+          ? `${movesLeft} left`
+          : player === upNext
           ? "Up next"
           : `Up in ${wait}`
         : theirs
@@ -1085,7 +1168,8 @@ function renderTags() {
       scoreTag.firstElementChild,
       `${player}|${label}|${shown}|${state.spectator}`,
       () =>
-        `<span class="who">${e(label)}</span>${state.spectator ? `<span class="odds" data-odds hidden></span>` : ""}<span class="score">${scoreDigits(shown, side)}</span>`,
+        // (a name too long for the tag breaks between its words first: PuzzleBot as Puzzle / Bot)
+        `<span class="who">${e(label).replace(/([a-z])([A-Z])/g, "$1<wbr>$2")}</span>${state.spectator ? `<span class="odds" data-odds hidden></span>` : ""}<span class="score">${scoreDigits(shown, side)}</span>`,
     );
     if (changed) delete board.signatures[`odds-${side}`];
     const oddsTag = scoreTag.querySelector("[data-odds]");
@@ -1351,6 +1435,31 @@ function renderChrome() {
   renderModal();
 }
 
+/**
+ * A player's emote stands beside their avatar, wherever the table has put it: yours to its
+ * right, the player across the table's to its left, level with it. (Placed from where the
+ * avatar is, not by fixed distances from the screen's edges, which put it in a different
+ * spot on every screen size.)
+ */
+function placeEmotes() {
+  for (const [where, side] of [["me", "me"], ["them", "opp"]]) {
+    const bubble = board.el?.querySelector(`.player-emote.${where}`),
+      avatar = board.el?.querySelector(`.tag-avatar[data-avatar-for="${side}"]`);
+    const holder = bubble?.offsetParent;
+    if (!bubble || !avatar || !holder) continue;
+    const box = holder.getBoundingClientRect(),
+      a = avatar.getBoundingClientRect();
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+    const gap = 1.2 * rem,
+      w = bubble.offsetWidth,
+      h = bubble.offsetHeight;
+    const left = where === "me" ? a.right + gap : a.left - gap - w;
+    bubble.style.left = `${Math.round(left - box.left)}px`;
+    bubble.style.top = `${Math.round(a.top + a.height / 2 - h / 2 - box.top)}px`;
+    bubble.style.right = bubble.style.bottom = "auto";
+  }
+}
+if (typeof addEventListener === "function") addEventListener("resize", () => board.el?.isConnected && placeEmotes());
 function renderEmotes() {
   const layer = board.el.querySelector("[data-emote-layer]");
   // spectators cheer on behalf of the player they watch, each in their own row ("spectator:<slot>");
@@ -1378,6 +1487,7 @@ function renderEmotes() {
   patch("emotes", layer, signature + board.view.opp + results + state.viewer, () =>
     (results ? "" : players.filter(showing).map((p) => playerEmote(p)).join("")) + spectators.map(spectatorEmote).join(""),
   );
+  placeEmotes();
   patch("emotes-others", board.el.querySelector("[data-emote-others]"), signature + board.view.opp + results, () =>
     results ? "" : players.filter((p) => !showing(p)).map((p) => playerEmote(p)).join(""),
   );
@@ -1397,6 +1507,34 @@ function renderEmotes() {
     () =>
       board.emotesOpen ? `<div class="emote-pop" role="group" aria-label="Quick emotes">${emoteButtons()}</div>` : "",
   );
+  keepEmoteScroll(pop);
+}
+/*
+ * The emote menu opens where it was left (its faces and its sayings scrolled as they
+ * were) when it was closed less than EMOTE_SCROLL_KEPT_MS ago; after that, back at the start.
+ */
+const EMOTE_SCROLL_KEPT_MS = 3000;
+const emoteScroll = { faces: 0, words: 0, open: false, closedAt: -Infinity };
+const EMOTE_STRIPS = { faces: ".emote-faces", words: ".emote-words" };
+function keepEmoteScroll(pop) {
+  const menu = pop?.querySelector?.(".emote-pop");
+  if (!menu) {
+    if (emoteScroll.open) emoteScroll.closedAt = performance.now();
+    emoteScroll.open = false;
+    return;
+  }
+  if (menu.dataset.scrollKept) return;
+  menu.dataset.scrollKept = "1";
+  // (drawn again while open, it keeps its place too)
+  const keep = emoteScroll.open || performance.now() - emoteScroll.closedAt < EMOTE_SCROLL_KEPT_MS;
+  emoteScroll.open = true;
+  for (const [kind, selector] of Object.entries(EMOTE_STRIPS)) {
+    if (!keep) emoteScroll[kind] = 0;
+    const strip = menu.querySelector(selector);
+    if (!strip) continue;
+    strip.scrollLeft = emoteScroll[kind];
+    strip.classList.toggle("at-end", strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2);
+  }
 }
 /** The quick emotes and the mute bell: in the chat bubble's pop-up, and under the results. */
 function emoteButtons() {
@@ -1418,15 +1556,20 @@ function emoteButtons() {
     .filter((row) => row.length)
     .map((row) => `<div class="emote-words-row">${row.map(word).join("")}</div>`)
     .join("");
-  return `<div class="emote-row">${faces}<button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words">${words}</div>` : ""}`;
+  // (the faces scroll sideways in a strip four and a half wide: the half hints at more;
+  // four or fewer fit whole, with no fade)
+  return `<div class="emote-row"><div class="emote-faces${emoteBar("faces").length <= 4 ? " at-end" : ""}">${faces}</div><button type="button" data-emote-mute aria-pressed="${opponentEmotesMuted}" aria-label="${opponentEmotesMuted ? "Unmute opponent emotes" : "Mute opponent emotes"}">${icon(opponentEmotesMuted ? "bell.slash.fill" : "bell.fill", 28, { idle: false })}</button></div>${words ? `<div class="emote-words">${words}</div>` : ""}`;
 }
-// the text emotes' fade at the edge goes once they are scrolled to the end
+// the emotes' fade at the edge (the sayings', the faces') goes once they are scrolled to the end
 document.addEventListener?.(
   "scroll",
   (event) => {
     const row = event.target;
-    if (row.classList?.contains("emote-words"))
+    if (row.classList?.contains("emote-words") || row.classList?.contains("emote-faces")) {
       row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
+      // (the menu's place, kept for a while after it closes: see keepEmoteScroll)
+      if (row.closest?.("[data-emote-pop]")) emoteScroll[row.classList.contains("emote-faces") ? "faces" : "words"] = row.scrollLeft;
+    }
   },
   true,
 );
@@ -1446,8 +1589,19 @@ function emoteArt(item, player) {
 function measureBoardEdges() {
   const box = board.el?.getBoundingClientRect?.();
   if (!box) return;
-  document.documentElement.style.setProperty("--board-l", `${Math.round(box.left)}px`);
-  document.documentElement.style.setProperty("--board-r", `${Math.round(box.right)}px`);
+  const root = document.documentElement;
+  root.style.setProperty("--board-l", `${Math.round(box.left)}px`);
+  root.style.setProperty("--board-r", `${Math.round(box.right)}px`);
+  // With the action bar at the board's side, your spectators' bubbles stand over it, and the
+  // other side's at the same spot mirrored across the table.
+  const bar = board.el.querySelector?.("[data-actionbar]");
+  const b = bar && getComputedStyle(bar).display !== "none" ? bar.getBoundingClientRect() : null;
+  root.classList.toggle("spectators-over-bar", !!b?.width);
+  if (!b?.width) return;
+  const middle = (box.left + box.right) / 2;
+  root.style.setProperty("--spec-left", `${Math.round(b.left)}px`);
+  root.style.setProperty("--spec-right", `${Math.round(innerWidth - (2 * middle - b.left))}px`);
+  root.style.setProperty("--spec-bottom", `${Math.round(innerHeight - b.top + 12)}px`);
 }
 window.addEventListener?.("resize", measureBoardEdges);
 function spectatorEmote(key) {
@@ -1643,7 +1797,7 @@ function resultTitle(mood, sentence, sub, word = { win: "You Win!", lose: "You L
       const sag = (i % 2 ? -1 : 1) * (3 + ((i * 7) % 5));
       return char === " "
         ? `<span class="gap"></span>`
-        : `<span class="stk" style="--i:${i};--sag:${sag}deg;${idleStyle(`result:${i}`)}">${e(char)}</span>`;
+        : `<span class="stk" data-t="${e(char)}" style="--i:${i};--sag:${sag}deg;${idleStyle(`result:${i}`)}">${e(char)}</span>`;
     })
     .join("");
   return `<h2 class="result-title ${mood}" style="--t:-${elapsed}s" aria-label="${e(sentence)}"><span class="word" aria-hidden="true">${letters}</span>${sub ? `<small aria-hidden="true">${e(sub)}</small>` : ""}</h2>`;
@@ -1698,7 +1852,64 @@ function settleLifted() {
     motionFor(slot).to({ x: 0, y: 0, lean: 0, scale: 1, lift: 0, rx: 0, ry: 0 });
   }
 }
+/**
+ * The Daily Puzzle's result, laid out as a game's results are: how you did
+ * against Golfbot, this try's margin and your best today, and Try again (the same deal).
+ */
+function renderPuzzle() {
+  const holder = board.el.querySelector("[data-summary]");
+  if (!holder) return;
+  const info = state.puzzle;
+  const last = state.status === "finished" && info.last;
+  if (!last) {
+    board.sawPlay = state.status === "playing";
+    patch("summary", holder, "", "");
+    return;
+  }
+  // (the last move is left on the table a moment before the result comes up)
+  const holdKey = `${state.id}|puzzle|${info.attempts}`;
+  if (board.summaryHold?.key !== holdKey) board.summaryHold = { key: holdKey, until: board.sawPlay ? performance.now() + RESULTS_DELAY : 0 };
+  const wait = board.summaryHold.until - performance.now();
+  if (wait > 0) {
+    patch("summary", holder, "", "");
+    clearTimeout(board.summaryTimer);
+    board.summaryTimer = setTimeout(() => {
+      if (board.el?.isConnected && board.summaryHold?.key === holdKey) renderPuzzle();
+    }, wait + 10);
+    return;
+  }
+  settleLifted();
+  // the day's score is the margin over PuzzleBot (its points minus yours): +5 is a win by 5
+  const margin = last.margin ?? last.bot - last.score;
+  // (the puzzle is scored by margin: what matters is whether this try beat your best)
+  const mood = last.new_best ? "win" : "lose";
+  const word = last.new_best ? "New Best!" : "Not a Best";
+  const title = last.new_best ? "New best margin!" : "Not a best margin this time";
+  const sub = `You ${last.score} pts · PuzzleBot ${last.bot} pts`;
+  const signature = JSON.stringify([info.attempts, info.best, last, info.rank, info.board, board.summaryHidden]);
+  patch("summary", holder, signature, () => {
+    if (board.summaryHidden)
+      return `<div class="summary mini"><button type="button" class="btn small c-p1" data-summary-toggle>${glyph("chevron.up", 16)} Results</button></div>`;
+    // two tiles where the players would be: this try's margin, and your best today
+    // (a trophy beside the best when this try just set it)
+    const tile = (color, value, label, trophy) =>
+      `<div class="ready-tile ${color}${trophy ? " won" : ""}"><span class="tile-points">${trophy ? `<span class="tile-trophy">${icon("trophy.fill", 22, { idle: false })}</span>` : ""}${stickerText(value == null ? "–" : puzzleMargin(value), { split: true, idle: false })}${value == null ? "" : stickerText("pts", { cls: "pts", idle: false })}</span><span class="who"><span class="name">${label}</span></span></div>`;
+    const tiles = tile("c-p1", margin, "This try", false) + tile("c-p3", info.best, info.rank ? `Best today · #${info.rank}` : "Best today", last.new_best);
+    const sticker = (attrs, color, symbol, label, size = 30) =>
+      `<button type="button" class="close-btn ${color}" ${attrs}>${icon(symbol, size)}<span>${label}</span></button>`;
+    const action = `<div class="summary-actions">${sticker("data-leave", "c-fw", "rectangle.portrait.and.arrow.right", "Quit")}<button type="button" class="btn c-p1 summary-main" data-puzzle-retry>${tilted("arrow.clockwise", 30)}<span>${padTag("y")}Try again</span></button>${sticker('data-summary-toggle aria-label="View the board"', "c-fw", "binoculars.fill", "View")}</div>`;
+    // where a game's points graph would be: today's best margins (the home screen's rows)
+    const leaders = `<figure class="eval-chart pz-leaders c-p1"><figcaption><span class="chart-title">Today's best margins</span> <small>higher is better</small></figcaption><div class="pz-leaders-scroll"><div class="pb-list${info.board?.length ? "" : " empty"}">${puzzleRowsHtml({ board: info.board || [] }, 30, { ranked: true })}</div></div></figure>`;
+    // (a puzzle piece either side of the verdict, in its colors: whatever the verdict says)
+    const piece = (side) => `<span class="result-ico ${side}">${tilted("puzzlepiece.fill", 26, { key: `result-ico:${side}`, sw: 5, tilt: side === "left" ? -8 : 8, mirror: side === "right" })}</span>`;
+    const heading = resultTitle(mood, title, sub, word).replace(/<span class="word" aria-hidden="true">([^]*?)<\/span>(<small|<\/h2>)/, (_, letters, after) => `<span class="word" aria-hidden="true">${piece("left")}${letters}${piece("right")}</span>${after}`); // (first: it starts the clock the entrance runs on)
+    const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating puzzle-result" role="dialog" aria-label="Puzzle result" style="--t:-${lag}s">${heading}${leaders}<div class="panel c-fw summary-panel"><p class="summary-match">Daily Puzzle #${info.number} · Same deal every try</p><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div></section>`;
+  });
+  fitSummary();
+}
 function renderSummary() {
+  if (state.puzzle) return renderPuzzle(); // (its result is told in its own panel)
   const holder = board.el.querySelector("[data-summary]");
   const over = ["round_over", "finished", "closed"].includes(state.status);
   if (!over) {
@@ -1777,10 +1988,19 @@ function renderSummary() {
       .map(([name, p]) => {
         const ready = !!state.ready[p];
         const crown = finished ? state.champion === p : result?.winner === p;
+        // (between games, whether they are ready: a mark before their name, no words)
         const status = between
-          ? `<span class="ready-state${ready ? " on" : ""}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}${ready ? "Ready" : "Not ready"}</span>`
+          ? `<span class="ready-state${ready ? " on" : ""}" role="img" aria-label="${ready ? "Ready" : "Not ready"}">${icon(ready ? "checkmark.circle.fill" : "hourglass", 18, { idle: false })}</span>`
           : "";
-        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="who"><span class="name">${p === viewer ? youStar() : ""}${e(name)}</span>${crown ? icon(finished ? "trophy.fill" : "crown.fill", 20, { key: `crown:${p}` }) : ""}</span><b>${result ? result.scores[p] : "–"} pts</b>${series ? `<small>${state.series_mode === "points" ? `${state.points[p]} total` : `${state.wins[p]} ${state.wins[p] === 1 ? "win" : "wins"}`}</small>` : ""}${status}</div>`;
+        // Each player: this game's points, big, as stickers in their color (a trophy beside
+        // them for whoever won the game), over their name, and the series so far in plain words.
+        // (the game's winner has a trophy beside their points)
+        // (everyone else has their avatar there, small, in their color)
+        const trophy = crown
+          ? `<span class="tile-trophy">${icon("trophy.fill", 22, { idle: false })}</span>`
+          : `<span class="tile-trophy tile-ava">${icon(avatarIcon(state.avatars?.[p]), 16, { idle: false })}</span>`;
+        const tally = state.series_mode === "points" ? [state.points[p], "total"] : [state.wins[p], state.wins[p] === 1 ? "win" : "wins"];
+        return `<div class="ready-tile ${colorFor(p)}${crown ? " won" : ""}"><span class="tile-emote" data-tile-emote="${p}"></span><span class="tile-points">${trophy}${stickerText(result ? String(result.scores[p]) : "–", { split: true, idle: false })}${stickerText("pts", { cls: "pts", idle: false })}</span><span class="who">${status}<span class="name">${p === viewer ? youStar() : ""}${e(name)}</span></span>${series ? `<small class="tile-tally">${tally[0]} ${tally[1]}</small>` : ""}</div>`;
       })
       .join("");
     // Quit and View board: sticker icons with their labels underneath, either
@@ -1788,7 +2008,7 @@ function renderSummary() {
     const sticker = (attrs, color, symbol, label, extra = "", size = 30) =>
       `<button type="button" class="close-btn ${color}" ${attrs}>${icon(symbol, size)}<span>${extra}${label}</span></button>`;
     const quit = sticker("data-leave", "c-fw", "rectangle.portrait.and.arrow.right", "Quit");
-    const look = sticker('data-summary-toggle aria-label="View the board"', "c-fw", "eye.fill", "View");
+    const look = sticker('data-summary-toggle aria-label="View the board"', "c-fw", "binoculars.fill", "View");
     // the main move is a full button, filling the room between Quit and View
     const wide = (attrs, symbol, label, extra = "") =>
       `<button type="button" class="btn c-p1 summary-main" ${attrs}>${tilted(symbol, 30)}<span>${extra}${label}</span></button>`;
@@ -1796,7 +2016,7 @@ function renderSummary() {
     const main = state.tournament && (finished || state.spectator)
       ? wide(`data-tournament-open="${e(state.tournament.id)}"`, "trophy.fill", "Bracket", padTag("y"))
       : state.spectator
-      ? wide("disabled", "eye.fill", "Watching…")
+      ? wide("disabled", "binoculars.fill", "Watching…")
       : state.local
       ? between
         ? wide('data-action="next_round"', "checkmark.circle.fill", "Next game", padTag("y"))
@@ -1804,7 +2024,10 @@ function renderSummary() {
       : between
       ? state.ready[viewer]
         ? wide("disabled", "hourglass", "Waiting…")
-        : wide('data-action="next_round"', "checkmark.circle.fill", "Ready", padTag("y"))
+        : state.solo
+          ? // (against Golfbot there is nobody to be ready for: the next game straight away)
+            wide('data-action="next_round"', "arrow.clockwise", "Play Again", padTag("y"))
+          : wide('data-action="next_round"', "checkmark.circle.fill", "Ready", padTag("y"))
       : left
         ? // someone has left the table: there is nobody to play a rematch with
           wide('disabled title="A player has left the table."', "arrow.clockwise", state.solo ? "Play again" : "Rematch")
@@ -1857,7 +2080,7 @@ function matchProgress(finished) {
 function fitSummary() {
   const summary = board.el?.querySelector(".summary.floating");
   // sayings that fit whole need no fade hinting at more to scroll to
-  for (const row of summary?.querySelectorAll(".emote-words") || [])
+  for (const row of summary?.querySelectorAll(".emote-words, .emote-faces") || [])
     row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2);
   const plot = summary?.querySelector(".eval-plot");
   if (!plot) return;
@@ -1903,7 +2126,7 @@ function renderModal() {
       holder,
       `arrange${JSON.stringify(g.legal.arrange)}`,
       () =>
-        `<div class="modal-shade"><section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Arrange four of a kind"><h2>4 of a Kind</h2><p>Choose two columns for the four matching cards, or keep your layout. Hidden cards stay hidden.</p><div class="cols">${[
+        `<div class="modal-shade"><section class="modal panel c-p4" role="dialog" aria-modal="true" aria-label="Arrange four of a kind"><h2>Fantastic 4</h2><p>Choose two columns for the four matching cards, or keep your layout. Hidden cards stay hidden.</p><div class="cols">${[
           [0, 1],
           [0, 2],
           [1, 2],
@@ -2848,7 +3071,7 @@ function rulesSheet(player) {
     Number(!!matchOptions.house_rules[b.key]) - Number(!!matchOptions.house_rules[a.key]));
   const others = state.names.map((_, p) => p).filter((p) => p !== player);
   return `<section class="sheet rules-sheet ${color}" role="dialog" aria-modal="true" aria-label="Rules in play">
-    <div class="sheet-head"><h2>${isYou(player) ? youStar() : ""}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} rules in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="sheet-head"><h2>${nameMark(state.player_ids?.[player], isYou(player))}${e(state.names[player])}<small class="sheet-sub">${(g.modifier_counts || state.modifier_counts || [])[player] ?? 0} rules in play${state.house_rules ? " · House rules" : ""}</small></h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="tally">
       <div><span>Face-up cards</span><b>${visible} pts</b></div>
       ${effects.map((effect) => `<div class="effect"><span class="effect-ico">${groupStickers(effectStickers(effect)).map((sticker) => ruleStickerHtml(sticker, 24)).join("")}</span>${effectParts(effect)}</div>`).join("") || "<div><span>No rules are affecting this hand yet</span></div>"}

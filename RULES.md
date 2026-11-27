@@ -1,6 +1,6 @@
 # Golf rules
 
-The single source of truth for Golf. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers** and **4 of a Kind**. Those two stay off. **All in red/black** and **Suited rows** are included in House rules. The preset and random first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
+The single source of truth for Golf. Match creation defaults to **House rules**: enable every optional rule below except **Beggars Will be Choosers** and **Fantastic 4**. Those two stay off. **All in red/black** and **Suited rows** are included in House rules. The preset and random first-player setting are locked. Turn House rules off to customize; in custom solo games, rules remain editable until the second opening flip. Multiplayer rules stay fixed after creation. Hover help reads the short marked descriptions below.
 
 **Match length:** choose a single game; Best of 3, 5, or 9 (first to 2, 3, or 5 wins); a fixed 3-, 5-, or 9-game series (lowest total points wins, equal totals draw); or **Continuous**. Fixed series play every scheduled game, including after a player builds a lead. Continuous has no win target; ready up until someone leaves. After everyone leaves, most game wins decides Continuous; lower total points breaks a tie. Equal wins and points means no winner. Completed games count in stats; unfinished games do not. In solo, leaving closes Golfbot's seat too.
 
@@ -101,7 +101,7 @@ A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2
 
 The player with the highest visible card value may guess an opponent's chosen hidden card before it flips. At a table of three or more, only the next player in turn may guess, and only when they hold that highest value. A correct rank guess trades their highest visible card for the opponent's lowest visible card. Tied highest values give no guess; tied trade choices belong to the guesser.
 
-### 4 of a Kind
+### Fantastic 4
 <!-- rule: four_kind -->
 
 Four visible cards of one rank may immediately be moved into any two columns, or left in place. With extra decks, choose four of the matches with the least movement. Offer once per rank per player. Preserve hidden cards; resume the turn afterward.

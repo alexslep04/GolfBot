@@ -180,7 +180,7 @@ def scoring_subrule_keys(layout, rules, visible_only=True):
 
     The parts the stats break each rule into: Hold 'em's hands, the straights'
     direction, the suited rows' and the six cards' color, and whether a King-Queen
-    column matched colors. (Angel numbers, bonus swaps, Beggars and 4 of a Kind
+    column matched colors. (Angel numbers, bonus swaps, Beggars and Fantastic 4
     are recorded by the game as they happen.)
     """
     keys = set()
@@ -252,8 +252,23 @@ def modifier_data(game, *, visible_only=True):
             # the parts of those rules ("angel_numbers:777", "holdem:flush", ...); older results lack them
             'subrule_activations': [sorted(set(subrules[player]) | scoring_subrule_keys(layout, game.rules, visible_only)
                                            | {f'angel_numbers:{str(rank) * 3}' for rank in game.angels_earned[player]
-                                              if game.rules.angel_numbers})
+                                              if game.rules.angel_numbers}
+                                           | (set() if visible_only else final_hand_keys(layout, game.rules)))
                                     for player, layout in enumerate(game.players)]}
+
+
+def final_hand_keys(layout, rules):
+    """What a seat's final hand (every card, at the round's end) held that the flags
+    look for, beyond the rules' parts: "holdem:flush_hearts", a Hold 'em flush in hearts;
+    "four_kind:final", four cards of one rank with Fantastic 4 on.
+    (Not a part the stats break the rule into, and not counted while the game is on:
+    only the hand it ended with.)"""
+    keys = set()
+    if rules.holdem and sum(slot.card.suit == "H" for slot in layout) >= 5:
+        keys.add('holdem:flush_hearts')
+    if rules.four_kind and max(Counter(slot.card.rank for slot in layout).values(), default=0) >= 4:
+        keys.add('four_kind:final')
+    return keys
 
 
 

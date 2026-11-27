@@ -26,6 +26,82 @@
   unicode-range: U+2026;
   font-display: block;
 }
+/* The stickers' fonts with the rough paper edge baked into the letters, cut for a
+   ladder of sizes so the grain is the same on screen at every size (made by
+   tools/design/roughen.py; web/ui.js gives each piece of sticker text the cut for
+   its size: see roughCuts). Never taken from the computer: no local() source. */
+@font-face {
+  font-family: "Golf Rough Seurat 14";
+  src: url(fonts/seurat-pro-b-rough-14.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Seurat 20";
+  src: url(fonts/seurat-pro-b-rough-20.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Seurat 28";
+  src: url(fonts/seurat-pro-b-rough-28.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Seurat 40";
+  src: url(fonts/seurat-pro-b-rough-40.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Seurat 56";
+  src: url(fonts/seurat-pro-b-rough-56.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Seurat 80";
+  src: url(fonts/seurat-pro-b-rough-80.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Round 14";
+  src: url(fonts/sf-pro-rounded-bold-rough-14.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Round 20";
+  src: url(fonts/sf-pro-rounded-bold-rough-20.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Round 28";
+  src: url(fonts/sf-pro-rounded-bold-rough-28.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Round 40";
+  src: url(fonts/sf-pro-rounded-bold-rough-40.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Round 56";
+  src: url(fonts/sf-pro-rounded-bold-rough-56.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
+@font-face {
+  font-family: "Golf Rough Round 80";
+  src: url(fonts/sf-pro-rounded-bold-rough-80.woff2) format("woff2");
+  font-weight: 600 900;
+  font-display: block;
+}
 @font-face {
   font-family: "SF Pro Rounded";
   src:
@@ -98,12 +174,15 @@
   --p8b: #c6ebd1;
   --p8t: #0f3a1d;
   --shadow: rgb(0 0 0 / 0.25);
+  --shadow-alpha: 0.25; /* (the same, as a strength: the sticker letters' shadow copies) */
   --text: "FOT-Seurat Pro", "Hiragino Maru Gothic ProN", "Arial Rounded MT Bold",
     system-ui, sans-serif;
   /* SF Pro Rounded is for sticker numerals only (score, "pts", card ranks), as in Figma. */
   --round: "SF Pro Rounded", ui-rounded, "FOT-Seurat Pro",
     "Arial Rounded MT Bold", system-ui, sans-serif;
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* a soft landing with no bounce (the tab bar, pages coming to rest) */
+  --glide: cubic-bezier(0.22, 1, 0.36, 1);
   --c: var(--fw);
   --c2: var(--fw3);
   --ct: var(--fw-text);
@@ -149,7 +228,7 @@
 }
 /* Original: "one move away" is filled with the accent, its words in the pale
    secondary accent */
-:root:not([data-theme]) .pill.rule-state.near {
+:root:is(:not([data-theme]), [data-theme="pool"]) .pill.rule-state.near {
   background: var(--c);
   color: var(--c2);
 }
@@ -199,6 +278,8 @@
    seat colors that are darker and quieter, and a little antique gold where
    Golf uses pale green. The few rules a theme needs beyond its tokens (its
    backdrop, its card back) sit beside the rule they replace, marked "Poker:". */
+/* (also on a preview of the theme inside another: the locked theme on a flag) */
+[data-theme-art="poker"],
 :root[data-theme="poker"] {
   --bg: #021b14;
   --edge: #032017;
@@ -246,9 +327,25 @@
   --on-bg2: var(--gold);
   --sad: #7d78a8;
   --shadow: rgb(0 0 0 / 0.45);
+  --shadow-alpha: 0.45;
+}
+/* "Pool" (unlocked by the Adult swim flag): the same light, sticker look as Original,
+   the fairway turned to turquoise pool water; the seat colors as they are */
+[data-theme-art="pool"],
+:root[data-theme="pool"] {
+  --scrim: rgb(6 48 50 / 0.55);
+  --bg: #a8ecea;
+  --edge: #bdf2f0;
+  --fw: #22bdb4;
+  --fw2: #6fd9d2;
+  --fw3: #c6f4f1;
+  --fw-text: #08403c;
+  --accent: #9fe3de;
 }
 /* "Night Golf" is the same course after dark: the fairway in moonlit greens,
    the seat colors kept bright enough to read but laid on deep surfaces. */
+/* (also on a preview of the theme inside another: the locked theme on a flag) */
+[data-theme-art="night"],
 :root[data-theme="night"] {
   --bg: #0f2018;
   --edge: #193422;
@@ -294,11 +391,13 @@
   --on-bg2: #7fd18f;
   --sad: #8b80c4;
   --shadow: rgb(0 0 0 / 0.45);
+  --shadow-alpha: 0.45;
 }
 /* "Focus" takes the color out: a black room and one dark gray for everything
    on it, every button, panel, seat and sticker alike. Only the cards keep a
    suit color (red, or the high contrast orange and blue), and the decorative
    icons beside labels go (see the end of the file). */
+[data-theme-art="focus"],
 :root[data-theme="focus"] {
   --f-edge: #4a4a4a; /* every border and sticker outline */
   --f-fill: #161616; /* every panel and button */
@@ -356,6 +455,7 @@
   --on-bg2: #6a6a6a;
   --sad: var(--f-edge);
   --shadow: rgb(0 0 0 / 0.6);
+  --shadow-alpha: 0.6;
 }
 /* Dark themes: the lit flame keeps an outline of its own orange, dimmer than
    its fill, instead of vanishing into the dark sticker edge */
@@ -484,6 +584,15 @@ body {
 html {
   background: var(--bg);
 }
+/* Room for the page's scrollbar is kept whether or not the page is long enough to
+   scroll. Without it, a short page (Watch with no games on) sat half a scrollbar's
+   width to the right of a long one, and everything jumped across on changing tabs. */
+/* (overflow-y: scroll does it where scrollbar-gutter does not: browsers ignore the
+   gutter for a scrollbar restyled as ours is.) */
+:root:not(.in-game) {
+  scrollbar-gutter: stable;
+  overflow-y: scroll;
+}
 body {
   font: 700 1.6rem/1.4 var(--text);
   color: var(--on-bg);
@@ -529,6 +638,10 @@ body {
 /* Night Golf: the same course after dark */
 :root[data-theme="night"] #backdrop {
   background-image: url(assets/fairway-night.svg);
+}
+/* Pool: the same shape, as pale water, its stripes the lane lines */
+:root[data-theme="pool"] #backdrop {
+  background-image: url(assets/fairway-pool.svg);
 }
 /* Focus: nothing behind the table but black */
 :root[data-theme="focus"] #backdrop {
@@ -586,9 +699,9 @@ p {
   display: inline-block;
   flex: none;
   overflow: visible;
-  /* --shx/--shy keep the shadow falling down-right even on rotated stickers */
-  filter: url(#texture)
-    drop-shadow(var(--shx, 0.3rem) var(--shy, 0.3rem) 0 var(--shadow));
+  /* --shx/--shy keep the shadow falling down-right even on rotated stickers. (The rough
+     paper edge is in the icon's own outline: tools/design/roughen.py.) */
+  filter: drop-shadow(var(--shx, 0.3rem) var(--shy, 0.3rem) 0 var(--shadow));
 }
 .ico path {
   fill: var(--fill, var(--c));
@@ -604,9 +717,9 @@ p {
 .ico.flat {
   filter: none;
 }
-/* textured, but lying flat on the page: no drop shadow (unchecked circles) */
+/* lying flat on the page: no drop shadow (unchecked circles) */
 .ico.bare {
-  filter: url(#texture);
+  filter: none;
 }
 .ico.ink path {
   fill: currentColor;
@@ -621,7 +734,8 @@ p {
 /* marks your own name */
 .you-star {
   width: 0.86em;
-  margin-right: 0.3em;
+  /* (as close to the name as its letters are to each other) */
+  margin-right: 0.12em;
   vertical-align: -0.06em;
 }
 /* follows a link that leaves the game */
@@ -635,8 +749,28 @@ p {
   color: var(--fill, var(--c));
   -webkit-text-stroke: var(--sw, 0.6rem) var(--stroke, var(--paper));
   paint-order: stroke fill;
-  filter: url(#texture)
-    drop-shadow(var(--shx, 0.3rem) var(--shy, 0.3rem) 0 var(--shadow));
+  /* (The rough paper edge is in the letters themselves: the rough cut of the font for
+     their size, given by web/ui.js as data-cut.) */
+  position: relative;
+  isolation: isolate;
+}
+/* The shadow is a copy of the letter (data-t), outline and all, in solid black, made
+   see-through as one piece and set behind it. Not a filter: Safari draws a filtered
+   element only within its own box, and the thick outline reaching past it was cut off.
+   Not a text shadow: that is drawn once for the outline and again for the fill, and
+   the fill's lay over the outline. */
+.stk::before {
+  content: attr(data-t);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: inherit;
+  white-space: pre;
+  color: #000;
+  -webkit-text-stroke-color: #000;
+  opacity: var(--shadow-alpha, 0.25);
+  translate: var(--shx, 0.3rem) var(--shy, 0.3rem);
+  pointer-events: none;
 }
 /* The static tilt lives on `transform`; idle motion uses the independent
    translate/rotate properties so the two never fight. */
@@ -645,14 +779,15 @@ p {
     alternate;
   will-change: translate, rotate;
 }
+/* (--idle-scale turns a sticker's drift down: 1 is the usual amount) */
 @keyframes idle {
   from {
-    translate: calc(var(--ix, 0.08rem) * -1) calc(var(--iy, 0.1rem) * -1);
-    rotate: calc(var(--ir, 1.5deg) * -1);
+    translate: calc(var(--ix, 0.08rem) * var(--idle-scale, 1) * -1) calc(var(--iy, 0.1rem) * var(--idle-scale, 1) * -1);
+    rotate: calc(var(--ir, 1.5deg) * var(--idle-scale, 1) * -1);
   }
   to {
-    translate: var(--ix, 0.08rem) var(--iy, 0.1rem);
-    rotate: var(--ir, 1.5deg);
+    translate: calc(var(--ix, 0.08rem) * var(--idle-scale, 1)) calc(var(--iy, 0.1rem) * var(--idle-scale, 1));
+    rotate: calc(var(--ir, 1.5deg) * var(--idle-scale, 1));
   }
 }
 .tilt {
@@ -818,8 +953,7 @@ p {
   height: 8.3rem;
   width: auto;
   overflow: visible;
-  /* the same rough sticker edge as the letters beside it */
-  filter: url(#texture);
+  /* (the rough sticker edge is in its own outline) */
 }
 .page-title {
   font: 700 2.4rem/1.1 var(--text);
@@ -897,7 +1031,14 @@ p {
   color: var(--c);
 }
 
-/* Scrollbars: a slim pill in the surrounding theme color, with no track. */
+/* Scrollbars: a slim pill, with no track, in a lighter shade of the surrounding
+   theme color (half way between it and the surface it lies on). */
+:root {
+  --scroll-thumb: color-mix(in srgb, var(--c, var(--fw)) 50%, var(--c2, var(--fw3)));
+}
+* {
+  --scroll-thumb: color-mix(in srgb, var(--c, var(--fw)) 50%, var(--c2, var(--fw3)));
+}
 ::-webkit-scrollbar {
   width: 1.2rem;
   height: 1.2rem;
@@ -909,11 +1050,20 @@ p {
 ::-webkit-scrollbar-thumb {
   border: 0.35rem solid transparent;
   border-radius: 99rem;
-  background: var(--c) padding-box;
+  background: var(--scroll-thumb) padding-box;
 }
+/* (the full color while it is under the pointer or being dragged) */
 ::-webkit-scrollbar-thumb:hover,
 ::-webkit-scrollbar-thumb:active {
-  background-color: var(--ct);
+  background-color: var(--c, var(--fw));
+}
+/* (a table that scrolls sideways has a darker one: the full color of the card it is in,
+   as its row lines are, kept inside the card's padding) */
+.table-wrap {
+  --scroll-thumb: var(--c, var(--fw));
+}
+.panel .table-wrap::-webkit-scrollbar-track {
+  margin-inline: 1.4rem;
 }
 /* keep the pill clear of rounded corners */
 .sheet::-webkit-scrollbar-track,
@@ -924,7 +1074,7 @@ p {
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--c) transparent;
+    scrollbar-color: var(--scroll-thumb) transparent;
   }
 }
 .credit {
@@ -1166,6 +1316,10 @@ p {
     transition: none;
   }
 }
+:root.reduce-motion .info-hint,
+:root.reduce-motion .info-hint.open {
+  transition: none;
+}
 .field.hug {
   width: auto;
   flex: none;
@@ -1364,9 +1518,9 @@ button.pill:active {
   --stroke: var(--fw);
   will-change: transform, opacity, filter;
 }
-/* the art keeps its texture; its shadow is the flat copy underneath */
+/* the art's shadow is the flat copy underneath */
 .avatar > .ico {
-  filter: url(#texture);
+  filter: none;
 }
 .avatar-shade {
   position: absolute;
@@ -1606,6 +1760,21 @@ button.pill:active {
   overflow-x: auto;
   margin: 0.8rem -0.4rem 0;
   padding: 0 0.4rem;
+}
+/* In a card, a table that scrolls sideways runs out to the card's edges: the card's own
+   padding is inside it, so what scrolls by is cut off at the card's border, not short of it */
+.panel .table-wrap {
+  margin-inline: -1.4rem;
+  padding-inline: 1.4rem;
+}
+/* (a card that ends with such a table ends with it: the room under its last row is the
+   table's own, as much as is beside its first column, the card's 1.4rem and the cell's 0.3rem
+   either way, so the table sits evenly in the card's corner) */
+article.panel:has(> .table-wrap:last-child) {
+  padding-bottom: 0;
+}
+article.panel > .table-wrap:last-child {
+  padding-bottom: 0.7rem; /* (+ the last row's own 0.7rem, less its line's own room under the words) */
 }
 table {
   width: 100%;
@@ -2012,9 +2181,11 @@ button.tag-rules:active > .tag-in {
 }
 .tag-score .odds .stk {
   position: relative;
-  /* textured, but without a shadow of its own: one shadow falls from the whole
-     percent (below), never from one character onto the next */
-  filter: url(#texture);
+  /* without a shadow of its own: one shadow falls from the whole percent (below),
+     never from one character onto the next */
+}
+.tag-score .odds .stk::before {
+  content: none;
 }
 .tag-score .odds {
   filter: drop-shadow(var(--shx, 0.3rem) var(--shy, 0.3rem) 0 var(--shadow));
@@ -2603,8 +2774,7 @@ button.tag-rules:active > .tag-in {
   gap: 0.7rem;
   width: 2.2rem;
   transform: rotate(1.4deg);
-  /* same paper texture as the stickers, without their drop shadow */
-  filter: url(#texture);
+  /* (the stickers' rough edge, from the rough cut for its size; without their drop shadow) */
 }
 .corner + .corner {
   align-self: flex-end;
@@ -2828,36 +2998,6 @@ button.tag-rules:active > .tag-in {
 /* "Sign in to keep your stats", hanging under the settings gear */
 .topbar {
   position: relative;
-}
-.queue-pill.signin-tip {
-  position: absolute;
-  top: calc(100% + 1rem);
-  left: 0.4rem;
-  transform-origin: 2.6rem -1rem; /* grows out of the gear it points at */
-  z-index: 20;
-  cursor: pointer;
-  animation: pop 0.4s var(--spring);
-  transition: opacity 0.3s;
-}
-.queue-pill.signin-tip.leaving {
-  opacity: 0;
-}
-/* the tooltip's arrow, up at the gear: the pill's edge color, then its fill */
-.queue-pill.signin-tip::before,
-.queue-pill.signin-tip::after {
-  content: "";
-  position: absolute;
-  left: 1.6rem;
-  border: 1rem solid transparent;
-  border-top: 0;
-}
-.queue-pill.signin-tip::before {
-  bottom: 100%;
-  border-bottom-color: var(--p3);
-}
-.queue-pill.signin-tip::after {
-  bottom: calc(100% - 0.45rem);
-  border-bottom-color: var(--p3b);
 }
 @keyframes pop {
   from {
@@ -3166,10 +3306,10 @@ button.tag-rules:active > .tag-in {
 .emote-pop:not(.summary-emotes) {
   max-width: calc(100vw - 8.2rem);
 }
-/* with sayings to show it keeps the width of five faces and the bell, however
-   few faces are on it (the sayings take the faces' width); the bell keeps to the end */
+/* with sayings to show it keeps the width of four and a half faces and the bell,
+   however few faces are on it (the sayings take the faces' width); the bell keeps to the end */
 .emote-pop:not(.summary-emotes):has(.emote-word) {
-  min-width: min(36.6rem, calc(100vw - 8.2rem));
+  min-width: min(33.2rem, calc(100vw - 8.2rem));
 }
 .emote-row > [data-emote-mute] {
   margin-left: auto;
@@ -3182,6 +3322,36 @@ button.tag-rules:active > .tag-in {
   max-width: 5.2rem;
   height: auto;
   aspect-ratio: 1;
+}
+/* the faces: a strip that scrolls sideways, four and a half faces wide (4 faces,
+   their 4 gaps and half a face), the half fading out to show there are more */
+.emote-faces {
+  display: flex;
+  gap: 0.6rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(4.5 * 5.2rem + 4 * 0.6rem + 0.6rem);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  touch-action: pan-x;
+  /* (room for a face's tilt and its controller ring, taken back by the margin) */
+  padding: 0.3rem;
+  margin: -0.3rem;
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.6rem), transparent);
+}
+.emote-faces.at-end {
+  mask-image: none;
+}
+.emote-faces::-webkit-scrollbar {
+  display: none;
+}
+.emote-faces > button {
+  flex: none;
+  width: 5.2rem;
+  max-width: none;
+  scroll-snap-align: start;
 }
 .emote-row img {
   width: 88%;
@@ -3236,61 +3406,88 @@ button.tag-rules:active > .tag-in {
     transform: scale(1.06) rotate(-2deg);
   }
 }
-/* Settings > Theme: a row for each theme, wearing that theme's own color
-   tokens (app.js puts them on it), so every color here is the theme's and not
-   the one in use. Its preview is a small table: a card and four players. */
+/* Settings > Theme: a row for each theme, wearing that theme's own color tokens
+   (app.js puts them on it), so every color here is the theme's and not the one in
+   use: six tall swatches (its four player colors, its text on white, its table),
+   then its name on a pill, with a check on the one chosen. */
 .theme-list {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 1rem;
 }
 .theme-choice {
   display: flex;
-  align-items: center;
-  gap: 1.4rem;
-  min-height: 8rem;
-  padding: 0.8rem 1.6rem 0.8rem 0.8rem;
-  border: 0.4rem solid var(--fw);
-  border-radius: 2.4rem;
-  background: var(--fw3);
+  align-items: stretch;
+  gap: 0.6rem;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--fw-text);
   font: 700 2rem/1.2 var(--text);
   text-align: left;
-  --fill: var(--fw);
-  --stroke: var(--paper);
   transition: transform 0.28s var(--spring);
 }
 .theme-choice:active {
   transform: scale(0.97);
 }
-.theme-choice[aria-checked="true"] {
-  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
-}
-.theme-preview {
+.theme-swatches {
   flex: none;
   display: flex;
-  align-items: center;
-  justify-content: center;
   gap: 0.4rem;
-  width: 11.6rem;
-  height: 5.6rem;
-  border: 0.3rem solid var(--fw);
-  border-radius: 1.4rem;
-  background: var(--bg);
 }
-.theme-preview .tp-card {
-  width: 2rem;
-  height: 2.8rem;
-  margin-right: 0.3rem;
-  border: 0.25rem solid var(--ink);
-  border-radius: 0.5rem;
-  background: var(--paper);
-  rotate: -6deg;
+.theme-swatches i {
+  width: 1.9rem;
+  min-height: 6.4rem;
+  /* (the same stroke as the name's button beside them) */
+  border: 0.4rem solid var(--sw-edge);
+  border-radius: 99rem;
+  background: var(--sw-fill);
 }
-.theme-preview i {
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
+.theme-swatches .ts-p1 { --sw-edge: var(--p1); --sw-fill: var(--p1b); }
+.theme-swatches .ts-p2 { --sw-edge: var(--p2); --sw-fill: var(--p2b); }
+.theme-swatches .ts-p3 { --sw-edge: var(--p3); --sw-fill: var(--p3b); }
+.theme-swatches .ts-p4 { --sw-edge: var(--p4); --sw-fill: var(--p4b); }
+.theme-swatches .ts-text { --sw-edge: var(--ink); --sw-fill: var(--paper); }
+.theme-swatches .ts-bg { --sw-edge: var(--fw); --sw-fill: var(--bg); }
+/* the name: a pill in the theme's own green */
+.theme-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem 0.6rem 1.6rem;
+  border: 0.4rem solid var(--fw);
+  border-radius: 2.4rem;
+  background: var(--fw3);
+  --fill: var(--fw);
+  --stroke: var(--paper);
+}
+.theme-choice[aria-checked="true"] .theme-name {
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+/* a theme its flag holds back: there to see, greyed out, with the flag that unlocks it
+   and a lock on the right */
+.theme-choice.locked {
+  opacity: 0.55;
+  filter: grayscale(1);
+  cursor: default;
+}
+.theme-choice.locked .theme-name > .ico {
+  margin-left: auto;
+  --fill: var(--paper);
+  --stroke: var(--ink);
+}
+.theme-choice.locked:active {
+  transform: none;
+}
+/* (a locked theme goes unnamed: just the flag that unlocks it) */
+.theme-choice .theme-flag {
+  display: block;
+  font: 700 1.3rem/1.25 var(--text);
+}
+.theme-name > .ico {
+  flex: none;
 }
 /* Settings > Emotes: the bar as it stands, drawn like the bar itself, over the
    emotes left off it. One chosen on the bar is lifted, and wears an x that
@@ -3775,22 +3972,19 @@ button.tag-rules:active > .tag-in {
   position: relative;
   overflow: visible;
 }
-/* the notes of a new patch, the first time it is opened: they scroll inside the card */
-.patch-dialog {
-  width: min(92vw, 56rem);
-  text-align: left;
+/* the notes of a new patch, the first time it is opened: a sheet, its "New update" pill
+   over the title, and Start golfing! at the end of the notes */
+.patch-sheet .sheet-head h2 .pill {
+  display: table;
+  margin-bottom: 0.4rem;
+  font-size: 1.4rem;
 }
-.patch-dialog h2 {
-  margin-top: 0.8rem;
-}
-.patch-dialog .patch-notes {
-  max-height: 52dvh;
-  overflow-y: auto;
-  margin: 0.4rem -0.6rem 1.2rem 0;
-  padding-right: 0.6rem;
-}
-.patch-dialog .patch-notes p {
+.patch-sheet .patch-notes p {
   margin: 0.5rem 0;
+}
+.patch-sheet .patch-start {
+  width: 100%;
+  margin-top: 1.6rem;
 }
 .dialog-x {
   position: absolute;
@@ -3875,6 +4069,19 @@ button.tag-rules:active > .tag-in {
 }
 .result-title .gap {
   width: 1.4rem;
+}
+/* a puzzle's verdict: the piece before the word, popping in just ahead of its letters */
+.result-title .result-ico {
+  display: grid;
+  align-self: center;
+  margin-right: 0.8rem;
+}
+.result-title .result-ico.right {
+  margin: 0 0 0 0.8rem;
+}
+.result-title .result-ico {
+  animation: win-pop 0.55s var(--spring) both;
+  animation-delay: var(--t, 0s);
 }
 .result-title .stk {
   margin: 0 0.02em;
@@ -4096,10 +4303,11 @@ button.tag-rules:active > .tag-in {
   color: var(--ct);
   font: 700 1.4rem/1.2 var(--text);
 }
+/* the line under the verdict: white, in an edge of the primary text color */
 .summary.floating .result-title small {
   color: var(--paper);
   font-size: 1.6rem;
-  -webkit-text-stroke: 0.45rem var(--fw-text);
+  -webkit-text-stroke: 0.45rem var(--black);
   paint-order: stroke fill;
   opacity: 1;
 }
@@ -4532,6 +4740,15 @@ button.tag-rules:active > .tag-in {
   gap: 0.6rem;
   margin: 1.2rem 0;
 }
+/* (while a pop-up is up, the page under it holds still: see the pop-ups' touchmove in
+   app.js. Only for a finger: a mouse's wheel is held by the pop-ups' wheel listener
+   instead, as taking the page's scrollbar away would shift everything sideways.) */
+@media (pointer: coarse) {
+  :root:has(#sheet:not([hidden]), dialog[open], .modal-shade),
+  :root:has(#sheet:not([hidden]), dialog[open], .modal-shade) body {
+    overflow: hidden;
+  }
+}
 .sheet-shade {
   align-items: flex-end;
   padding: 0;
@@ -4867,7 +5084,9 @@ button.tag-rules:active > .tag-in {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
-.slot > .haptic-switch {
+.slot > .haptic-switch,
+.home-dock .haptic-switch {
+  /* (a card is dragged; the dock is swiped sideways to turn the page) */
   touch-action: none;
 }
 .no-haptics .haptic-switch,
@@ -5134,6 +5353,47 @@ button:disabled > .haptic-switch {
   --fill: var(--p1b);
   --stroke: var(--p1);
 }
+/* A flag just earned: the invitation pill in purple, with the strokes the other way
+   round (the pill in the primary outline, Dismiss in the quieter one), and the reward on
+   the right where Decline would be. Over an invitation, if both come at once. */
+.flag-banner {
+  z-index: 96;
+}
+.queue-pill.flag-pill {
+  border-color: var(--p4);
+  background: var(--p4b);
+  color: var(--p4t);
+  --c: var(--p4);
+  --c2: var(--p4b);
+  --ct: var(--p4t);
+}
+.queue-pill.flag-pill .queue-accept {
+  border-color: color-mix(in srgb, var(--p4) 45%, var(--p4b));
+  --fill: var(--p4b);
+  --stroke: color-mix(in srgb, var(--p4) 45%, var(--p4b));
+}
+.flag-pill-art {
+  flex: none;
+  display: grid;
+  place-items: center;
+  min-width: 5.6rem;
+}
+.flag-pill-art .flag-art {
+  margin: 0;
+}
+/* (the logo, a touch smaller here) */
+.flag-pill-art .flag-art.f-theme {
+  width: 10rem;
+  height: 4.6rem;
+}
+.flag-pill-art .flag-art.f-theme .logo {
+  transform: translate(-50%, -50%) scale(0.45);
+}
+.flag-pill-art .flag-art.open.f-word {
+  min-width: 0;
+  height: 3.4rem;
+  font-size: 1.4rem;
+}
 .social-dialog {
   width: min(42rem, calc(100vw - 3.2rem));
   max-height: 86dvh;
@@ -5205,19 +5465,18 @@ button:disabled > .haptic-switch {
   min-height: 5.6rem;
   font-size: 2rem;
 }
-#google-signin-button {
-  min-height: 4.4rem;
-  margin: 1.2rem 0;
-}
 
-/* ---------- desktop: the board expands and gains an action bar ---------- */
-@media (min-width: 760px) and (hover: hover) {
+/* ---------- a wide screen: the board expands and gains an action bar ----------
+   (by the screen's width alone, so a tablet or a phone on its side has it too) */
+@media (min-width: 760px) {
+  /* (as wide as what is on the table: a hand and the name tag beside it) */
   .summary.floating {
-    width: 36rem;
+    width: 42.4rem;
     padding: 0.6rem 0.8rem 1rem;
   }
   :root.in-game {
-    --u: min(100vw / 620, 100dvh / 960, 1.6px);
+    /* (the table fills more of the screen's height now that the action bar stands at its side) */
+    --u: min(100vw / 620, 100dvh / 860, 1.6px);
   }
   .board {
     width: 62rem;
@@ -5236,22 +5495,22 @@ button:disabled > .haptic-switch {
   .b-bottom .b-side {
     flex: 0 0 11.4rem;
   }
-  /* your tags are free-standing here, so their bottom edge is framed and rounded too */
-  .b-bottom .tag {
-    padding-bottom: 0.8rem;
-    border-radius: 2.4rem;
-  }
-  .b-bottom .tag > .tag-in {
-    border-radius: 1.6rem;
-  }
-  /* Flip / Swap / Draw / Discard / End Turn float in a bar of their own under the tags */
+  /* your tags run off the bottom of the screen, as on a phone: square at the foot */
+  /* Flip / Swap / Draw / Discard / End Turn stand in a column of their own on the board's
+     left, level with its middle */
   .actionbar {
+    position: absolute;
+    /* (beside what is on the table, not the board's wider frame: the hands and tags span
+       42.4rem of its 62rem, centered, and the bar stands clear of them, and of Undo, which
+       comes out to the left of the draw pile a little further than the hands reach) */
+    right: calc(100% - (62rem - 42.4rem) / 2 + 3.6rem);
+    top: 50%;
+    translate: 0 -50%;
     display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    width: 41.066rem;
-    margin: 1.2rem auto max(1.2rem, env(safe-area-inset-bottom));
-    padding: 0.6rem 1.8rem 0.8rem;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 1.4rem 0.6rem 1.2rem;
     border: 0.8rem solid var(--p1);
     border-radius: 2.4rem;
     background: var(--p1b);
@@ -5380,6 +5639,26 @@ button:disabled > .haptic-switch {
     animation-duration: 0.01s;
   }
 }
+/* the same with Settings > Reduce motion on, whatever the device asks for */
+:root.reduce-motion .result-title .stk {
+  animation: none !important;
+}
+:root.reduce-motion .idle,
+:root.reduce-motion .avatar-pick .pointer,
+:root.reduce-motion .slot.selected::after,
+:root.reduce-motion .slot.target::before,
+:root.reduce-motion .tag.my-turn,
+:root.reduce-motion .actionbar.my-turn {
+  animation: none;
+}
+:root.reduce-motion .page,
+:root.reduce-motion .modal,
+:root.reduce-motion .sheet,
+:root.reduce-motion .toast,
+:root.reduce-motion .callout.pop,
+:root.reduce-motion .summary {
+  animation-duration: 0.01s;
+}
 
 /* ---------- leaderboard & player stats ---------- */
 .board-row .rank {
@@ -5464,7 +5743,7 @@ button:disabled > .haptic-switch {
 /* Solo and PVP leaderboards: the leader's card, then a green row for everyone */
 .leader-hero {
   position: relative;
-  animation: pop 0.45s var(--spring) both;
+  animation: card-pop 0.45s var(--spring) both;
 }
 .leader-trophy {
   position: absolute;
@@ -5533,8 +5812,9 @@ button:disabled > .haptic-switch {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
-  animation: pop 0.45s var(--spring) both;
-  animation-delay: calc(var(--i) * 70ms);
+  animation: card-pop 0.45s var(--spring) both;
+  /* (one after another, the first ten; the rest come with the tenth, so a long page is not kept waiting) */
+  animation-delay: calc(min(var(--i), 9) * 45ms + 60ms);
 }
 .record-card {
   position: relative;
@@ -5543,13 +5823,13 @@ button:disabled > .haptic-switch {
   flex-direction: column;
   align-items: center;
   gap: 0.6rem;
-  padding: 2.2rem 1.4rem 1.6rem;
+  /* (room at the top for the corner icon, clear of the larger title) */
+  padding: 2.8rem 1.4rem 1.6rem;
   text-align: center;
 }
 .record-card h3 {
   margin: 0;
-  font: 700 1.5rem/1.2 var(--text);
-  opacity: 0.8;
+  font: 700 1.9rem/1.15 var(--text);
 }
 .record-ico {
   position: absolute;
@@ -5582,6 +5862,10 @@ button:disabled > .haptic-switch {
   font-size: 1.15rem;
   opacity: 0.7;
 }
+/* (a record nobody holds yet says so in the card's own text color, as its words would be) */
+.record-card p.hint.dark {
+  color: var(--ct);
+}
 /* the note under a board (what it's ranked by, or where its records come from) */
 .leader-foot {
   margin-top: 2.4rem;
@@ -5601,7 +5885,8 @@ button:disabled > .haptic-switch {
   /* its number is drawn like the card's: the card's fill, edged in its color */
   --fill: var(--c2);
   --stroke: var(--c);
-  border: 0.25rem solid color-mix(in srgb, var(--c) 45%, var(--c2));
+  /* (as thick as the card's own edge, in a softer shade of it) */
+  border: 0.4rem solid color-mix(in srgb, var(--c) 45%, var(--c2));
   border-radius: 2.4rem; /* the card's own (.panel) */
   background: var(--c2);
 }
@@ -5661,6 +5946,11 @@ button:disabled > .haptic-switch {
   .leader-list .board-row {
     animation: none;
   }
+}
+:root.reduce-motion .leader-hero,
+:root.reduce-motion .record-slot,
+:root.reduce-motion .leader-list .board-row {
+  animation: none;
 }
 .rule-help-copy { min-width:0; flex:1; }
 /* the examples toggle: a small eye on the right of the rule, no box; gold while open */
@@ -5745,10 +6035,16 @@ button:disabled > .haptic-switch {
   padding: 0.4rem 0.4rem 1.2rem;
   margin-inline: -0.4rem;
 }
-/* a round robin has no shape to keep: its matches simply wrap */
-.bracket.robin {
-  flex-wrap: wrap;
-  overflow-x: visible;
+/* a round robin: its rounds side by side like a bracket's, each column from the top */
+.bracket.robin > .bracket-round {
+  justify-content: flex-start;
+}
+.robin-out {
+  margin: 0;
+  text-align: center;
+  font: 700 1.3rem/1.2 var(--text);
+  color: var(--fw-text);
+  opacity: 0.7;
 }
 .bracket-round {
   display: flex;
@@ -5877,4 +6173,2790 @@ button:disabled > .haptic-switch {
   gap: 0.5rem;
   font-size: 1.4rem;
   white-space: nowrap;
+}
+
+/* ---------- the home screen: five tabs along the bottom (tabs.js) ----------
+   The top bar and the tab bar (with whatever sits on it: Start a Game, Aces'
+   views) stay put; the tab between them slides across when it changes. */
+/* a sideways swipe on the home screen changes tab: it never means Back */
+:root.home-tabbed {
+  overscroll-behavior-x: none;
+}
+/* The home screen itself does not slide in the way other pages do: an element
+   animating its transform (even after it has finished, while the animation still
+   holds) becomes what its fixed children are pinned to, and the tab bar would sit
+   at the bottom of the page instead of the screen. Its top bar and tab ease in
+   instead; the tab bar is simply there. */
+.page.home.tabbed {
+  animation: none;
+}
+.page.home.tabbed:not(.instant) > .topbar,
+.page.home.tabbed:not(.instant) > .tab-stage {
+  animation: page-in 0.35s var(--glide) backwards;
+}
+.page.home.tabbed {
+  gap: 1.6rem;
+  /* room under the last thing on the tab for the dock that floats over it */
+  padding-bottom: calc(11rem + env(safe-area-inset-bottom));
+}
+.page.home.tabbed[data-tab="play"] {
+  padding-bottom: calc(20rem + env(safe-area-inset-bottom));
+}
+.tab-stage {
+  display: grid;
+  min-width: 0;
+}
+.tab-pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+/* the page showing, and one on the move, are layers of their own, so nothing is drawn
+   again when they start to move (a page only waiting off the screen is not one: see above) */
+.tab-pane:not(.staged):not(.parked),
+.tab-pane.neighbor {
+  will-change: translate, opacity;
+}
+/* (A page on its way in or out takes no clicks: tabs.js turns them away. Not
+   pointer-events here: being inherited, it would restyle the whole page each
+   time a page changed places, in the middle of a swipe.) */
+/* A page not showing is kept, parked: laid out (so bringing it in is free) but
+   unseen, taking no room and adding nothing to scroll. */
+.tab-stage {
+  position: relative;
+}
+.tab-pane.parked {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: auto;
+  /* (and what is in it is left out of every restyle of the screen until it is wanted) */
+  content-visibility: hidden;
+}
+/* A sticker's idle drift is worked out on the main thread for every frame (it
+   cannot be handed to the GPU on an SVG). So while pages or the bar are moving,
+   every sticker holds its pose: nothing then competes with the motion for a
+   frame. They are only paused, each still on its own layer, so nothing is drawn
+   again when the motion starts or ends. */
+:root.home-moving .idle {
+  animation-play-state: paused;
+}
+/* A parked page has no drift at all. */
+.tab-pane.parked .idle {
+  animation: none;
+  will-change: auto;
+}
+/* A page brought in (.flat, until everything is at rest) has its stickers held
+   still, each on the layer it drifts on, so nothing is drawn again when they start. */
+.tab-pane.flat .idle {
+  animation-play-state: paused;
+}
+/* A page in waiting off the screen's edge is one flat picture: its stickers hold
+   still with no layers of their own. (Kept as layers, every sticker on every page
+   in waiting was more than a phone keeps in its memory for the screen, and as the
+   page was scrolled it dropped and redrew some, which flickered.) */
+.tab-pane.staged:not(.neighbor) .idle {
+  animation: none;
+  will-change: auto;
+}
+/* A page in waiting off the screen's edge, one being dragged in, and one fading
+   in over the stage: drawn in full, lying over the stage a screen's height deep
+   and taking no room in the layout, moved off to its side by tabs.js. */
+.tab-pane.staged,
+.tab-pane.overlay {
+  /* (Not clipped to a box of its own: that cut the stickers and shadows that reach past
+     a page's edges for as long as it was fading in. What hangs below the foot of the
+     page is cut off by the page itself; see below.) */
+  position: absolute;
+  inset: 0 0 auto;
+}
+.tab-pane.staged:not(.neighbor) {
+  pointer-events: none;
+}
+/* (A page in waiting hangs past the foot of a short page: the home page cuts it off
+   there, so it adds nothing to scroll. Only up and down: sideways, pages must not
+   be cut at the page's own edges.) */
+.page.home.tabbed {
+  overflow-y: clip;
+}
+/* Pages carried in from the side are not cut off at the page's own edges: they
+   fade and blur out as they go (tabs.js). Only the screen's edge ends them,
+   so they never make the page scroll sideways. */
+/* (Cut off inside the app itself, as wide as the screen: were the document to
+   grow wider, a phone would zoom its layout out and the tab bar, pinned to the
+   bottom of that layout, would drop off the screen until the page settled.) */
+:root.home-tabbed #app {
+  overflow-x: clip;
+}
+/* anywhere on the home screen, sideways drags are ours; up and down is the browser's */
+:root.home-tabbed body {
+  touch-action: pan-y pinch-zoom;
+}
+/* (a mouse dragging the pages across selects nothing) */
+:root.paging,
+:root.paging body {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grabbing;
+}
+
+.tab-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+/* a tab's big title: light blue sticker letters in a white edge, on a blue shadow */
+.tab-head {
+  text-align: center;
+  margin-top: 0.4rem;
+}
+/* light blue letters in a blue edge, on the usual sticker shadow, set on an arch (arcText) */
+.tab-title {
+  margin: 0;
+  padding-bottom: 0.6rem;
+  font: 700 3.6rem/1.1 var(--round);
+  --fill: var(--p1b);
+  --stroke: var(--p1);
+  --sw: 0.8rem;
+  --shx: 0.3rem;
+  --shy: 0.35rem;
+}
+.arc {
+  /* the arched titles drift about half as much as other stickers */
+  --idle-scale: 0.5;
+  display: inline-flex;
+  align-items: flex-end;
+  white-space: nowrap;
+}
+.arc-ch {
+  display: inline-block;
+  transform-origin: 50% 100%;
+}
+.arc-ch.space {
+  width: 0.3em;
+}
+.tab-sub {
+  margin: 0.4rem 0 0;
+  color: var(--ct, var(--fw-text));
+  font: 700 1.45rem/1.3 var(--text);
+}
+/* a box with its name on its top edge, like a field's label */
+.boxed {
+  position: relative;
+  padding: 1.8rem 1.4rem 1.2rem;
+  border: 0.4rem solid var(--c);
+  border-radius: 2rem;
+  background: var(--c2);
+  color: var(--ct);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.boxed > .box-label {
+  position: absolute;
+  left: 1.8rem;
+  top: -1.3rem;
+  font: 700 1.5rem/1.4 var(--text);
+  color: var(--c2);
+  -webkit-text-stroke: 0.5rem var(--c);
+  paint-order: stroke fill;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.boxed > .box-label.right {
+  left: auto;
+  right: 1.8rem;
+}
+
+/* the dock: the tab bar, and above it Start a Game (Play) or the views (Aces) */
+.home-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 30;
+  width: min(100%, 48rem);
+  translate: -50% 0;
+  padding: 0 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  pointer-events: none;
+}
+.home-dock > * {
+  pointer-events: auto;
+}
+.dock-extra:empty {
+  display: none;
+}
+/* it runs off the bottom of the screen, like the name tag and rules bar at the
+   table: rounded on top, open at the foot, with room for the home indicator */
+.tab-bar {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 0.4rem 0.6rem calc(0.2rem + env(safe-area-inset-bottom));
+  border: 0.4rem solid var(--fw);
+  border-bottom: 0;
+  border-radius: 2.4rem 2.4rem 0 0;
+  background: var(--fw3);
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+/* The tab showing takes more room and its icon grows a touch, its name under it.
+   When the tab changes the bar takes its new arrangement at once and tabs.js
+   flows everything to it (flowTabBar), so nothing here animates the layout. */
+.tab-btn {
+  position: relative;
+  /* each as wide as its own icon, the room left over shared out evenly between them */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  /* every tab keeps the same room under its icon for a name, so nothing shifts
+     up or down as the name comes and goes */
+  padding: 0.4rem 0 3.2rem;
+  color: var(--c);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.tab-btn.on {
+  padding-inline: 3.5rem; /* (room for an arrow either side of it) */
+}
+/* (the first and last item have an arrow on one side only: no room is kept on the other;
+   the arrows are the bar's last two children) */
+.tab-btn.on:first-child {
+  padding-left: 0;
+}
+.tab-btn.on:nth-last-child(3) {
+  padding-right: 0;
+}
+/* (their names stay under the icon, which is no longer in the middle of its button) */
+.tab-btn.on:first-child .tab-label {
+  left: calc(50% - 1.75rem);
+}
+.tab-btn.on:nth-last-child(3) .tab-label {
+  left: calc(50% + 1.75rem);
+}
+/* (sizes change on `transform`, which every browser animates on the GPU) */
+.tab-btn .tab-ico {
+  display: grid;
+  place-items: center;
+  height: 4.4rem;
+  transition: transform 0.64s cubic-bezier(0.4, 0, 0.1, 1);
+}
+.tab-btn.on .tab-ico {
+  transform: scale(1.2);
+}
+.tab-btn:active .tab-ico {
+  transform: scale(0.95);
+  transition-duration: 0.15s;
+}
+.tab-btn.on:active .tab-ico {
+  transform: scale(1.14);
+}
+/* the name sits under the icon, out of the layout: it only fades and lifts into place */
+.tab-btn .tab-label {
+  position: absolute;
+  left: 50%;
+  bottom: 0.4rem;
+  transform: translate(-50%, -0.4rem);
+  opacity: 0;
+  color: var(--ct);
+  font: 700 1.8rem/1 var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.35s ease;
+}
+.tab-btn.on .tab-label {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  /* (it follows the icon in, a beat behind) */
+  transition: opacity 0.45s ease 0.14s, transform 0.64s cubic-bezier(0.4, 0, 0.1, 1) 0.06s;
+}
+/* The arrows: one pair for the whole bar, stickers in the colors of the tab
+   showing, standing either side of its icon. tabs.js puts them there and carries
+   them across when the tab changes; at the first and last tab the one with
+   nowhere to go shrinks away. */
+.tab-arrow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 3.4rem;
+  height: 4.4rem;
+  --fill: var(--c2);
+  --stroke: var(--c);
+  transition: opacity 0.25s ease, transform 0.34s var(--glide);
+}
+.tab-arrow.off {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.5);
+  pointer-events: none;
+}
+.tab-arrow:active {
+  transform: translate(-50%, -50%) scale(0.88);
+  transition-duration: 0.12s;
+}
+/* (they change color on the way: the old colors, on a copy laid over the arrow, fade away; see flowTabBar) */
+.tab-arrow > .ico {
+  grid-area: 1 / 1;
+}
+.tab-arrow > .ico.ghost {
+  pointer-events: none;
+  will-change: opacity;
+}
+.tab-btn .badge {
+  position: absolute;
+  top: 0;
+  right: calc(50% - 3.4rem);
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 0.5rem;
+  border-radius: 1.1rem;
+  display: grid;
+  place-items: center;
+  background: var(--c);
+  color: var(--c2);
+  font: 700 1.3rem/1 var(--text);
+}
+/* (on Play, friend requests sit on the other side of the icon from the Ranked queue's count) */
+.tab-btn .badge.left {
+  right: auto;
+  left: calc(50% - 3.4rem);
+}
+/* (on the tab showing, the icon is bigger and has an arrow either side: its counts ride higher, clear of them) */
+.tab-btn.on .badge {
+  top: -0.9rem;
+  right: calc(50% - 3rem);
+}
+.tab-btn.on .badge.left {
+  right: auto;
+  left: calc(50% - 3rem);
+}
+.tab-btn .badge[hidden] {
+  display: none;
+}
+
+/* Play: Start a Game, and the ways to play that rise out of it */
+.start-game {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.start-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.start-modes[hidden] {
+  display: none;
+}
+.start-game .btn {
+  min-height: 6.4rem;
+  font-size: 2.2rem;
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+.start-game .btn .sub {
+  margin-top: 0.4rem;
+  font-size: 1.4rem;
+}
+/* open, Start a Game is the same yellow button saying Close, greyed back */
+.start-btn {
+  transition: filter 0.25s, transform 0.28s var(--spring), box-shadow 0.2s;
+}
+.start-btn.dimmed {
+  filter: saturate(0.3) opacity(0.75);
+}
+.start-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+  backdrop-filter: blur(2px);
+}
+.start-scrim[hidden] {
+  display: none;
+}
+/* Start a Game's corner badges, side by side: the resume mark, then the queue count */
+.btn .start-corner {
+  position: absolute;
+  top: -1rem;
+  right: -0.6rem;
+  display: flex;
+  gap: 0.4rem;
+}
+.btn .start-corner .badge {
+  position: static;
+}
+/* the resume mark: just the green play icon, as Resume your table has it in the list */
+.btn .resume-badge {
+  display: grid;
+  place-items: center;
+  margin-top: -0.4rem;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+
+/* Play: today's puzzle */
+.puzzle-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+.puzzle-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1.4rem;
+  /* the scores fill the height of the hand beside them, however many there are */
+  align-items: stretch;
+}
+.puzzle-hand .example-hand {
+  margin: 0;
+  grid-template-columns: repeat(3, 4.411rem);
+}
+/* (a still picture: each card simply shows the side it lies on, no 3D turn) */
+.puzzle-hand .card-flip {
+  transform: none !important;
+}
+.puzzle-hand .face {
+  transform: none !important;
+}
+.puzzle-hand .example-card.is-face .face.back,
+.puzzle-hand .example-card:not(.is-face) .face.front {
+  display: none;
+}
+.puzzle-hand .example-card {
+  animation: row-in 0.45s var(--spring) calc(var(--i, 0) * 45ms) both;
+}
+/* Best Scores: a row each, a set gap apart, the leader in yellow. The card is as
+   tall as the hand beside it; the list fills it and scrolls inside it when there
+   are more scores than fit (it is laid over the card, so it never makes it taller). */
+.puzzle-board {
+  min-width: 0;
+  min-height: 11rem;
+  padding: 0;
+}
+/* The scroller is the whole card, edge to edge, with no padding of its own: the
+   room around the rows belongs to the list inside it, so it scrolls away with them
+   and nothing is cut off short of the card's edge. */
+.pb-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: inherit;
+}
+.pb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-height: 100%;
+  padding: 1.6rem 1rem 1rem;
+}
+/* (the card's name stays on top of the rows passing under it) */
+/* the names in the box's own primary text color: its dark blue */
+.puzzle-board .pb-name {
+  color: var(--ct);
+}
+/* (more scores on the way: the line at the end of the list) */
+.puzzle-board .pb-loading {
+  color: var(--ct);
+}
+.puzzle-board > .box-label {
+  z-index: 1;
+}
+/* nobody has finished it yet: the line sits in the middle of the card */
+.pb-list.empty {
+  justify-content: center;
+  align-items: center;
+}
+.pb-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.4rem;
+  animation: row-in 0.4s var(--spring) calc(var(--i, 0) * 50ms) both;
+  /* avatar and margin as stickers: the accent for the edge, its light shade for the fill */
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+/* (the leader in gold) */
+.pb-row.first {
+  --fill: var(--p3b);
+  --stroke: var(--p3);
+}
+.pb-ava {
+  display: grid;
+  place-items: center;
+}
+.pb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fw-text);
+  font: 700 1.5rem/1.2 var(--text);
+}
+/* a player's MMR after their name, lighter than the name: the secondary text color */
+.pb-mmr {
+  margin-left: 0.5rem;
+  font: 700 0.8em/1 var(--text);
+  color: var(--gray);
+}
+.pb-score {
+  font: 700 1.7rem/1 var(--round);
+  white-space: nowrap;
+  --sw: 0.5rem;
+  --shx: 0.2rem;
+  --shy: 0.2rem;
+}
+.pb-empty {
+  margin: 0;
+  font: 700 1.4rem/1.35 var(--text);
+  text-align: center;
+  color: var(--fw-text);
+}
+.solve-btn {
+  min-height: 6.4rem;
+  font-size: 2.2rem;
+}
+.solve-btn .sub {
+  margin-top: 0.4rem;
+  font-size: 1.4rem;
+}
+/* (on `transform`, which every browser animates on the GPU) */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.8rem);
+  }
+}
+@keyframes card-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* Play: friends and recent matches */
+.friend-row {
+  display: grid;
+  grid-template-columns: 4rem 1fr auto auto;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 4.8rem;
+  animation: row-in 0.4s var(--spring) calc(var(--i, 0) * 50ms) both;
+}
+.friend-ava {
+  display: grid;
+  place-items: center;
+}
+.friend-row.offline .friend-ava {
+  filter: saturate(0.4) opacity(0.75);
+}
+.friend-name {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.friend-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 700 2rem/1.2 var(--text);
+}
+.friend-name small {
+  font: 700 1.2rem/1 var(--text);
+  opacity: 0.8;
+}
+.friend-status {
+  font: 700 1.3rem/1.2 var(--text);
+  color: var(--c);
+  text-align: right;
+}
+.friend-row.in_game .friend-status,
+.friend-row.online .friend-status,
+.friend-row.puzzle .friend-status {
+  color: var(--ct);
+}
+.friend-row.online .friend-status::before,
+.friend-row.in_game .friend-status::before,
+.friend-row.puzzle .friend-status::before {
+  content: "";
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-right: 0.5rem;
+  border-radius: 50%;
+  background: var(--p2);
+  vertical-align: 0.1em;
+  animation: live-dot 1.6s ease-in-out infinite;
+}
+.friend-row.online .friend-status::before {
+  background: var(--fw);
+  animation: none;
+}
+@keyframes live-dot {
+  50% {
+    opacity: 0.35;
+    scale: 0.8;
+  }
+}
+.friend-watch {
+  display: grid;
+  place-items: center;
+  --fill: var(--c2);
+  --stroke: var(--c);
+  transition: transform 0.25s var(--spring);
+}
+.friend-watch:active {
+  transform: scale(0.88);
+}
+.friends-empty {
+  margin: 0.4rem 0 0.8rem;
+  font: 700 1.5rem/1.35 var(--text);
+}
+.friends-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  color: var(--c);
+  font: 700 1.5rem/1.2 var(--text);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.friends-box .btn.small {
+  margin-top: 0.4rem;
+}
+.friend-add-form .btn {
+  min-height: 5.6rem;
+  font-size: 1.9rem;
+}
+.sheet-sub {
+  margin: 1.8rem 0 0.8rem;
+  font: 700 1.7rem/1.2 var(--text);
+}
+.friend-req .btn.small {
+  min-height: 4rem;
+  padding: 0.4rem 1rem;
+  font-size: 1.4rem;
+}
+.mh-row {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: scale 0.2s var(--glide);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.6rem 0 0.6rem 0.2rem;
+  animation: row-in 0.4s var(--spring) calc(var(--i, 0) * 60ms) both;
+}
+.mh-row:active {
+  scale: 0.98;
+}
+.mh-player .you-star {
+  flex: none;
+}
+.match-sheet .btn {
+  /* (as wide as the sheet, like Show my stats on the You tab) */
+  width: 100%;
+  margin-top: 1.2rem;
+}
+.mh-more {
+  padding: 0.8rem 0 0.4rem;
+  text-align: center;
+  color: var(--fw);
+  font: 700 1.5rem/1.2 var(--text);
+}
+/* (a column of its own, so every row's names line up) */
+.mh-kind {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.mh-players {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+/* each player: their avatar (the winner's in yellow, the rest in green), name and MMR */
+.mh-player {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font: 700 1.7rem/1.2 var(--text);
+  color: var(--fw-text);
+  --fill: var(--fw3);
+  --stroke: var(--fw);
+}
+/* (the winner's trophy keeps the usual look: yellow in a white edge) */
+.mh-player.won {
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+.mh-ava {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 3rem;
+}
+.mh-player b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mh-mmr {
+  flex: none;
+  margin-left: 0.4rem;
+  font-size: 1.3rem;
+  color: var(--fw);
+}
+/* what the series did to their MMR: quiet, green for gained and red for lost */
+.mh-delta {
+  flex: none;
+  margin-left: 0.3rem;
+  font-size: 1.3rem;
+  opacity: 0.8;
+}
+.mh-delta.up {
+  color: var(--fw);
+}
+.mh-delta.down {
+  color: var(--p2);
+}
+.mh-when {
+  padding-right: 0.4rem;
+  color: var(--fw);
+  font: 700 1.6rem/1.2 var(--text);
+  white-space: nowrap;
+}
+.mh-rule {
+  margin: 0.4rem 0;
+  border: 0;
+  border-top: 0.2rem solid color-mix(in srgb, var(--c) 45%, transparent);
+}
+
+/* Watch: a card for each game in play */
+.watch-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+  margin-top: 0.6rem;
+}
+.watch-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 1.8rem 1.2rem 1rem;
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+  animation: row-in 0.45s var(--spring) calc(var(--i, 0) * 70ms) both;
+  transition: transform 0.28s var(--spring), box-shadow 0.2s;
+}
+.watch-card:active {
+  transform: scale(0.97);
+  box-shadow: none;
+}
+.wc-players {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-around;
+  gap: 1rem 0.6rem;
+}
+.wc-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 9rem;
+  color: var(--s4t);
+}
+.wc-who {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.wc-who > span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.wc-who b {
+  font: 700 1.45rem/1.15 var(--text);
+  color: var(--s4t);
+}
+.wc-who small {
+  font: 700 1.1rem/1.1 var(--text);
+  color: var(--s4);
+}
+/* a player's wins and points: their color, in a white edge */
+.wc-score {
+  display: flex;
+  align-items: baseline;
+  font: 700 3.8rem/1 var(--round);
+  --fill: var(--c);
+  --stroke: var(--paper);
+  --sw: 0.7rem;
+}
+.wc-score .pts {
+  margin-left: 0.3rem;
+  font-size: 1.5rem;
+  --sw: 0.45rem;
+}
+.wc-pair {
+  display: flex;
+  gap: 1rem;
+}
+.wc-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+  font: 700 1.4rem/1.2 var(--text);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.wc-kind {
+  margin-left: auto;
+}
+.watch-empty {
+  margin: 0;
+  padding: 1.4rem;
+  border: 0.3rem dashed color-mix(in srgb, var(--fw) 70%, transparent);
+  border-radius: 1.8rem;
+  text-align: center;
+  color: var(--fw-text);
+  font: 700 1.5rem/1.35 var(--text);
+}
+/* Watch's Refresh: the arrow sticker over its name, like Back and Close */
+.watch-refresh {
+  align-self: center;
+  margin-top: 0.4rem;
+  font: 700 1.8rem/1.2 var(--text);
+  color: var(--fw-text);
+}
+
+/* Aces: Records, Solo and PvP, picked on the strip above the tab bar */
+.aces-tabs {
+  display: flex;
+  justify-content: space-around;
+  padding: 0.4rem 0.4rem 0.2rem;
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+.aces-tab {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  color: var(--fw-text);
+  font: 700 1.8rem/1.1 var(--text);
+  --fill: var(--fw3);
+  --stroke: var(--fw);
+  transition: transform 0.4s var(--glide), color 0.3s ease;
+}
+.aces-tab > .tilt {
+  height: 3.1rem;
+  display: grid;
+  place-items: center;
+}
+.aces-tab.on {
+  color: var(--ct);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.aces-tab:active {
+  transform: scale(0.96);
+}
+/* the sticker arrow over the view showing, half over the strip's edge: one for
+   the strip, standing over the middle of that view's third of it (--at: 0, 1 or
+   2); tabs.js slides it across when the view changes */
+.aces-tabs {
+  position: relative;
+}
+.aces-pointer {
+  position: absolute;
+  top: -0.9rem;
+  left: calc(0.4rem + (100% - 0.8rem) * (var(--at, 0) + 0.5) / 3);
+  transform: translateX(-50%);
+  z-index: 1;
+  display: grid;
+  --fill: var(--c2);
+  --stroke: var(--c);
+  color: var(--c);
+  pointer-events: none;
+}
+.aces-body .leader-body > .records {
+  margin-top: 0.8rem;
+}
+
+/* You: your look, your emotes, your records and stats */
+.you-profile {
+  position: relative;
+  gap: 0.8rem;
+  margin-bottom: 0; /* (the account button follows straight on, at the tab's own spacing) */
+}
+.you-profile .field {
+  margin-top: 0.8rem;
+}
+/* "Saved" shows under the field's corner for a moment, taking no room of its own */
+.you-profile .profile-status {
+  position: absolute;
+  right: 0.6rem;
+  top: 100%;
+  min-height: 0;
+  margin: 0;
+  font-size: 1.3rem;
+  pointer-events: none;
+}
+.you-profile [data-previous-names]:empty {
+  display: none;
+}
+/* A Sign in button with Google's own laid invisibly over it (app.js: signInButton):
+   it looks like ours and presses like Google's, so a tap goes straight to Google. */
+.signin-wrap {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.signin-wrap.small:not(.you-signin) {
+  justify-self: start;
+  align-self: flex-start;
+}
+.google-cover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 44px;
+  overflow: hidden;
+  transform-origin: 0 0;
+  transform: scale(var(--gx, 1), var(--gy, 1));
+  opacity: 0;
+  z-index: 1;
+}
+.google-cover:empty {
+  display: none;
+}
+/* the account button: its sticker, then its two lines, from the left */
+.btn.you-signin {
+  justify-content: flex-start;
+  gap: 1rem;
+  padding-left: 1.6rem;
+  text-align: left;
+}
+.you-signin .sub {
+  font-size: 1.3rem;
+}
+.you-empty {
+  text-align: center;
+}
+.you-records {
+  margin-top: 0;
+}
+.emote-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.emote-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.8rem 1.2rem 1.2rem;
+  border: 0.4rem solid var(--ink);
+  border-radius: 2rem;
+  background: var(--paper);
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+  --c: var(--ink);
+  --c2: var(--paper);
+}
+.emote-box.off {
+  border-style: dashed;
+  border-color: var(--fw);
+  background: transparent;
+  box-shadow: none;
+  --c: var(--fw);
+  --c2: var(--fw3);
+}
+.emote-box > .box-label {
+  position: absolute;
+  left: 1.6rem;
+  top: -1.3rem;
+  font: 700 1.5rem/1.4 var(--text);
+  color: var(--c2);
+  -webkit-text-stroke: 0.5rem var(--c);
+  paint-order: stroke fill;
+  pointer-events: none;
+}
+.emote-compact .emote-choices {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  margin: 0;
+  gap: 0.6rem;
+}
+.emote-compact .emote-choices.faces {
+  flex-wrap: wrap;
+}
+.emote-compact .emote-choices.faces .emote-choice {
+  width: 4.6rem;
+  height: 4.6rem;
+}
+.emote-compact .emote-choices.words .emote-choice {
+  height: 3.6rem;
+  font-size: 1.4rem;
+}
+.emote-compact .emote-box.off .emote-none,
+.emote-compact .emote-choices:empty,
+.emote-compact .emote-box.off .emote-choices:not(:has(.emote-item)) {
+  display: none;
+}
+.emote-compact .emote-box.on .emote-none {
+  font: 700 1.35rem/1.3 var(--text);
+  color: color-mix(in srgb, var(--ink) 55%, var(--paper));
+}
+.emote-all {
+  margin: 0;
+  font: 700 1.4rem/1.3 var(--text);
+  color: var(--fw-text);
+}
+.emote-tip {
+  margin: -0.8rem 0 0;
+  font-size: 1.35rem;
+}
+
+/* Flags: achievements to earn, two columns */
+/* Flags are laid out and drawn as the records are (.records, .record-slot,
+   .record-card); only what a flag unlocks, in place of a record's number, is its own. */
+.flag-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.6rem;
+  align-items: start;
+  margin-top: 1.6rem;
+}
+.flag-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2.2rem;
+  min-width: 0;
+}
+/* (each hugs what is on it, with the same room on every side) */
+.flag-grid .record-card {
+  flex: none;
+  padding: 1.6rem;
+}
+/* (with less room at the top, the corner badge sits further out, clear of the name) */
+.flag-grid .record-card > .record-ico {
+  top: -2.2rem;
+  left: -1.4rem;
+}
+/* how far along a flag not yet earned is: a sticker percent to the right of the hourglass,
+   in its colors */
+.flag-card > .record-ico {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+/* (the note under the flags, on which games count) */
+.flags-note {
+  margin-top: 0.4rem;
+  text-align: center;
+}
+.flag-pct {
+  font: 700 2.8rem/1 var(--round);
+  --sw: 0.6rem;
+}
+/* (what a flag unlocks is named in the card's own color, as large as the card's words) */
+.flag-card .record-note {
+  color: var(--c);
+  opacity: 1;
+}
+.flag-card p.record-note {
+  font-size: 1.35rem;
+}
+/* what a flag unlocks, kept under a lock until it's earned */
+.flag-art {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin: 0.4rem 0;
+  --fill: var(--paper);
+  --stroke: var(--ink);
+}
+.flag-art.f-word {
+  width: 10rem;
+  height: 3.6rem;
+  border: 0.3rem solid var(--ink);
+  border-radius: 1.2rem;
+  background: var(--paper);
+}
+/* a theme: the Golf logo in that theme's own colors, well out of focus (straight
+   on the card, nothing behind it), with the lock (in focus) over it */
+.flag-art.f-theme {
+  position: relative;
+  width: 13.6rem;
+  height: 6rem;
+  /* (the blurred logo painted as one piece; its glow free to spread past the box) */
+  isolation: isolate;
+}
+/* Nothing in the blurred logo moves: on Safari an animated letter is drawn on a
+   layer of its own, outside the blur, and showed as a dark smear beside it. */
+.flag-art.f-theme .logo,
+.flag-art.f-theme .logo * {
+  animation: none !important;
+  transition: none !important;
+}
+.flag-art.f-theme .logo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* (the top bar's logo, at a little under two thirds its size) */
+  transform: translate(-50%, -50%) scale(0.6);
+  /* (measured before the logo is scaled down: about 1.2rem as seen) */
+  filter: blur(2rem);
+  /* (in the colors of the theme the flag unlocks: given by tabs.js, on the logo itself) */
+  --shadow-alpha: 0.25;
+  pointer-events: none;
+}
+.flag-art.f-theme > .ico {
+  position: relative;
+}
+/* Earned: the reward itself, in focus and unlocked (the logo, the face, the saying, the card) */
+.flag-art.open.f-theme .logo,
+.flag-art.open.f-face img {
+  filter: none;
+}
+.flag-art.open.f-word {
+  width: auto;
+  min-width: 10rem;
+  padding: 0 1.2rem;
+  color: var(--ink);
+  font: 700 1.6rem/1 var(--text);
+  white-space: nowrap;
+}
+.flag-art.open.f-card .face.front {
+  display: flex;
+}
+.flag-art.open.f-card .face.back {
+  display: none;
+}
+/* a face emote: the emote itself, out of focus, under the lock */
+.flag-art.f-face {
+  position: relative;
+  width: 5.6rem;
+  height: 5.6rem;
+}
+.flag-art.f-face img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: blur(1.6rem);
+}
+/* a card skin: the back of a card, under the lock */
+.flag-art.f-card {
+  position: relative;
+  width: 4.411rem;
+  height: 6.15rem;
+}
+.flag-art.f-card .example-card {
+  position: absolute;
+  inset: 0;
+}
+/* (a still picture: the card simply shows its back, no 3D turn) */
+.flag-art.f-card :is(.card-flip, .face) {
+  transform: none !important;
+}
+.flag-art.f-card .face.front {
+  display: none;
+}
+.flag-art:is(.f-face, .f-card) > .ico {
+  position: relative;
+}
+
+/* ---------- the Daily Puzzle at the table: its panel where an opponent would sit ---------- */
+.board .b-top[hidden] {
+  display: none;
+}
+/* today's best margins, in the white card a game's points graph comes in */
+.pz-leaders {
+  padding-bottom: 0.4rem;
+}
+/* (four rows show; the rest of the day's board scrolls inside the card) */
+.pz-leaders-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* it shows four whole rows, and a scroll always comes to rest on a whole row: no
+     avatar is left cut in half at the top or bottom */
+  max-height: calc(var(--pz-pad) + 4 * var(--pz-row));
+  scroll-snap-type: y mandatory;
+}
+.pz-leaders {
+  /* (a row: its avatar sticker, edge and shadow included, and a little room around it;
+     the box ends exactly where the fifth row begins, so none of it shows) */
+  --pz-row: 5.2rem;
+  --pz-gap: 0rem;
+  --pz-pad: 0.2rem;
+}
+.pz-leaders .pb-row {
+  min-height: var(--pz-row);
+  scroll-snap-align: start;
+  scroll-margin-top: var(--pz-pad);
+}
+.pz-leaders-scroll::-webkit-scrollbar {
+  display: none;
+}
+.pz-leaders .pb-list {
+  min-height: 0;
+  gap: var(--pz-gap);
+  padding: var(--pz-pad) 0.6rem var(--pz-pad) 0.8rem;
+}
+/* Aces: each ranked player's avatar by their name (a set width: the names line up) */
+/* (the avatar beside the name only, on its line: not beside the stats under it) */
+.board-row .lb-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.board-row .lb-ava {
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.leader-hero .lb-hero-ava {
+  display: inline-grid;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+}
+/* each player's place, before their avatar: lighter than the name, all one color, a set width so the avatars line up */
+.pb-rank {
+  flex: none;
+  min-width: 1.2rem;
+  text-align: left;
+  font: 700 1.7rem/1 var(--round);
+  color: var(--gray);
+}
+.pb-row.ranked {
+  grid-template-columns: auto auto 1fr auto;
+}
+.pz-leaders .pb-ava {
+  width: 4rem; /* (names line up whatever the avatar's shape) */
+}
+/* the names in the primary text color, a size up */
+.pz-leaders .pb-name {
+  font-size: 2.1rem;
+  color: var(--black);
+}
+.pz-leaders .pb-score {
+  font-size: 2.6rem;
+  --sw: 0.6rem;
+}
+/* "pts" after each margin, smaller, as a score's unit is everywhere */
+.pz-leaders .pb-score .pts {
+  margin-left: 0.15rem;
+  font-size: 0.6em;
+  --sw: 0.45rem;
+}
+/* a row that opens a profile is a plain button, laid out as the others are */
+button.pb-row {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.puzzle-result .ready-tile .who .name {
+  font: 700 1.4rem/1.2 var(--text);
+}
+
+/* each player's avatar in their seat color; two players share the row evenly */
+.wc-who {
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.wc-players.n2 .wc-player {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.wc-pair {
+  gap: 0.6rem;
+}
+.wc-pair .wc-score {
+  font-size: 3.2rem;
+}
+
+/* Reduced motion on the home screen (the device's setting, or Settings > Reduce
+   motion): things on a page do not animate in, and the tab bar changes without
+   growing or sliding; only its fades are left. (tabs.js skips the slides.) */
+:root.reduce-motion .tab-pane *,
+:root.reduce-motion .home-dock * {
+  animation: none !important;
+}
+:root.reduce-motion .tab-btn .tab-ico,
+:root.reduce-motion .tab-btn .tab-label,
+:root.reduce-motion .tab-arrow {
+  transition: opacity 0.2s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-pane *,
+  .home-dock * {
+    animation: none !important;
+  }
+  .tab-btn .tab-ico,
+  .tab-btn .tab-label,
+  .tab-arrow {
+    transition: opacity 0.2s ease;
+  }
+}
+
+/* The things on a home page animate in only when the page is opened by a press
+   (a tab, or Records / Solo / PvP), which marks it .entering. Pages are built
+   ahead of time and kept, so without this they would play it unseen, or again
+   part-way through a swipe. A page swiped in arrives as it is. */
+.tab-pane:not(.entering) :is(.leader-hero, .leader-list .board-row, .record-slot, .puzzle-hand .example-card, .pb-row, .friend-row, .mh-row, .watch-card) {
+  animation: none;
+}
+
+/* points in a match's table: the board's sticker numbers, on one line and a little smaller */
+.pts-inline {
+  display: inline-flex;
+  align-items: baseline;
+  font: 700 2rem/1 var(--round);
+  white-space: nowrap;
+  /* (the player's color, in a white edge) */
+  --fill: var(--c);
+  --stroke: var(--paper);
+  --sw: 0.5rem;
+  --shx: 0.2rem;
+  --shy: 0.2rem;
+}
+.pts-inline .pts {
+  margin-left: 0.1rem;
+  font-size: 1.3rem;
+  letter-spacing: -0.04rem;
+  --sw: 0.4rem;
+}
+
+/* a player at the head of their column in a match's table: their avatar in their
+   seat's color (its edge the color, its fill the lighter one), then their name */
+/* (its cells sit a little closer, so two players and the winner fit a phone's width) */
+.match-table {
+  font-size: 1.3rem;
+}
+.match-table :is(th, td) {
+  padding-inline: 0.3rem;
+  vertical-align: middle;
+}
+/* (with room between the columns: the first keeps its 0.3rem to the card's edge) */
+.match-table :is(th, td) + :is(th, td) {
+  padding-left: 1.4rem;
+}
+/* a player in a match's table opens their profile */
+button.mt-player {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+button.mt-player:active {
+  transform: scale(0.96);
+}
+.mt-player {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+.mt-ava {
+  display: grid;
+  place-items: center;
+  flex: none;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+
+/* the match pop-up's head: its name with its chips under it, beside Close */
+.sheet .sheet-head > .match-head {
+  /* (as a sheet's title sits: floated left, the room for Close kept clear) */
+  float: left;
+  max-width: calc(100% - 9rem);
+  margin-bottom: 1.4rem;
+}
+.match-head h2 {
+  font-size: 2.4rem;
+  line-height: 1.1;
+}
+.match-head .meta {
+  margin-top: 0.6rem;
+}
+
+/* a saved match's overall winner: the trophy, the words, then the winner, on one line and level */
+.match-winner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+  margin-top: 1rem;
+}
+
+/* Match history is laid out as the home screen is (.page.home.tabbed), its bar at the
+   foot of the screen as the home screen's tab bar is */
+
+/* ---------- every page's head, in the home screen's style ----------
+   A page's name is set on an arch in sticker letters, centered (tabTitle), with
+   its line of explanation under it; a section within the page has the same a
+   size down (sectionTitle). */
+.page > .tab-head {
+  margin-bottom: 0.4rem;
+}
+.tab-title.section {
+  margin-top: 0.8rem;
+  text-align: center;
+  font-size: 2.6rem;
+  --sw: 0.6rem;
+}
+/* (a seat's own page, in Pass & Play, takes that seat's colors) */
+.tab-title.seat {
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+/* what else sits at the head of a page (Refresh, Leave): centered under its name */
+.page-extra {
+  display: flex;
+  justify-content: center;
+  gap: 1.2rem;
+  margin-top: -0.6rem;
+}
+.meta.center {
+  justify-content: center;
+}
+
+/* a title with an action (Refresh, Leave): the title keeps to the middle, the action to its right */
+.head-row {
+  position: relative;
+}
+.head-action {
+  position: absolute;
+  right: 0;
+  top: 1.2rem;
+  display: flex;
+}
+.head-action .watch-refresh {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+/* ---------- bordered text, everywhere ----------
+   Every piece of text drawn with an outline has its corners cut flat (Figma's
+   "join: bevel"): the default, a mitered join, throws a spike out past the outline
+   wherever two strokes meet at a sharp angle (the foot of an N, the points of an
+   M or a W). */
+.stk,
+.field > .label,
+.rules-box > .label,
+.corner b,
+.emote-bar-name,
+.summary.floating .result-title small,
+.leader-hero .stat-rate.streak-rate,
+.board-row .rate .streak-num,
+.boxed > .box-label,
+.emote-box > .box-label {
+  stroke-linejoin: bevel;
+}
+
+/* What is written inside a dashed box (an empty list, the emotes not on your bar)
+   is in the fairway's own green, like the dashes around it. */
+.watch-empty,
+.emote-box.off .emote-all,
+.emote-box.off .emote-none,
+.emote-choices > .emote-none {
+  color: var(--fw);
+}
+
+/* ---------- a player's profile (its own page, or a sheet at the table) ---------- */
+.profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+}
+/* who they are: their avatar in their color, their name with their MMR after it, and
+   their @name and when they were last on */
+.profile-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.profile-ava {
+  /* (a thicker edge than a sticker this size usually has, on a deeper shadow) */
+  --shx: 0.5rem;
+  --shy: 0.6rem;
+  display: grid;
+  place-items: center;
+  min-height: 8.4rem;
+  padding: 0.6rem 0 0.8rem; /* (a tall avatar keeps clear of the name under it) */
+}
+/* the name in the head's accent's primary text color: dark blue on a profile page */
+.profile-name {
+  margin: 0.4rem 0 0;
+  font: 700 2.8rem/1.1 var(--text);
+  color: var(--ct);
+}
+.profile-name small {
+  margin-left: 0.6rem;
+  font: 700 1.8rem/1 var(--text);
+}
+.profile-sub {
+  margin: 0.2rem 0 0;
+  font: 700 1.4rem/1.3 var(--text);
+  color: var(--c);
+}
+.btn.profile-friend {
+  width: 100%;
+  justify-content: center;
+}
+/* their numbers */
+.profile-rows .board-row {
+  animation: none;
+}
+.profile-rows .rate small {
+  margin-left: 0.3rem;
+}
+/* the two players being compared, side by side, then their numbers */
+.profile-versus {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.profile-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  font: 700 1.8rem/1.2 var(--text);
+}
+.profile-pick b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-compare .match-table :is(th, td) {
+  text-align: center;
+}
+.profile-compare .match-table tbody th {
+  color: var(--c);
+}
+/* in the sheet at the table the titles are a size down, and the sheet's own heading is not needed */
+.profile-sheet .sheet-head h2:empty {
+  display: none;
+}
+.profile-sheet .tab-title.section {
+  margin-top: 1.2rem;
+}
+.profile-page > [data-profile-holder] {
+  padding-bottom: 3rem;
+}
+
+/* what is being played at this table, at the head of a player's sheet: a filled
+   well, as the scores on a rules sheet are */
+.series-info {
+  padding: 1.2rem 1.4rem;
+  border-radius: 1.8rem;
+  background: rgb(255 255 255 / 0.55);
+}
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .series-info {
+  background: color-mix(in srgb, var(--c2) 55%, #000);
+}
+.series-info .tally.plain {
+  padding: 0;
+  background: none;
+}
+/* The table scrolls sideways at a table of many players. Its scroller runs the
+   full width of the card (out through the card's own padding, which it gives back
+   inside as its own), so the columns slide out under the card's edge instead of
+   being cut off short of it. */
+.series-info {
+  overflow: hidden;
+}
+.series-info .table-wrap {
+  margin: 0 -1.4rem -0.6rem;
+  padding: 0.4rem 1.4rem 0.6rem;
+}
+.series-info h3 {
+  margin: 0 0 0.6rem;
+}
+.series-info .meta {
+  margin-bottom: 0.8rem;
+}
+.series-info .tally:empty {
+  display: none;
+}
+/* (on a sheet in the player's color, their name is in that color's own text) */
+.profile-sheet .profile-name {
+  color: var(--ct);
+}
+
+/* a chip that is a button (the rules in play, on a player's sheet) */
+.pill.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  transition: scale 0.15s ease;
+}
+.pill.pill-btn:active {
+  scale: 0.95;
+}
+
+/* Where the star and the name are laid out with a gap between them (a row of avatar,
+   star, name), the gap would add to the star's own spacing: it is taken back, so the
+   star sits as close to the name there as anywhere else. */
+.mt-player .you-star,
+.mh-player .you-star {
+  margin-right: calc(0.12em - 0.3rem);
+}
+/* A player's sheet has no title of its own: their avatar comes right up to the top
+   edge, beside Close (which keeps its corner, and still follows the sheet down). */
+/* (Close keeps floating in its corner and following the sheet down, but gives up the
+   room under it: what comes after starts at the sheet's top edge, beside it.) */
+.profile-sheet .sheet-head > .close-btn {
+  margin-bottom: -7.4rem;
+}
+.profile-sheet .profile-ava {
+  padding-top: 0;
+}
+
+/* On a phone the tab bar runs the full width of the screen, out through the dock's
+   side padding, so its edges meet the screen's. (The strip above it keeps its inset.) */
+@media (max-width: 560px) {
+  .home-dock > .tab-bar {
+    margin-inline: -1.6rem;
+  }
+}
+/* (on a wider screen it reaches a little past the strip above it on each side) */
+@media (min-width: 561px) {
+  .home-dock > .tab-bar {
+    margin-inline: -2.8rem;
+  }
+}
+/* What scrolls by in the gap between the strip (Start a Game on Play, the views on
+   Aces) and the tab bar is blurred, across the screen's width: from half way down the
+   strip (fading in) to under the tab bar, which hides its foot.
+   It stays on while the page scrolls and while pages slide (it is a thin band, cheap
+   to work out again). */
+.dock-extra {
+  position: relative;
+}
+.dock-extra:not(:empty)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  /* from half way down the strip to a little under the tab bar's top edge, fading in
+     from nothing at its top so it has no hard edge there */
+  top: 50%;
+  height: calc(50% + 1rem + 1.6rem);
+  width: 100vw;
+  translate: -50% 0;
+  z-index: -1;
+  -webkit-backdrop-filter: blur(0.8rem);
+  backdrop-filter: blur(0.8rem);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 55%);
+  mask-image: linear-gradient(to bottom, transparent, #000 55%);
+  pointer-events: none;
+}
+.home-dock:has(.start-game.open) .dock-extra::after,
+.list-dock .dock-extra::after {
+  display: none;
+}
+
+/* A page fading in (see revealPage): a screen's height of it, ready on its own layer
+   (the rest is below the screen's edge then in any case: the page opens at its top) */
+.tab-pane.revealing {
+  max-height: 100vh;
+  overflow-y: clip;
+  will-change: opacity, filter;
+}
+.tab-pane.revealing.plain {
+  will-change: opacity;
+}
+
+/* A phone saving its battery (see measureFrameRate): the stickers hold still, and the
+   things on a page come in with the page rather than popping in one by one after it */
+:root.low-fps .idle {
+  animation: none;
+  will-change: auto;
+}
+:root.low-fps .tab-pane :is(.leader-hero, .leader-list .board-row, .record-slot, .puzzle-hand .example-card, .pb-row, .friend-row, .mh-row, .watch-card) {
+  animation: none;
+}
+
+
+
+
+
+/* ---------- the rough cut for each size ----------
+   web/ui.js (roughCuts) marks every piece of sticker text with the rough cut of its
+   typeface nearest its size on screen; these set it. (A scaled-down sticker says by
+   how much in --grain-scale, so its cut is picked for the size it is seen at.) */
+[data-cut="seurat-14"] {
+  font-family: "Golf Rough Seurat 14", var(--text) !important;
+}
+[data-cut="seurat-20"] {
+  font-family: "Golf Rough Seurat 20", var(--text) !important;
+}
+[data-cut="seurat-28"] {
+  font-family: "Golf Rough Seurat 28", var(--text) !important;
+}
+[data-cut="seurat-40"] {
+  font-family: "Golf Rough Seurat 40", var(--text) !important;
+}
+[data-cut="seurat-56"] {
+  font-family: "Golf Rough Seurat 56", var(--text) !important;
+}
+[data-cut="seurat-80"] {
+  font-family: "Golf Rough Seurat 80", var(--text) !important;
+}
+[data-cut="round-14"] {
+  font-family: "Golf Rough Round 14", var(--round) !important;
+}
+[data-cut="round-20"] {
+  font-family: "Golf Rough Round 20", var(--round) !important;
+}
+[data-cut="round-28"] {
+  font-family: "Golf Rough Round 28", var(--round) !important;
+}
+[data-cut="round-40"] {
+  font-family: "Golf Rough Round 40", var(--round) !important;
+}
+[data-cut="round-56"] {
+  font-family: "Golf Rough Round 56", var(--round) !important;
+}
+[data-cut="round-80"] {
+  font-family: "Golf Rough Round 80", var(--round) !important;
+}
+.flag-art.f-theme .logo {
+  --grain-scale: 0.6;
+}
+
+/* At most three players to a row on a Watch card: each takes a third of the card (a
+   fourth and fifth go to the next row, centered under the first three) */
+.wc-players:not(.n2) .wc-player {
+  flex: 0 0 calc((100% - 2 * 0.6rem) / 3);
+  min-width: 0;
+}
+.wc-players:not(.n2) {
+  justify-content: center;
+  column-gap: 0.6rem;
+}
+
+/* a friend's name: two figures where your own has the star (a little wider than it) */
+.friend-mark {
+  width: 1.15em;
+}
+
+/* the tab bar's icons turn to their new lean as the current tab changes */
+.tab-ico .tilt {
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* the blur band under the strip above the tab bar comes and goes with the strip */
+.dock-extra::after {
+  transition: opacity 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dock-extra.blur-off::after {
+  opacity: 0;
+  transition-duration: 0.17s;
+}
+:root.reduce-motion .tab-ico .tilt,
+:root.reduce-motion .dock-extra::after {
+  transition: none;
+}
+
+/* A finished series on Watch (kept a minute): the winner's trophy, yellow in a white
+   edge, in place of their avatar; everyone else greyed */
+.wc-trophy {
+  display: inline-grid;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+.watch-card.finished .wc-player.lost {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+/* (a card fading away takes no taps) */
+.watch-card.wc-going {
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* A tournament on Watch: a big trophy beside its name and its matches in play */
+.cup-main {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  padding: 0.4rem 0.4rem 0;
+}
+.cup-trophy {
+  flex: none;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+.cup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+  text-align: left;
+}
+.cup-name {
+  font: 700 2.4rem/1.15 var(--text);
+  color: var(--s4t);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cup-live {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font: 700 1.5rem/1.2 var(--text);
+  color: var(--s4t);
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+
+/* ---------- the bracket: match cards ----------
+   Each round is a column, its matches spread so each sits level with the two it follows
+   from. A card's color says where its match has got to: orange while it is played,
+   blue finished, green before it starts (players known or still to be decided). */
+/* (the bracket runs the full width of the screen and scrolls sideways when it is wider) */
+.bracket {
+  gap: 1.6rem;
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+  padding: 2rem 1.6rem 1.2rem;
+  justify-content: safe center;
+  overscroll-behavior-x: contain;
+}
+.bracket-round {
+  gap: 2.2rem;
+}
+.bk-match {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 27rem;
+  padding: 1.6rem 1.2rem 1rem;
+  /* (its rows the full width, the score at the right: a button would gather them to the left) */
+  align-items: stretch;
+  text-align: left;
+  color: var(--ct);
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+button.bk-match {
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.28s var(--spring);
+}
+button.bk-match:active {
+  transform: scale(0.97);
+}
+.bk-match > .box-label {
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* the binoculars on a live match's label: as its letters, pale in an orange edge */
+.bk-match > .box-label .bk-label-ico {
+  filter: none;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+.bk-player,
+.st-player {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+.bk-ava {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 3.2rem;
+}
+.bk-who {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.bk-who b {
+  font: 700 1.5rem/1.15 var(--text);
+  color: var(--fw-text, var(--ct));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-match .bk-who b {
+  color: var(--ct);
+}
+.bk-who small {
+  font: 700 1.2rem/1.1 var(--text);
+  color: var(--c);
+}
+.bk-match .bk-who small {
+  color: var(--bk-mmr, currentColor);
+  opacity: 0.85;
+}
+.bk-match.c-s4 {
+  --bk-mmr: var(--s4);
+}
+.bk-match.c-p1 {
+  --bk-mmr: var(--p1);
+}
+.bk-score {
+  flex: none;
+  font-size: 3.2rem;
+}
+.bk-player.tbd .bk-who b {
+  font-weight: 600;
+}
+/* the winner's trophy, yellow in a white edge; the loser greyed */
+.bk-trophy {
+  display: inline-grid;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+.bk-player.lost {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+/* ---------- standings: a card holding the table ---------- */
+/* The table scrolls sideways edge to edge of the card: the room around it is the
+   scroller's own padding (inside what scrolls), not the card's, so nothing is cut off
+   short of the card's border. */
+.standings-card {
+  padding: 0;
+  overflow: hidden;
+}
+.standings-card .table-wrap {
+  margin: 0;
+  padding: 0.8rem 1rem 0.4rem;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  box-shadow: none;
+}
+table.standings {
+  width: 100%;
+  border-collapse: collapse;
+  font: 700 1.4rem/1.2 var(--text);
+  color: var(--fw-text, var(--ct));
+}
+table.standings th[scope="col"] {
+  padding: 0.6rem 0.4rem;
+  border-bottom: 0.25rem solid var(--fw);
+  font: 700 1.3rem/1.2 var(--text);
+  text-align: center;
+}
+table.standings th[scope="col"]:first-child {
+  width: 1%;
+  padding-inline: 0.2rem 0.8rem;
+  color: var(--fw);
+}
+table.standings th[scope="col"]:nth-child(2) {
+  text-align: left;
+}
+table.standings td,
+table.standings th[scope="row"] {
+  padding: 0.7rem 0.4rem;
+  text-align: center;
+  border-bottom: 0.2rem solid color-mix(in srgb, var(--fw) 35%, transparent);
+}
+table.standings tr:last-child td,
+table.standings tr:last-child th[scope="row"] {
+  border-bottom: 0;
+}
+table.standings th[scope="row"] {
+  color: var(--fw);
+  font-weight: 700;
+}
+table.standings td:nth-child(2) {
+  text-align: left;
+}
+table.standings .st-player small {
+  color: var(--fw);
+}
+.st-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  --fill: var(--c2);
+  --stroke: var(--c);
+}
+
+/* (the Rank column only as wide as its numbers) */
+table.standings th[scope="row"] {
+  width: 1%;
+  padding-inline: 0.2rem 0.8rem;
+}
+
+/* a player in the standings opens their profile */
+button.st-player {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.28s var(--spring);
+}
+button.st-player:active {
+  transform: scale(0.96);
+}
+
+/* ---------- the tournament page's round selector ----------
+   It follows the bracket: pinned to the foot of the screen while the bracket runs on
+   below it, and in its own place under the bracket once that has been scrolled past. */
+.round-dock {
+  position: sticky;
+  bottom: calc(1.2rem + env(safe-area-inset-bottom));
+  z-index: 5;
+  margin-top: 0.4rem;
+}
+.round-tabs .aces-tab span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  font-size: 1.5rem;
+}
+/* the bracket stops at each round's column */
+.bracket {
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 1.6rem;
+}
+.bracket > .bracket-round {
+  scroll-snap-align: start;
+}
+.round-tabs .aces-pointer {
+  left: calc(0.4rem + (100% - 0.8rem) * (var(--at, 0) + 0.5) / var(--n, 3));
+}
+.round-tabs .aces-tab {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* a round's number in a ring, a sticker like the other selectors' icons */
+.round-num {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 0.35rem solid var(--fw);
+  border-radius: 50%;
+  background: var(--fw3);
+  color: var(--fw);
+  font: 700 1.5rem/1 var(--round);
+  box-shadow: 0.2rem 0.2rem 0 var(--shadow);
+}
+.aces-tab.on .round-num {
+  border-color: var(--c);
+  background: var(--c2);
+  color: var(--c);
+}
+
+/* the standings' status, in the primary text color */
+.st-status {
+  color: var(--fw-text);
+}
+
+/* (the bracket scrolls sideways with no scrollbar: the round bar under it shows where you are) */
+.bracket {
+  scrollbar-width: none;
+}
+.bracket::-webkit-scrollbar {
+  display: none;
+}
+
+/* the arrows carrying each winner on (drawn by drawBracketArrows), behind the cards */
+.bracket {
+  position: relative;
+  gap: 5.6rem;
+}
+.bk-arrows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+.bk-arrows path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.bk-arrows .edge {
+  stroke: var(--paper);
+  stroke-width: 8.5;
+}
+.bk-arrows .ink {
+  stroke: var(--c);
+  stroke-width: 3.5;
+}
+.bk-arrows g {
+  filter: drop-shadow(0.2rem 0.2rem 0 var(--shadow));
+}
+.bracket > .bracket-round {
+  position: relative;
+  z-index: 1;
+}
+
+.round-dock[hidden] {
+  display: none;
+}
+
+/* a round's name, over its topmost match */
+.bk-round-name {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 1.8rem);
+  translate: -50% 0;
+  font: 700 1.5rem/1.2 var(--text);
+  color: var(--fw-text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.bracket {
+  padding-top: 5.2rem;
+}
+
+/* Player names in the bracket and standings: in the text color of the box they are in
+   (its own --ct, noted before each row's player color takes the name --ct over) */
+.bk-match {
+  --box-text: var(--ct);
+}
+.bk-match .bk-who b {
+  color: var(--box-text);
+}
+.standings-card .bk-who b {
+  color: var(--fw-text);
+}
+
+/* the tournament's details, centered under its name */
+.tournament-page .meta {
+  justify-content: center;
+}
+
+/* a player's seed and the AI mark beside their name: smaller and lighter than the name */
+.bk-seed,
+.bk-ai {
+  font-size: 0.82em;
+  opacity: 0.55;
+}
+
+/* The words on every selector bar (Aces, You, a tournament's rounds) are in the primary
+   text color, whichever is chosen: only the icons take its colors. (The bottom navigation
+   bar's names are in their own item's text color: see .tab-btn .tab-label.) */
+.aces-tab,
+.aces-tab.on {
+  color: var(--black);
+}
+
+/* The bracket scrolls whichever way a drag starts on it, on its cards as anywhere else
+   (stated outright: a press on a card must never take the drag for itself) */
+.bracket,
+.bracket .bk-match,
+.bracket .bk-match * {
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.bracket {
+  cursor: grab;
+}
+.bracket.grabbing {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+.bracket.grabbing .bk-match {
+  pointer-events: none;
+}
+
+/* a finished tournament's winner: drawn as a big button is, but it is not one */
+.cup-won {
+  cursor: default;
+  pointer-events: none;
+}
+.cup-won-trophy {
+  display: inline-grid;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+
+/* The players on the results: no box of their own, just their avatar (a trophy for the
+   game's winner, yellow in a white edge) over their name, their points, and the series
+   so far as stickers in their color */
+.ready-tile {
+  border: 0;
+  background: none;
+  padding-top: 0.2rem;
+  color: var(--fw-text);
+}
+
+.tile-trophy {
+  display: inline-grid;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+/* this game's points: stickers in the player's color, in a white edge */
+.tile-points {
+  display: inline-flex;
+  align-items: baseline;
+  font: 700 3.6rem/1 var(--round);
+  --sw: 0.7rem;
+}
+.tile-points .pts {
+  margin-left: 0.3rem;
+  font-size: 1.5rem;
+  --sw: 0.45rem;
+}
+/* the series so far, in plain words */
+.ready-tile .tile-tally {
+  font: 700 1.4rem/1.2 var(--text);
+  color: var(--fw-text);
+  opacity: 1;
+}
+
+.tile-points .tile-trophy {
+  align-self: center;
+  margin-right: 0.4rem;
+}
+/* a game's loser: their avatar where the winner has the trophy, small, as their points are */
+.tile-trophy.tile-ava {
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+
+/* the name centered on the player, the ready mark just to its left (out of the centering) */
+.ready-tile .who {
+  position: relative;
+  justify-content: center;
+  overflow: visible;
+}
+.ready-tile .who > .ready-state {
+  position: absolute;
+  right: calc(100% + 0.3rem);
+  top: 50%;
+  translate: 0 -50%;
+}
+
+/* With the action bar at the table's side, your spectators' bubbles stack up over it, and
+   the other side's at the mirrored spot across the table (set by measureBoardEdges) */
+:root.spectators-over-bar .spectator-emote.from-left,
+:root.spectators-over-bar .spectator-emote.from-right {
+  top: auto;
+  bottom: calc(var(--spec-bottom, 40vh) + var(--slot, 0) * 6.4rem);
+}
+:root.spectators-over-bar .spectator-emote.from-left {
+  left: var(--spec-left, 1rem);
+  right: auto;
+}
+:root.spectators-over-bar .spectator-emote.from-right {
+  right: var(--spec-right, 1rem);
+  left: auto;
+}
+
+/* a player's place so far, beside their seed */
+table.standings th[scope="col"]:nth-child(2),
+table.standings td.st-rank {
+  width: 1%;
+  padding-inline: 0.4rem 0.8rem;
+  white-space: nowrap;
+  text-align: center;
+}
+table.standings td.st-rank {
+  font-weight: 700;
+}
+table.standings th[scope="col"]:nth-child(3) {
+  text-align: left;
+}
+table.standings td:nth-child(3) {
+  text-align: left;
+}
+
+/* (with Seed and Rank both, the table stays on the card: names are cut short before it overflows) */
+table.standings .bk-who {
+  max-width: 9.6rem;
+}
+table.standings {
+  font-size: 1.3rem;
+}
+table.standings .st-status {
+  gap: 0.2rem;
+}
+table.standings .bk-who b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+table.standings td,
+table.standings th {
+  padding-inline: 0.3rem;
+}
+
+/* on a narrow screen the status is its icon alone (its word stays for screen readers) */
+@media (max-width: 480px) {
+  .st-status-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* A double elimination: both brackets in one scroller, a row each, their columns in line */
+.bracket.double {
+  flex-direction: column;
+  gap: 1.2rem;
+}
+.bk-row {
+  display: flex;
+  gap: 5.6rem;
+  position: relative;
+  z-index: 1;
+}
+.bk-row > .bracket-round {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+/* each bracket's name stays at the left edge as the rows scroll under it */
+.bracket-section .bk-row-title {
+  position: sticky;
+  left: 0;
+  align-self: flex-start;
+  /* (clear of the round names that stand over each column's top match) */
+  margin: 0.4rem 0 4.4rem;
+  /* (sticker lettering, a sticker per letter each with its own idle sway: pale blue in a blue edge) */
+  padding-left: 0.25rem;
+  font: 700 2rem/1.4 var(--text);
+  --fill: var(--c2);
+  --stroke: var(--c);
+  white-space: nowrap;
+}
+.bracket-section .bk-row-title .stk + .stk {
+  margin-left: 0.12rem;
+}
+.bracket-section .bk-row-title .stk[data-t=" "] {
+  width: 0.3em;
+}
+
+/* a record's holder, on a line of their own under the number: avatar and name */
+.record-card .record-holder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0 0 0.2rem;
+  font-size: 1.5rem;
+}
+.record-holder .ico {
+  flex: none;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+/* (a card that opens its holder's profile) */
+button.record-card {
+  width: 100%;
+  font: inherit;
+  /* (its words in the card's own text color, centered, as on every record card: not the
+     page's green, left-aligned, that a button would otherwise take on) */
+  color: var(--ct);
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.28s var(--spring);
+}
+button.record-card:active {
+  transform: scale(0.97);
+}
+
+/* a best that is the all-time record: a yellow trophy and the words, at the card's foot */
+.record-card .record-alltime {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0;
+  font: 700 1.3rem/1.2 var(--text);
+  color: var(--ct);
+  white-space: nowrap;
+}
+.record-alltime .ico {
+  flex: none;
+  --fill: var(--p3);
+  --stroke: var(--paper);
+}
+
+/* Compare Players: two boxes, half the width each; the other side is picked from a list */
+.profile-versus > .boxed {
+  min-width: 0;
+  width: 100%;
+  position: relative;
+}
+.profile-versus .profile-pick b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-versus select.cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+/* (a stat too long for its column goes onto a second line) */
+.profile-compare .match-table :is(th, td) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Compare Players' table: a narrow Stat column, rows closer together, and the lines between
+   rows fainter than the one under the heading */
+.profile-compare .match-table {
+  table-layout: fixed;
+}
+.profile-compare .match-table thead th:first-child {
+  width: 30%;
+}
+.profile-compare .match-table :is(th, td) {
+  padding-block: 0.45rem;
+}
+.profile-compare .match-table tbody :is(th, td) {
+  border-bottom-color: color-mix(in srgb, var(--c) 30%, transparent);
+}
+.profile-compare .match-table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+section.panel.profile-compare {
+  padding-block: 0.6rem 0.4rem;
+}
+section.panel.profile-compare .table-wrap {
+  margin-top: 0;
+}
+
+/* Every stats card (yours, another player's, and their rule activations) in the Compare
+   Players card's style: smaller type, a narrow stat column, rows close together, centered
+   numbers, a full-strength line under the heading and faint ones between rows */
+section.panel.stats-card {
+  padding-block: 1rem 0.4rem;
+}
+.stats-card > h2 {
+  margin-bottom: 0.4rem;
+  font-size: 1.7rem;
+  text-align: center;
+}
+.stats-card .table-wrap {
+  margin-top: 0;
+}
+.stats-card table {
+  font-size: 1.3rem;
+}
+.stats-card :is(th, td) {
+  padding: 0.45rem 0.3rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+  vertical-align: middle;
+}
+.stats-card tbody th {
+  color: var(--c);
+  font-weight: 700;
+}
+.stats-card tbody :is(th, td) {
+  border-bottom-color: color-mix(in srgb, var(--c) 30%, transparent);
+}
+.stats-card tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.stats-card > p {
+  font-size: 1.2rem;
+  text-align: center;
+}
+/* (as in Compare Players: the stat column narrower than the numbers beside it) */
+.stats-card table {
+  table-layout: fixed;
+}
+.stats-card thead th:first-child {
+  width: 44%;
+}
+.stats-card.rule-activations thead th:first-child {
+  width: 40%;
+}
+
+/* ---------- You: Profile and Your Deck, picked on the strip at the top ---------- */
+/* (two halves, so the arrow stands over the middle of each) */
+.you-tabs .aces-pointer {
+  left: calc(0.4rem + (100% - 0.8rem) * (var(--at, 0) + 0.5) / 2);
+}
+.you-tabs .aces-tab {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* (the view's own parts sit in the tab's column as if the holder were not there) */
+.you-view {
+  display: contents;
+}
+
+/* Your Deck: each suit's cards 5 to a row, its collected designs in a dashed box under them */
+.deck-suit {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+.deck-suit-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  font: 700 2.2rem/1.2 var(--text);
+  /* the suit's name in the primary text color; its icon in its cards' colors: their
+     edge (the suit's color) and their face's own background (sampled from the card
+     face images) */
+  color: var(--black);
+  --suit: var(--ink);
+  --stroke: var(--suit);
+  --fill: #e7e7e7;
+}
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit-head {
+  --fill: #1e211f;
+}
+.deck-suit.suit-H .deck-suit-head,
+.deck-suit.suit-D .deck-suit-head {
+  --suit: var(--red);
+  --fill: #fce5e5;
+}
+:root:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) :is(.deck-suit.suit-H, .deck-suit.suit-D) .deck-suit-head {
+  --suit: #f08a86;
+  --fill: #2e1c1c;
+}
+:root[data-theme="focus"] :is(.deck-suit.suit-H, .deck-suit.suit-D) .deck-suit-head {
+  --suit: #c25e59;
+}
+:root.contrast-cards .deck-suit.suit-D .deck-suit-head {
+  --suit: #e8782a;
+  --fill: #fcede2;
+}
+:root.contrast-cards .deck-suit.suit-C .deck-suit-head {
+  --suit: #3f7fd6;
+  --fill: #e5f0fc;
+}
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit.suit-D .deck-suit-head {
+  --suit: #f2a061;
+  --fill: #2e2219;
+}
+:root.contrast-cards:is([data-theme="poker"], [data-theme="night"], [data-theme="focus"]) .deck-suit.suit-C .deck-suit-head {
+  --suit: #7fb0f2;
+  --fill: #1c242e;
+}
+.deck-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1rem 0.6rem;
+  justify-items: center;
+}
+/* a card at the size that fits five across (the face drawn at full size, scaled down) */
+.deck-card.example-card {
+  --deck-scale: 0.62;
+  width: calc(8.822rem * var(--deck-scale));
+  height: calc(12.3rem * var(--deck-scale));
+}
+/* (centered in its place, and moved, leaned and lifted by the same springs as a card at the table) */
+.deck-card.example-card > .card {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  width: 8.822rem;
+  height: 12.3rem;
+  margin: -6.15rem 0 0 -4.411rem;
+  transform-origin: 50% 50%;
+  transform: translate(var(--dx, 0px), var(--dy, 0px)) rotate(var(--lean, 0deg)) scale(calc(var(--deck-scale) * var(--scale, 1)));
+}
+.deck-card {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* picked up with a tap: lifted, in the dashed outline a card picked up at the table wears */
+.deck-card.selected::after {
+  content: "";
+  position: absolute;
+  inset: -0.5rem;
+  border-radius: 1.4rem;
+  border: 0.35rem dashed var(--p1);
+  animation: march 1.6s ease-in-out infinite alternate;
+  transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(var(--scale, 1));
+  pointer-events: none;
+  z-index: 3;
+}
+.deck-card.selected {
+  z-index: 50;
+  /* (lifted: the springs take it from here once it is moving) */
+  --scale: 1.07;
+  --dy: -0.6rem;
+}
+/* the cards a carried one can swap with: outlined, as drop targets at the table are */
+.deck-card.target::before {
+  content: "";
+  position: absolute;
+  inset: -0.5rem;
+  border-radius: 1.4rem;
+  border: 0.35rem dashed var(--p1);
+  background: color-mix(in srgb, var(--p1) 14%, transparent);
+  animation: target-pulse 1.6s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 3;
+}
+.deck-card.target::after {
+  content: "Swap";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 0.2rem 0.7rem;
+  border-radius: 1.2rem;
+  background: var(--p1);
+  color: #fff;
+  font: 700 1.2rem/1.4 var(--text);
+  box-shadow: 0.2rem 0.2rem 0 var(--shadow);
+  z-index: 4;
+  pointer-events: none;
+  transition: transform 0.25s var(--spring);
+}
+button.deck-card {
+  padding: 0;
+  border: 0;
+  background: none;
+  transition: transform 0.25s var(--glide);
+}
+button.deck-card:not(.selected):active {
+  transform: scale(0.94);
+}
+.deck-box button.deck-card {
+  margin-bottom: 3rem; /* (its name, under it: two lines at most) */
+}
+.deck-name {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 0.3rem);
+  transform: translateX(-50%);
+  width: calc(100% + 0.6rem);
+  text-align: center;
+  font: 700 1.15rem/1.1 var(--text);
+  color: var(--fw);
+}
+.deck-box .deck-grid {
+  padding-top: 0.4rem;
+}
+
+/* ---------- custom cards: a card in a color of its own ---------- */
+/* the color, over the paper inside the drawn border (the face sets --skin-tint) */
+.face.front.skin::before {
+  content: "";
+  position: absolute;
+  inset: 0.7rem;
+  border-radius: 1.1rem;
+  background: var(--skin-tint, transparent);
+  pointer-events: none;
+}
+.face.front.skin > * {
+  position: relative;
+}
+.face.front.skin > *,
+.face.front.skin::before {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+/* (on a dark color the corners are drawn light) */
+.face.front.skin.inked > .corner {
+  color: var(--skin-ink);
+  --fill: var(--skin-ink);
+}
+
+/* The view strips at the top of Aces and You: in the page, scrolling with it, on a green
+   card of their own */
+.aces-tabs.top-tabs {
+  /* on a green card, as the tab bar is */
+  padding: 0.4rem 0.4rem 0.7rem;
+  border: 0.4rem solid var(--fw);
+  border-radius: 2rem;
+  background: var(--fw3);
+  box-shadow: 0.3rem 0.3rem 0 var(--shadow);
+}
+.aces-tabs.top-tabs .aces-tab {
+  padding: 0.1rem 0;
+}
+/* (their words in the text color of the tab's own color: the picked one's, the rest the green's) */
+.aces-tabs.top-tabs .aces-tab,
+.aces-tabs.top-tabs .aces-tab.on {
+  color: var(--ct);
+}
+/* (its arrow under the view showing, pointing up at it, half over the card's edge) */
+.aces-tabs.top-tabs .aces-pointer {
+  top: auto;
+  bottom: -0.45rem;
+}
+
+/* a patch's opening line, above its headings */
+.patch-intro {
+  margin: 0.4rem 0 0.2rem;
+  font: 700 1.8rem/1.3 var(--text);
 }

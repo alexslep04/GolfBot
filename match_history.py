@@ -25,6 +25,7 @@ class MatchHistory:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(str(path), check_same_thread=False)
         self.lock = threading.Lock()
+        self.saves = 0  # matches saved (or cleared) since opening: a key for what is worked out from them
         with self.connection:
             self.connection.execute("CREATE TABLE IF NOT EXISTS matches (id TEXT PRIMARY KEY, host TEXT NOT NULL, guest TEXT, updated REAL NOT NULL, payload TEXT NOT NULL)")
             self.connection.execute("CREATE INDEX IF NOT EXISTS matches_host ON matches(host)")
@@ -55,10 +56,13 @@ class MatchHistory:
             return
         payload = {
             "id": room.match_id, "lobby_name": room.name, "names": list(room.names),
-            "solo": room.solo, "best_of": room.best_of, "rules": asdict(room.rules),
+            "solo": room.solo, "local": bool(getattr(room, "local", False)), "best_of": room.best_of, "rules": asdict(room.rules),
             "house_rules": room.house_rules, "house_version": room.house_version,
             "patch": room.patch, "series_mode": room.series_mode, "game_type": room.game_type,
             "participants": room.participants,
+            # each seat's avatar (Match history draws them; older matches have none)
+            "avatars": list(getattr(room, 'avatars', None) or []),
+            "rated": bool(getattr(room, 'rated', False)),
             # a tournament match says which tournament and round it was
             "tournament": ({key: tournament.get(key) for key in ('id', 'name', 'label', 'match')}
                            if (tournament := getattr(room, 'tournament', None)) else None),
@@ -70,6 +74,7 @@ class MatchHistory:
             "points": room.points,
             "last_game_ended_at": max(result.get('ended_at', room.started_at) for result in room.history),
         }
+        self.saves += 1  # (what has been worked out from the saved matches is out of date)
         with self.lock, self.connection:
             self.connection.execute("INSERT INTO matches VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated, payload=excluded.payload",
                                     (room.match_id, browser_key(room.seats[0]), browser_key(room.seats[1]), payload["updated_at"], json.dumps(payload)))
@@ -103,11 +108,15 @@ class MatchHistory:
         'pvp': "WHERE NOT COALESCE(json_extract(payload, '$.solo'), 0) AND json_extract(payload, '$.tournament') IS NULL",
     }
 
-    def for_browser(self, token, limit=100, offset=0, kind=None):
-        """List everyone's matches; identify the viewer's seat only if they played."""
+    def for_browser(self, token, limit=100, offset=0, kind=None, mine=False):
+        """List everyone's matches (or with `mine`, only this browser's); identify the viewer's seat only if they played."""
         key = browser_key(token)
+        where, params = self.KINDS.get(kind, ''), []
+        if mine:
+            where = (where + " AND " if where else "WHERE ") + "(host=? OR guest=? OR id IN (SELECT match_id FROM match_seats WHERE browser=?))"
+            params = [key, key, key]
         with self.lock:
-            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches " + self.KINDS.get(kind, '') + " ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+            rows = self.connection.execute("SELECT id, host, guest, payload FROM matches " + where + " ORDER BY COALESCE(json_extract(payload, '$.last_game_ended_at'), (SELECT MAX(json_extract(value, '$.ended_at')) FROM json_each(json_extract(payload, '$.rounds'))), updated) DESC, updated DESC, id LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
             viewers = {match_id: seat for match_id, seat in self.connection.execute('SELECT match_id, seat FROM match_seats WHERE browser=?', (key,))} if key else {}
         return [{**self._upgrade(json.loads(payload)), "viewer": viewers.get(match_id, (0 if host == key else 1 if guest == key else None) if key else None)}
                 for match_id, host, guest, payload in rows]
@@ -169,6 +178,7 @@ class MatchHistory:
             count = self.connection.execute('SELECT COUNT(*) FROM matches').fetchone()[0]
             self.connection.execute("INSERT INTO history_meta VALUES ('reset_at', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (time.time(),))
             self.connection.execute('DELETE FROM matches')
+            self.saves += 1
             self.connection.execute('DELETE FROM match_seats')
         return count
 
