@@ -143,6 +143,14 @@ class Accounts:
                 WHERE unique_name IS NOT NULL ORDER BY rowid DESC LIMIT 1""").fetchone()
         return {'id': 'account:' + row[0], 'unique_name': row[1], 'display_name': row[2], 'created_at': row[3]} if row else None
 
+    def joined(self, player):
+        """When a player's account was made (None for a guest, or an account from before that was kept)."""
+        if not str(player or '').startswith('account:'):
+            return None
+        with self.lock:
+            row = self.db.execute('SELECT created_at FROM accounts WHERE id=?', (player[len('account:'):],)).fetchone()
+        return row[0] if row else None
+
     def record_invite(self, host, guest, host_label):
         """Note that `guest` joined a table of `host`'s through its invite link (player ids).
         Each pair counts once, however often they come back."""

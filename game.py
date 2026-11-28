@@ -124,7 +124,8 @@ def rules_from(values):
 
 
 # a puzzle hand is a set number of moves each (this many unless the puzzle says
-# otherwise): PuzzleBot's last move ends it (going out does not)
+# otherwise): PuzzleBot's last move ends it, and so does the player turning their
+# last card face up, whatever moves are left (PuzzleBot doing so does not)
 PUZZLE_MOVES = 5
 
 
@@ -134,8 +135,9 @@ class GolfGame:
         # a puzzle is one hand against Golfbot from a seeded deck: the player always
         # goes first, each side starts with the same two cards face up, and the deck
         # never reshuffles (should it run out, the hand ends there). It runs a set
-        # number of moves each (puzzle_moves): turning every card up does not end it
-        # early. How many cards start face up is the puzzle's too (puzzle_face_up).
+        # number of moves each (puzzle_moves), unless the player turns their last card
+        # face up first: that ends it there, with no reply from PuzzleBot.
+        # How many cards start face up is the puzzle's too (puzzle_face_up).
         if puzzle:
             player_count, first_player, turn_order, multiplayer = 2, 0, None, False
         elif type(player_count) is not int or not 2 <= player_count <= 32 or first_player not in range(player_count):
@@ -268,7 +270,7 @@ class GolfGame:
 
     def _mark_finish(self):
         if getattr(self, "puzzle", False):
-            return  # (a puzzle runs its set moves: nobody goes out)
+            return  # (a puzzle has no final turns: see _complete_turn for how it ends)
         if self.finisher is None:
             for player in self.players_from(self.current):
                 if self.visible_count(player) == 6:
@@ -678,8 +680,11 @@ class GolfGame:
         self.turns += 1
         if getattr(self, "puzzle", False) and self.current == 1:
             self.bot_moves = getattr(self, "bot_moves", 0) + 1
-        if getattr(self, "puzzle", False) and (getattr(self, "one_move", False) or not self.draw_pile or self.puzzle_moves_left == 0):
-            # Golfbot's last move made, or the deck spent: the puzzle ends here, every card turned up and scored
+        # (the player's turn that leaves all six of their cards face up, by a flip or a swap)
+        out = getattr(self, "puzzle", False) and self.current == 0 and self.visible_count(0) == 6
+        if getattr(self, "puzzle", False) and (getattr(self, "one_move", False) or out or not self.draw_pile or self.puzzle_moves_left == 0):
+            # Golfbot's last move made, the player's last card turned up, or the deck spent:
+            # the puzzle ends here, every card turned up and scored
             self.finisher = None
             self.scoring_reveal = True
             self._resolve_scoring_reveal()

@@ -3,7 +3,7 @@
 A puzzle is one hand of Golf against Golfbot, as PuzzleBot (see GolfGame's
 puzzle mode): a seeded deck that never reshuffles, and you play first. It runs a
 set number of moves each: Golfbot's last move ends it, as does the deck running
-out. Your score is your margin over Golfbot (its points minus yours, so +5 is a
+out, or you turning your last card face up (then it ends at once). Your score is your margin over Golfbot (its points minus yours, so +5 is a
 win by 5 points); the biggest margin wins the day.
 
 Each day's puzzle is made, not just dealt (see generate):

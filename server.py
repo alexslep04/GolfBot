@@ -2504,12 +2504,15 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             row.setdefault('avatar', avatars.get(row.get('id')) or (DEMO_AVATARS.get(row.get('label')) if str(row.get('id')).startswith('demo:') else None))
         # the viewer's own best at each, shown under its card
         me = 'account:' + session.account['id'] if session.account else 'browser:' + browser_id(session)
-        boards['personal'] = await asyncio.to_thread(personal_records, results, ratings, me)
+        boards['personal'] = await asyncio.to_thread(personal_records, results, ratings, me, record_extras(me))
         return boards
 
-    def record_extras():
-        """What the records need that saved games cannot say."""
-        return {'invites': store.accounts.invite_counts(), 'newest': store.accounts.newest()}
+    def record_extras(player=None):
+        """What the records need that saved games cannot say (with `player`, for their own bests too)."""
+        extras = {'invites': store.accounts.invite_counts(), 'newest': store.accounts.newest()}
+        if player:
+            extras['joined'] = store.accounts.joined(player)
+        return extras
 
     @app.get('/api/player-card')
     async def player_card_view(request: Request, player: str = Query(max_length=64)):
@@ -2534,8 +2537,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             viewer = None
         profile['self'] = viewer == player
         profile['flags'] = sorted(await asyncio.to_thread(flags_for, player))
-        profile['personal'] = await asyncio.to_thread(personal_records, results, ratings, player)
-        profile['mine'] = (await asyncio.to_thread(personal_records, results, ratings, viewer)
+        profile['personal'] = await asyncio.to_thread(personal_records, results, ratings, player, record_extras(player))
+        profile['mine'] = (await asyncio.to_thread(personal_records, results, ratings, viewer, record_extras(viewer))
                            if viewer and viewer != player else None)
         # games in a row won against Golfbot: the most ever (every patch), as the Solo board
         # ranks them; and the run they are on now

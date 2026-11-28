@@ -64,14 +64,16 @@ def largest_comeback(results, player=None):
     return best
 
 
-def comeback_modifier(results):
-    """The modifier most often in play for a winner who had been behind (a comeback win).
-    Never one that is always in play (the Poisoned Card lands on whoever goes out)."""
+def comeback_modifier(results, player=None):
+    """The modifier most often in play for a winner who had been behind (a comeback win): anyone's,
+    or one player's own. Never one that is always in play (the Poisoned Card lands on whoever goes out)."""
     counts = {}
-    for _, game in _rounds(results):
+    for match, game in _rounds(results):
         activations = game.get('activations') or []
         winner = game.get('winner')
         if _deficit(game) <= 0 or winner is None or winner >= len(activations):
+            continue
+        if player is not None and (winner >= len(identities(match)) or identities(match)[winner] != player):
             continue
         for key in (set(activations[winner]) & set(RULE_NAMES)) - set(ALWAYS_IN_PLAY):
             entry = counts.setdefault(key, {'key': key, 'name': RULE_NAMES[key], 'wins': 0})
@@ -103,6 +105,28 @@ def modifier_frequency(results):
     most = max(contenders, key=lambda entry: entry['activations'], default=None)
     return {'most': most if most and most['activations'] else None,
             'least': ranked[0] if len(ranked) > 1 else None}
+
+
+def rarest_modifier(results, player):
+    """The rule one player has brought into play in the smallest share of their games with it on
+    (as the record is by rate; with only one rule played, there is nothing to compare)."""
+    counts = {}
+    for _, game, seats in _played(results):
+        rules, activations = game.get('rules') or {}, game.get('activations')
+        if activations is None:
+            continue
+        for seat, who, _ in seats:
+            if who != player or seat >= len(activations):
+                continue
+            for key, enabled in rules.items():
+                if not enabled or key not in RULE_NAMES:
+                    continue
+                entry = counts.setdefault(key, {'key': key, 'name': RULE_NAMES[key], 'games': 0, 'active': 0})
+                entry['games'] += 1
+                entry['active'] += key in activations[seat]
+    # (of rules as rare as each other, the one seen in the most games says the most)
+    ranked = sorted(counts.values(), key=lambda entry: (entry['active'] / entry['games'], -entry['games']))
+    return {**ranked[0], 'rate': ranked[0]['active'] / ranked[0]['games']} if len(ranked) > 1 else None
 
 
 def favorite_modifier(results, player):
@@ -289,6 +313,19 @@ def ai_vs_players(results):
     return {'id': BOT_ID, 'label': 'Golfbot', 'bot_points': bot, 'player_points': players, 'games': games} if games else None
 
 
+def versus_golfbot(results, player):
+    """One player against Golfbot: their points and its, added up over their own solo games."""
+    bot = mine = games = 0
+    for match, game in _rounds(results):
+        scores = game.get('scores') or []
+        if not match.get('solo') or game.get('forfeit') or len(scores) != 2 or identities(match)[:1] != [player]:
+            continue
+        mine += scores[0]
+        bot += scores[1]
+        games += 1
+    return {'bot_points': bot, 'player_points': mine, 'games': games} if games else None
+
+
 # going first has to have happened this often before it can be called luck
 LUCK_MIN_GAMES = 20
 
@@ -318,12 +355,21 @@ def luck_of_the_draw(results):
     return {**best, 'rate': best['first'] / best['games']} if best else None
 
 
-def most_watched_game(results):
-    """The game the most people watched as spectators (the first to reach it holds it)."""
+def own_luck(results, player):
+    """How often one player has gone first (after LUCK_MIN_GAMES games, as for the record)."""
+    entry = first_turns(results).get(player)
+    return {**entry, 'rate': entry['first'] / entry['games']} if entry and entry['games'] >= LUCK_MIN_GAMES else None
+
+
+def most_watched_game(results, player=None):
+    """The game the most people watched as spectators (the first to reach it holds it):
+    of every game, or of one player's."""
     best = None
     for match, game in _rounds(results):
         count = game.get('spectators') or 0
         if count <= 0 or (best and count <= best['count']):
+            continue
+        if player is not None and player not in identities(match):
             continue
         names, winner, ids = match.get('names') or [], game.get('winner'), identities(match)
         best = {'count': count, 'players': list(names), 'scores': game.get('scores'), 'ids': list(ids),
@@ -333,8 +379,9 @@ def most_watched_game(results):
     return best
 
 
-def biggest_upset(results):
-    """The series won from furthest behind on rating: the winner's rating going in, below the loser's.
+def biggest_upset(results, player=None):
+    """The series won from furthest behind on rating: the winner's rating going in, below the loser's
+    (anyone's, or one player's own wins).
 
     A series is rated as one from 1.4.0 (MMR); before that the Elo each player had
     at its first game is used. A series won because the other player left is no upset.
@@ -354,6 +401,8 @@ def biggest_upset(results):
         else:
             continue
         if winner not in (0, 1) or len(before) != 2:
+            continue
+        if player is not None and identities(match)[winner] != player:
             continue
         gap = before[1 - winner] - before[winner]
         if gap > 0 and (best is None or gap > best['gap']):
@@ -380,6 +429,20 @@ def newest_recruit(newest, results):
         at = min((when for when in played if isinstance(when, (int, float))), default=None)
     return {'id': newest['id'], 'label': newest.get('display_name') or newest['unique_name'],
             'unique_name': newest['unique_name'], 'at': at}
+
+
+def invited(invites, player):
+    """How many different people one player has brought in through their invite links."""
+    entry = next((entry for entry in invites if entry['id'] == player), None)
+    return dict(entry) if entry and entry['count'] > 0 else None
+
+
+def joined(results, player, at=None):
+    """When one player joined: their account's date (`at`), or the day of their first game."""
+    if at is None:
+        played = [match.get('started_at') for match in results if player in identities(match)]
+        at = min((when for when in played if isinstance(when, (int, float))), default=None)
+    return {'at': at} if at is not None else None
 
 
 # a game is counted for at most this long, so a table left open doesn't run up the clock
@@ -491,13 +554,23 @@ def golfbot_records(results):
             'most_time': {'id': BOT_ID, 'label': 'Golfbot', 'seconds': seconds} if seconds else None}
 
 
-def personal_records(results, ratings, player):
-    """One player's own best at each record, for the box under its card (None where they have none)."""
+def personal_records(results, ratings, player, extras=None):
+    """One player's own best at each record, for the box under its card (None where they have none).
+    Every record on the Records tab has one. extras: what the saved games cannot say:
+    {'invites': Accounts.invite_counts(), 'joined': when this player's account was made}."""
     if not player:
         return {}
     if player == BOT_ID:
         return golfbot_records(results)
+    extras = extras or {}
     return {'id': player, 'highest_mmr': highest_mmr(results, ratings, player),
+            'least_modifier': rarest_modifier(results, player),
+            'comeback_modifier': comeback_modifier(results, player),
+            'vs_cpu': versus_golfbot(results, player), 'luck': own_luck(results, player),
+            'gospel': invited(extras.get('invites') or [], player),
+            'spectacle': most_watched_game(results, player),
+            'recruit': joined(results, player, extras.get('joined')),
+            'upset': biggest_upset(results, player),
             'pvp_streak': pvp_streaks(results).get(player),
             'comeback': largest_comeback(results, player), 'games_today': games_today(results).get(player),
             'most_modifier': favorite_modifier(results, player),

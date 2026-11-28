@@ -12,15 +12,16 @@ from match_settings import HOUSE_KEYS, house_rules
 from server import Store, create_app
 
 
-def play_out(game, flip_every=3):
-    """Finish a puzzle with simple moves: flip now and then, otherwise draw and discard (Golfbot plays its own)."""
+def play_out(game, flip_every=0):
+    """Finish a puzzle with simple moves: draw and discard, with a flip every so many
+    actions if asked (Golfbot plays its own)."""
     moves = 0
     while game.phase != "over":
         if game.decision_player == 1:
             game.opponent_turn()
         elif game.phase == "choose":
             hidden = [i for i, slot in enumerate(game.players[0]) if not slot.visible]
-            game.reveal(hidden[0]) if hidden and moves % flip_every == 0 else game.draw()
+            game.reveal(hidden[0]) if hidden and flip_every and moves % flip_every == 0 else game.draw()
         elif game.phase in ("drawn", "drawn_revealed"):
             game.discard()
         elif game.phase == "revealed":
@@ -52,14 +53,39 @@ class PuzzleGameTests(unittest.TestCase):
         self.assertEqual(len(game.draw_pile), 52 - 13)
 
     def test_it_runs_a_set_number_of_moves_each_and_ends_with_golfbots_last(self):
-        for flip_every in (1, 3):
-            game = GolfGame(seed=11, rules=rules_from(house_rules()), puzzle=True)
-            self.assertEqual(game.puzzle_moves_left, PUZZLE_MOVES)
-            # (turning every card up early, as flipping each turn does, does not end it)
-            game = play_out(game, flip_every=flip_every)
-            self.assertEqual((game.phase, game.turns, game.puzzle_moves_left), ("over", 2 * PUZZLE_MOVES, 0))
-            self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
+        game = GolfGame(seed=11, rules=rules_from(house_rules()), puzzle=True)
+        self.assertEqual(game.puzzle_moves_left, PUZZLE_MOVES)
+        game = play_out(game)
+        self.assertEqual((game.phase, game.turns, game.puzzle_moves_left), ("over", 2 * PUZZLE_MOVES, 0))
+        self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
         self.assertIsNone(GolfGame(seed=11).puzzle_moves_left)
+
+    def test_turning_your_last_card_face_up_ends_it_at_once_whatever_moves_are_left(self):
+        # a flip each turn: two cards start face up, so the fourth flip is the last card
+        game = play_out(GolfGame(seed=11, puzzle=True), flip_every=1)
+        self.assertEqual((game.phase, game.turns, game.puzzle_moves_left), ("over", 7, PUZZLE_MOVES - 3))
+        self.assertTrue(all(slot.visible for hand in game.players for slot in hand))
+        # the same by a swap into the last face-down place: PuzzleBot gets no reply
+        game = GolfGame(seed=11, puzzle=True)
+        for slot in game.players[0][:5]:
+            slot.visible = True
+        game.players[0][5].visible = False
+        game.swap(5)
+        self.assertEqual((game.phase, game.turns, game.puzzle_moves_left), ("over", 1, PUZZLE_MOVES))
+        # five face up is not six: the hand goes on
+        game = GolfGame(seed=11, puzzle=True)
+        game.reveal(next(i for i, slot in enumerate(game.players[0]) if not slot.visible))
+        game.end_turn()
+        self.assertEqual((game.phase, game.current), ("choose", 1))
+
+    def test_puzzlebot_turning_its_last_card_face_up_does_not_end_it(self):
+        game = GolfGame(seed=11, puzzle=True)
+        for slot in game.players[1]:
+            slot.visible = True
+        game.draw()
+        game.discard()
+        game.opponent_turn()
+        self.assertEqual((game.phase, game.current, game.puzzle_moves_left), ("choose", 0, PUZZLE_MOVES - 1))
 
     def test_a_puzzle_may_set_its_own_moves_and_cards_face_up(self):
         for moves, face_up in ((3, 0), (7, 4)):

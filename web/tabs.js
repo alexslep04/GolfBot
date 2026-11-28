@@ -2194,6 +2194,9 @@ function youProfileHtml() {
 function personalRecordItems(P) {
   const plural = (n, one, many = one + "s") => (n === 1 ? one : many);
   const [played, playedUnit] = timeParts(P.most_time?.seconds);
+  // (lowest total wins, so fewer points than Golfbot is ahead of it)
+  const cpuLead = P.vs_cpu ? P.vs_cpu.bot_points - P.vs_cpu.player_points : 0;
+  const joinedDays = P.recruit ? Math.max(0, Math.floor((Date.now() / 1000 - P.recruit.at) / 86400)) : 0;
   return [
     // (Golfbot's: its record against everyone it has played)
     ["c-p3", "person.2.fill", "Wins vs people", P.vs_people && [statNumber(P.vs_people.wins), plural(P.vs_people.wins, "win"), null, `${statNumber(P.vs_people.draws)} ${plural(P.vs_people.draws, "draw")} · ${statNumber(P.vs_people.losses)} ${plural(P.vs_people.losses, "loss", "losses")} · ${statNumber(P.vs_people.games)} games`]],
@@ -2209,6 +2212,15 @@ function personalRecordItems(P) {
     ["c-p2", "text.bubble.fill", "Emotes sent", P.yapper && [statNumber(P.yapper.emotes), plural(P.yapper.emotes, "emote")]],
     ["c-s4", "person.3.fill", "Biggest party", P.party && [P.party.count, "signed in", P.party.at]],
     ["c-s2", "hourglass", "Time played", P.most_time && [played, playedUnit]],
+    // (and their own side of the records that are not a best of one game)
+    ["c-p4", "wand.and.stars", "Rarest rule", P.least_modifier && [statPercent(P.least_modifier.rate), "", null, `${P.least_modifier.name}: in play in ${statNumber(P.least_modifier.active)} of ${statNumber(P.least_modifier.games)} ${plural(P.least_modifier.games, "game")} it was on`]],
+    ["c-s5", "bolt.fill", "Comeback rule", P.comeback_modifier && [statNumber(P.comeback_modifier.wins), plural(P.comeback_modifier.wins, "win"), null, `${P.comeback_modifier.name}, in play in the most comeback wins`]],
+    ["c-s6", "cpu.fill", "Vs. the CPU", P.vs_cpu && [statNumber(Math.abs(cpuLead)), "pts", null, `${cpuLead > 0 ? "Ahead of" : cpuLead < 0 ? "Behind" : "Level with"} Golfbot: ${statNumber(P.vs_cpu.player_points)} pts to its ${statNumber(P.vs_cpu.bot_points)} over ${statNumber(P.vs_cpu.games)} solo ${plural(P.vs_cpu.games, "game")} (lowest wins)`]],
+    ["c-p1", "dice.fill", "Went first", P.luck && [statPercent(P.luck.rate), "", null, `${statNumber(P.luck.first)} of ${statNumber(P.luck.games)} games`]],
+    ["c-s7", "link", "Players invited", P.gospel && [statNumber(P.gospel.count), plural(P.gospel.count, "player")]],
+    ["c-p4", "binoculars.fill", "Biggest crowd", P.spectacle && [statNumber(P.spectacle.count), plural(P.spectacle.count, "spectator"), P.spectacle.at]],
+    ["c-p2", "arrow.up.right.circle.fill", "Biggest upset", P.upset && [statNumber(P.upset.gap), "pts apart", P.upset.at, `Beat ${P.upset.opponent}, ${statNumber(P.upset.ratings[0])} to ${statNumber(P.upset.ratings[1])} on rating`]],
+    ["c-s5", "leaf.fill", "Joined", P.recruit && [joinedDays === 0 ? "Today" : statNumber(joinedDays), joinedDays === 0 ? "" : joinedDays === 1 ? "day ago" : "days ago", P.recruit.at]],
   ].filter((item) => item[3]);
 }
 /**
@@ -2224,17 +2236,17 @@ function personalRecordsHtml(P, mine = null, empty = "Play a few games and your 
   const yours = new Map(mine ? personalRecordItems(mine).map((item) => [item[2], item[3]]) : []);
   const best = (title, i) => {
     const own = yours.get(title);
-    return own ? `<div class="record-pr"><span class="record-pr-value"><span class="rv-num">${stickerText(String(own[0]), { split: true, key: `prm:${i}` })}</span>${stickerText(own[1], { cls: "pts", key: `prmu:${i}` })}</span><span class="record-pr-text">Your best</span></div>` : "";
+    return own ? `<div class="record-pr"><span class="record-pr-value"><span class="rv-num">${stickerText(String(own[0]), { split: true, key: `prm:${i}` })}</span>${own[1] ? stickerText(own[1], { cls: "pts", key: `prmu:${i}` }) : ""}</span><span class="record-pr-text">Your best</span></div>` : "";
   };
   // A best that is the all-time record (this player holds it on Aces) says so at its foot.
   const records = (typeof leaderboardCache !== "undefined" && leaderboardCache?.records) || homeData.boards?.records || {};
-  const RECORD_OF = { "Highest MMR": "highest_mmr", "Best PvP win streak": "pvp_streak", "Best win streak vs people": "pvp_streak", "Longest game": "longest_pvp", "Biggest Comeback": "comeback", "Most Games Today": "games_today", "Lowest score": "lowest", "Highest score": "bogey", "Most rules on one hand": "modifiers_in_game", "Longest 1v1 game": "longest_pvp", "Emotes sent": "yapper", "Biggest party": "party", "Time played": "most_time" };
+  const RECORD_OF = { "Highest MMR": "highest_mmr", "Best PvP win streak": "pvp_streak", "Best win streak vs people": "pvp_streak", "Longest game": "longest_pvp", "Biggest Comeback": "comeback", "Most Games Today": "games_today", "Lowest score": "lowest", "Highest score": "bogey", "Most rules on one hand": "modifiers_in_game", "Longest 1v1 game": "longest_pvp", "Emotes sent": "yapper", "Biggest party": "party", "Time played": "most_time", "Went first": "luck", "Players invited": "gospel", "Biggest crowd": "spectacle", "Biggest upset": "upset", "Joined": "recruit" };
   const holds = (title) => {
     const record = records[RECORD_OF[title]];
     return !!(P.id && record && (record.id === P.id || record.ids?.includes(P.id)));
   };
   const allTime = (i) => `<p class="record-alltime">${icon("trophy.fill", 20, { idle: false })}<span>All time record!</span></p>`;
-  const slots = items.map(([color, symbol, title, [value, unit, at, note]], i) => `<div class="record-slot ${color}" style="--i:${i}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `pr:${i}` })}</span><h3>${title}</h3><div class="record-value"><span class="rv-num">${stickerText(String(value), { split: true, key: `prv:${i}` })}</span>${stickerText(unit, { cls: "pts", key: `pru:${i}` })}</div>${note ? `<p>${e(note)}</p>` : ""}${at ? `<p>${when(at)}</p>` : ""}${holds(title) ? allTime(i) : ""}</section>${best(title, i)}</div>`);
+  const slots = items.map(([color, symbol, title, [value, unit, at, note]], i) => `<div class="record-slot ${color}" style="--i:${i}"><section class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `pr:${i}` })}</span><h3>${title}</h3><div class="record-value"><span class="rv-num">${stickerText(String(value), { split: true, key: `prv:${i}` })}</span>${unit ? stickerText(unit, { cls: "pts", key: `pru:${i}` }) : ""}</div>${note ? `<p>${e(note)}</p>` : ""}${at ? `<p>${when(at)}</p>` : ""}${holds(title) ? allTime(i) : ""}</section>${best(title, i)}</div>`);
   // two columns of cards that each keep to their own height, as the Flags tab's do
   return hugColumns(slots);
 }
@@ -2643,12 +2655,13 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
       ? `${heading(`${whose} All Time Records`, "", "profile-records", tint)}${hugColumns(held)}`
       : ""
     : `${heading(`${whose} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
-  // (and over the table their full stats, opened on request as Show my stats is on the You tab)
+  // (and over the table their full stats and every best of their own, opened on request
+  // as Show my stats is on the You tab)
   const full =
     sheet && entry
       ? `${heading(`${whose} Stats`, "", "profile-stats", tint)}<div class="stack wide you-stats">${
           statsOpen
-            ? `${statsTable([entry], "overall", profile.self ? "Every game you've played" : `Every game ${e(name)} has played`, tone)}<button type="button" class="btn small ${accent}" data-profile-stats>${tilted("chevron.up", 22)}Hide stats</button>`
+            ? `${statsTable([entry], "overall", profile.self ? "Every game you've played" : `Every game ${e(name)} has played`, tone)}${heading(`${whose} Personal Records`, "", "profile-personal", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}<button type="button" class="btn small ${accent}" data-profile-stats>${tilted("chevron.up", 22)}Hide stats</button>`
             : `<button type="button" class="btn small ${accent}" data-profile-stats>${tilted("chart.bar.fill", 22)}${profile.self ? "Show my stats" : "Show stats"}</button>`
         }</div>`
       : "";

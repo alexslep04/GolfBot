@@ -154,6 +154,42 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(set(player_card(results, [], bob['id'], extras)['records']) & {'gospel', 'recruit', 'upset', 'spectacle', 'luck'},
                          {'gospel', 'recruit', 'upset', 'spectacle'})
 
+        # and each has a best of their own at every one of them
+        mine = personal_records(results, [], ann['id'], {**extras, 'joined': None})
+        self.assertEqual(mine['vs_cpu'], {'bot_points': 21 * 9, 'player_points': 21 * 3, 'games': 21})
+        self.assertEqual((mine['luck']['first'], mine['luck']['games']), (14, 21))
+        self.assertAlmostEqual(mine['luck']['rate'], 2 / 3)
+        self.assertEqual(mine['gospel']['count'], 1)
+        self.assertEqual((mine['spectacle']['count'], mine['spectacle']['players']), (4, ['Ann', 'Bob']))
+        # (her only win from behind on rating was the older series: 990 against 1040)
+        self.assertEqual((mine['upset']['gap'], mine['upset']['opponent']), (50, 'Bob'))
+        # (no account date kept: the day of her first game; with one, that)
+        self.assertEqual(mine['recruit'], {'at': 100})
+        self.assertEqual(personal_records(results, [], ann['id'], {'joined': 42})['recruit'], {'at': 42})
+        theirs = personal_records(results, [], bob['id'], extras)
+        # (Bob chose to go first every time: that is no luck of his own either)
+        self.assertEqual((theirs['luck'], theirs['vs_cpu']['games'], theirs['gospel']['count'], theirs['upset']['gap']), (None, 30, 3, 230))
+        self.assertEqual(personal_records(results, [], 'account:nobody')['gospel'], None)
+
+    def test_your_own_rarest_rule_and_comeback_rule(self):
+        game = lambda winner, mine, theirs, timeline=None: {
+            'winner': winner, 'scores': [3, 9] if winner == 0 else [9, 3], 'timeline': timeline or [],
+            'rules': {'royal_pairs': True, 'holdem': True}, 'activations': [mine, theirs]}
+        results = [match([game(0, ['royal_pairs'], ['holdem'], [[20, 2]]),  # Ann comes back with Royal pairs
+                          game(0, ['royal_pairs'], ['holdem']), game(1, ['royal_pairs', 'holdem'], [], [[2, 20]]),
+                          game(0, [], ['holdem'])])]
+        ann = personal_records(results, [], 'player:Ann')
+        # Hold 'em came into play for her in 1 game of 4, Royal pairs in 3
+        self.assertEqual((ann['least_modifier']['key'], ann['least_modifier']['active'], ann['least_modifier']['games'], ann['least_modifier']['rate']),
+                         ('holdem', 1, 4, 0.25))
+        self.assertEqual((ann['comeback_modifier']['key'], ann['comeback_modifier']['wins']), ('royal_pairs', 1))
+        bob = personal_records(results, [], 'player:Bob')
+        # (Bob's one comeback win had nothing of his in play)
+        self.assertEqual((bob['least_modifier']['key'], bob['comeback_modifier']), ('royal_pairs', None))
+        # with a single rule played there is nothing to compare
+        one = {'winner': 0, 'scores': [1, 2], 'rules': {'holdem': True}, 'activations': [['holdem'], []]}
+        self.assertIsNone(personal_records([match([one])], [], 'player:Ann')['least_modifier'])
+
     def test_comeback_modifier_leaves_out_the_poisoned_card(self):
         comeback = lambda keys: {'winner': 0, 'scores': [3, 9], 'timeline': [[20, 2]], 'activations': [keys, []]}
         results = [match([comeback(['poisoned_card']), comeback(['poisoned_card', 'suited_rows']), comeback(['poisoned_card'])])]

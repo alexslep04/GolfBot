@@ -399,10 +399,14 @@ test('a profile shows who the player is, their numbers, how they compare with yo
   // over the table: only the all-time records they hold (none: no section), and their full stats on request
   const sheet=(extra,opts)=>h.run(`profileHtml(${JSON.stringify({...profile,...extra})},${JSON.stringify({player:side('Nathan','nathan',668)})},${JSON.stringify({sheet:true,...opts})})`);
   const none=sheet({records:{}},{});
-  assert.doesNotMatch(none,/Their Records|Their All Time Records|Your best/);assert.match(none,/data-profile-stats>[^]*?Show stats/);assert.doesNotMatch(none,/Hide stats/);
+  assert.doesNotMatch(none,/Their Records|Their All Time Records|Their Personal Records|Highest MMR|Your best/);assert.match(none,/data-profile-stats>[^]*?Show stats/);assert.doesNotMatch(none,/Hide stats/);
   const holds=sheet({records:{lowest:{id:'account:42',label:'Nathan',points:-12,at:5}}},{statsOpen:true});
-  assert.match(holds,/aria-label="Their All Time Records"/);assert.match(holds,/Lowest score/);assert.doesNotMatch(holds,/Highest MMR|data-stats-player/);
-  assert.match(holds,/Every game Nathan has played/);assert.match(holds,/data-profile-stats>[^]*?Hide stats/);
+  assert.match(holds,/aria-label="Their All Time Records"/);assert.match(holds,/Lowest score/);assert.doesNotMatch(holds,/data-stats-player/);
+  // (opened: the table, then every best of their own, with yours under them as on their page)
+  assert.match(holds,/Every game Nathan has played[^]*?aria-label="Their Personal Records"[^]*?Highest MMR[^]*?Your best[^]*?data-profile-stats>[^]*?Hide stats/);
+  // every record on the Records tab has a best of one's own
+  const all=h.run(`personalRecordsHtml(${JSON.stringify({id:'account:42',least_modifier:{name:'Hold \'em',rate:0.25,active:5,games:20},comeback_modifier:{name:'Suited rows',wins:3},vs_cpu:{player_points:90,bot_points:120,games:12},luck:{first:13,games:20,rate:0.65},gospel:{count:2},spectacle:{count:4,at:5},upset:{gap:140,opponent:'Bo',ratings:[1100,1240],at:6},recruit:{at:Date.now()/1000-3*86400}})})`);
+  for(const text of ['Rarest rule','in play in 5 of 20 games it was on','Comeback rule','Suited rows','Vs. the CPU','Ahead of Golfbot: 90 pts to its 120 over 12 solo games','Went first','13 of 20 games','Players invited','Biggest crowd','Biggest upset','Beat Bo, 1,?100 to 1,?240 on rating','Joined','days ago']) assert.match(all,new RegExp(text),text);
   // (their page keeps every best of theirs, and has no such button)
   assert.doesNotMatch(html,/data-profile-stats|All Time Records/);
   // friends already: no button to press
