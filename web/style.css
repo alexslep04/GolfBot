@@ -9282,3 +9282,16 @@ button.deck-card:not(.selected):active {
   margin-top: 1rem;
   color: var(--c);
 }
+/* a player in a match now: their binoculars are a button that opens it */
+button.st-status.st-watch {
+  /* (a finger's worth of room round the icon, taken back off so the row keeps its height) */
+  margin: -0.8rem;
+  padding: 0.8rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+button.st-status.st-watch:active {
+  transform: scale(0.9);
+}

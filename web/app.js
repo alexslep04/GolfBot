@@ -2787,7 +2787,7 @@ function playerStatsSheet(player) {
       // (the name at the table is the one they are playing under)
       profile.label = profile.label || state.names[player];
       profile.avatar = profile.avatar || state.avatars?.[player] || null;
-      const opts = { accent: color, tone: color, heading: sectionTitle, extra: seriesTally(player, player === state.viewer && !state.spectator) };
+      const opts = { accent: color, tone: color, heading: sectionTitle, sheet: true, extra: seriesTally(player, player === state.viewer && !state.spectator) };
       profileShown = { profile, stats, opts };
       fillSheet(holder, profileHtml(profile, stats, opts), () => sheetRoot.querySelector(".profile-sheet .sheet-head h2")?.replaceChildren());
     })
@@ -3322,8 +3322,8 @@ const myPlayerId = () =>
   session.player_id || (session.account ? "account:" + session.account.id : "player:" + session.username);
 /** The ranking: everyone with a matching game, best game win rate first. Guests share one row. */
 /** The record cards a player holds (given only theirs), as the Records tab draws them. */
-function heldRecordCards(records) {
-  return recordCards(records || {})
+function heldRecordCards(records, { link = true } = {}) {
+  return recordCards(records || {}, {}, { link })
     .filter(({ record }) => record)
     .map(({ html }) => html);
 }
@@ -3556,7 +3556,7 @@ function recordsBody(records = {}, personal = {}) {
  * Every record's card, with the record it shows (null while nobody holds it). Under
  * each record that a player can hold, the viewer's own best (their PR), when they have one.
  */
-function recordCards(records = {}, personal = {}) {
+function recordCards(records = {}, personal = {}, { link = true } = {}) {
   const mine = myPlayerId();
   const who = (record) => `${nameMark(record.id, !!record.id && record.id === mine)}${e(record.label)}`;
   const when = (at) => (at ? dateLabel(at, { month: "short", day: "numeric", year: "numeric" }) : "");
@@ -3573,7 +3573,8 @@ function recordCards(records = {}, personal = {}) {
   // A record held by a player names them on a line of their own under the number, with their
   // avatar, and the card opens their profile; the line under that says what they did.
   const card = (key, color, symbol, title, record, value, unit, detail, empty, note = "", mine = () => "") => {
-    const holder = record?.id && record.label ? record.id : null;
+    // (`link` off: on the holder's own profile sheet, where there is nowhere further to go)
+    const holder = link && record?.id && record.label ? record.id : null;
     const line = record?.id && record.label ? `<p class="record-holder">${icon(avatarIcon(record.avatar || (record.id === "bot:golfbot" ? "golfbot" : null)), 22, { idle: false })}<strong>${who(record)}</strong></p>` : "";
     const tag = holder ? "button" : "section";
     return `<div class="record-slot ${color}" style="--i:${key}"><${tag}${holder ? ` type="button" data-stats-player="${e(holder)}" aria-label="${e(title)}: ${e(record.label)}'s profile"` : ""} class="panel ${color} record-card"><span class="record-ico">${tilted(symbol, 40, { key: `record:${key}` })}</span><h3>${title}</h3>${

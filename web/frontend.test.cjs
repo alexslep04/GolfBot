@@ -396,6 +396,15 @@ test('a profile shows who the player is, their numbers, how they compare with yo
   assert.doesNotMatch(html,/Adult swim/);assert.match(html,/hasn(&#39;|')t completed any flags yet/);
   const done=h.run(`profileHtml(${JSON.stringify({...profile,flags:["Let's go gambling!"]})},null,{accent:'c-s3'})`);
   assert.match(done,/class="panel c-s3 earned record-card flag-card"[^]*?Let(&#39;|')s go gambling!/);assert.doesNotMatch(done,/Adult swim|hourglass|flag-art/);
+  // over the table: only the all-time records they hold (none: no section), and their full stats on request
+  const sheet=(extra,opts)=>h.run(`profileHtml(${JSON.stringify({...profile,...extra})},${JSON.stringify({player:side('Nathan','nathan',668)})},${JSON.stringify({sheet:true,...opts})})`);
+  const none=sheet({records:{}},{});
+  assert.doesNotMatch(none,/Their Records|Their All Time Records|Your best/);assert.match(none,/data-profile-stats>[^]*?Show stats/);assert.doesNotMatch(none,/Hide stats/);
+  const holds=sheet({records:{lowest:{id:'account:42',label:'Nathan',points:-12,at:5}}},{statsOpen:true});
+  assert.match(holds,/aria-label="Their All Time Records"/);assert.match(holds,/Lowest score/);assert.doesNotMatch(holds,/Highest MMR|data-stats-player/);
+  assert.match(holds,/Every game Nathan has played/);assert.match(holds,/data-profile-stats>[^]*?Hide stats/);
+  // (their page keeps every best of theirs, and has no such button)
+  assert.doesNotMatch(html,/data-profile-stats|All Time Records/);
   // friends already: no button to press
   assert.match(h.run(`profileHtml(${JSON.stringify({...profile,friend:'friend'})},null)`),/disabled>[^]*?Friends/);
 });

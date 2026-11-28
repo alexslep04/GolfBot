@@ -1337,6 +1337,15 @@ async function homeClick(button, data, event) {
     await profileFriend(button, data.profileFriend);
     return true;
   }
+  if ("profileStats" in data) {
+    // (a profile sheet's full stats, opened or put away again)
+    const holder = button.closest("[data-profile-sheet]");
+    if (holder && profileShown) {
+      profileShown.opts = { ...profileShown.opts, statsOpen: !profileShown.opts.statsOpen };
+      holder.innerHTML = profileHtml(profileShown.profile, profileShown.stats, profileShown.opts);
+    }
+    return true;
+  }
   if ("friendsMore" in data) {
     friendsExpanded = true;
     redrawPane("play");
@@ -1452,7 +1461,7 @@ function puzzleHtml() {
   // (before your first finish, what the puzzle asks of you)
   const tagline = `In ${info.moves ?? 5} moves, get the biggest margin vs PuzzleBot`;
   return `<section class="home-section puzzle-section">${tabTitle(`Daily Puzzle #${info.number}`, e(mine || tagline), "puzzle")}<div class="puzzle-row"><div class="puzzle-hand">${hand}</div>${board}</div>
-    <button type="button" class="btn c-p1 solve-btn" data-puzzle-start>${tilted("puzzlepiece.fill", 30)}<span>Solve Puzzle</span>${tilted("puzzlepiece.fill", 30, { mirror: true })}</button></section>`;
+    <button type="button" class="btn c-p1 solve-btn" data-puzzle-start>${tilted("puzzlepiece.fill", 30)}<span>Solve Daily</span>${tilted("puzzlepiece.fill", 30, { mirror: true })}</button></section>`;
 }
 /**
  * Before the Daily Puzzle's table: a sheet with today's puzzle (the card from "How to
@@ -2538,7 +2547,7 @@ function profileNumbersHtml(profile) {
   const [played, playedUnit] = timeParts(profile.seconds_played || 0);
   return `<div class="list leader-list profile-rows">${row("c-p3", "crown.fill", "Current MMR", mmr ?? "—", mmr ? "MMR" : "")}${streakRow("c-s4", "Solo Win Streak", profile.solo_streak || 0, profile.current_solo_streak || 0)}${streakRow("c-p2", "PvP Win Streak", profile.pvp_streak || 0, profile.current_pvp_streak || 0)}${row("c-p4", "hourglass", "Time Played", statNumber(played), playedUnit)}</div>`;
 }
-function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading = tabTitle, extra = "", opponent = null } = {}) {
+function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading = tabTitle, extra = "", opponent = null, sheet = false, statsOpen = false } = {}) {
   const entry = stats?.player,
     you = stats?.comparison;
   const name = profile.label || entry?.profile.label || "Player";
@@ -2626,14 +2635,30 @@ function profileHtml(profile, stats, { accent = "c-p1", tone = "c-fw", heading =
       : `${heading("Compare Players", "", "profile-compare", tint)}<div class="profile-versus">${boxed(tone, handle, `<span class="profile-pick">${avatar ? icon(avatarIcon(avatar), 22, { idle: false }) : icon("person.fill", 20, { idle: false })}<b>${handle}</b></span>`)}${boxed(tone, "Other Player", `<span class="profile-pick">${icon(avatarIcon(other.avatar), 22, { idle: false })}<b>${e(other.label)}</b>${glyph("chevron.down", 14)}</span><select class="cover" data-profile-opponent aria-label="Compare with">${choices.map((choice) => `<option value="${e(choice.id)}" ${choice.id === other.id ? "selected" : ""}>${e(choice.label)}</option>`).join("")}</select>`)}</div><section class="panel ${tone} profile-compare"><div class="table-wrap"><table class="match-table"><thead><tr><th scope="col">Stat</th><th scope="col">${handle}</th><th scope="col">${other.id === myPlayerId() ? who(you, "You") : e(other.label)}</th></tr></thead><tbody>${lines.map(([label, read]) => `<tr><th scope="row">${label}</th><td>${read(entry)}</td><td>${read(theirs)}</td></tr>`).join("")}</tbody></table></div></section>`;
   // (headed "Their Records", "Their Flags": yours, at the table, "Your")
   const whose = profile.self ? "Your" : "Their";
-  const records = `${heading(`${whose} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
+  // (over the table, only the all-time records they hold, for as long as they hold them,
+  // drawn as the Records tab's cards; their page has every one of their own bests)
+  const held = sheet ? heldRecordCards(profile.records, { link: false }) : [];
+  const records = sheet
+    ? held.length
+      ? `${heading(`${whose} All Time Records`, "", "profile-records", tint)}${hugColumns(held)}`
+      : ""
+    : `${heading(`${whose} Records`, "", "profile-records", tint)}${personalRecordsHtml(profile.personal || {}, profile.mine, `${e(name)} has no records yet.`)}`;
+  // (and over the table their full stats, opened on request as Show my stats is on the You tab)
+  const full =
+    sheet && entry
+      ? `${heading(`${whose} Stats`, "", "profile-stats", tint)}<div class="stack wide you-stats">${
+          statsOpen
+            ? `${statsTable([entry], "overall", profile.self ? "Every game you've played" : `Every game ${e(name)} has played`, tone)}<button type="button" class="btn small ${accent}" data-profile-stats>${tilted("chevron.up", 22)}Hide stats</button>`
+            : `<button type="button" class="btn small ${accent}" data-profile-stats>${tilted("chart.bar.fill", 22)}${profile.self ? "Show my stats" : "Show stats"}</button>`
+        }</div>`
+      : "";
   // another player's flags: only the ones they have completed, in their own color
   const earned = new Set(profile.flags || []);
   const flags = bot
     ? ""
     : `${heading(`${whose} Flags`, "", "profile-flags", tint)}${earned.size ? flagCardsHtml({ rewards: false, earned, only: true, earnedColor: accent }) : `<p class="hint dark you-empty">${e(name)} hasn't completed any flags yet.</p>`}`;
   // (`extra`: at the table, what is being played, above their numbers)
-  return `<div class="profile-body">${head}${extra}${rows}${compare}${records}${flags}</div>`;
+  return `<div class="profile-body">${head}${extra}${rows}${compare}${records}${full}${flags}</div>`;
 }
 /** Fetch a player's profile and how they compare with the viewer. */
 async function fetchProfile(id, opponent = null) {
