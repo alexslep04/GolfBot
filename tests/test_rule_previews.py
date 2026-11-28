@@ -28,10 +28,11 @@ class RulePreviewTests(unittest.TestCase):
         game.players[0][5].visible = False
         self.assertEqual(self.preview(game)[0], {key: {'indices': [0, 1, 2]} for key in ('tricky_straights', 'suited_rows')})
 
-    def test_nonstacking_vs_choose_one_visible_pattern(self):
-        for key, ranks in [('roman_fives', [3, 4, 3, 3, 4, 3]), ('v10', [10, 11, 12, 10, 11, 12])]:
+    def test_v2_lights_every_visible_v_and_the_v10_engine_one(self):
+        # (V2 stacks, so both of its Vs show; the V10 engine applies once, so one does)
+        for key, ranks, both in [('roman_fives', [3, 4, 3, 3, 4, 3], [0, 1, 2, 3, 4, 5]), ('v10', [10, 11, 12, 10, 11, 12], [0, 2, 4])]:
             game = self.game(ranks, Rules(**{key: True}))
-            self.assertEqual(self.preview(game)[0][key]['indices'], [0, 2, 4])
+            self.assertEqual(self.preview(game)[0][key]['indices'], both)
             game.players[0][0].visible = False
             self.assertEqual(self.preview(game)[0][key]['indices'], [1, 3, 5])
 

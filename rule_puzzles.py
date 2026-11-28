@@ -106,8 +106,8 @@ def hand_score(cards, rule=None, earned=()):
             if suit in "SC" and cards[b][1] == suit and cards[c][1] == suit:
                 total -= BP[cards[b][0]]
     elif rule == "roman_fives":
-        if any(BP[cards[a][0]] + BP[cards[b][0]] + BP[cards[c][0]] == 10 for a, b, c in VS):
-            divisor = 2
+        # (V2 stacks: each V that adds up to 10 halves the score)
+        divisor = 2 ** sum(BP[cards[a][0]] + BP[cards[b][0]] + BP[cards[c][0]] == 10 for a, b, c in VS)
     elif rule == "v10":
         if any({cards[a][0], cards[b][0], cards[c][0]} == {10, 11, 12} for a, b, c in VS):
             divisor = 5

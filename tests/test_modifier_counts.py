@@ -22,9 +22,9 @@ class ModifierCountTests(unittest.TestCase):
         self.assertEqual(modifier_instance_counts(hand, rules),
                          {"tricky_straights": 2, "suited_rows": 2, "holdem": 1, "all_in_color": 1})
 
-    def test_two_qualifying_vs_are_one_nonstacking_effect(self):
+    def test_two_qualifying_vs_stack_for_v2_and_not_for_the_v10_engine(self):
         hand = layout([3, 4, 3, 3, 4, 3])
-        self.assertEqual(modifier_instance_counts(hand, Rules(roman_fives=True)), {"roman_fives": 1})
+        self.assertEqual(modifier_instance_counts(hand, Rules(roman_fives=True)), {"roman_fives": 2})
         hand = layout([10, 11, 12, 10, 11, 12])
         self.assertEqual(modifier_instance_counts(hand, Rules(v10=True)), {"v10": 1})
 

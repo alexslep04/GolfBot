@@ -52,9 +52,9 @@ class RevisedRulesTests(unittest.TestCase):
 
     def test_incoming_straights_use_recipients_divisions(self):
         game = GolfGame(rules=Rules(tricky_straights=True, roman_fives=True))
-        game.players[0] = hand([1, 2, 3, 6, 6, 6])  # Own total 20, /2; exports +3.
+        game.players[0] = hand([1, 2, 3, 6, 6, 6])  # Own total 20, /4 (both Vs total 10); exports +3.
         game.players[1] = hand([8, 4, 2, 3, 4, 10])  # Own total 19, incoming +3, /2.
-        self.assertEqual(game.score(0), 10)
+        self.assertEqual(game.score(0), 5)
         self.assertEqual(game.score(1), 11)
         self.assertEqual(visible_effect_total(game.players[1], game.rules, opponent_layout=game.players[0]), 11)
         effects = active_rule_effects(game.players[1], game.rules, opponent_layout=game.players[0])

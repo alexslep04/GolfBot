@@ -3400,7 +3400,7 @@ const RULE_EXAMPLES = {
     ["The 5 of diamonds and a 5 in the opposite row cancel", ["5D",null,null,null,null,"5S"]],
     ["Already in a column pair, the 5 of diamonds still rips one more 5 in the opposite row", ["5D",null,null,"5H",null,"5S"]],
   ],
-  roman_fives: [["8 + 4 + (-2) = 10 base points: final score divided by 2", ["8H",null,"2S",null,"4D",null]], ["Inverted V: 5 + 4 + A = 10", [null,"4S",null,"5D",null,"AH"]]],
+  roman_fives: [["8 + 4 + (-2) = 10 base points: final score divided by 2", ["8H",null,"2S",null,"4D",null]], ["Inverted V: 5 + 4 + A = 10", [null,"4S",null,"5D",null,"AH"]], ["Both Vs at once stack: final score divided by 4", ["6H","4S","AD","5C","3H","AS"]]],
   beggars: [["Your 10 is the unique highest visible value. Guess the chosen hidden card's rank before it flips", ["10H",null,null,null,null,null], ["3H",null,null,null,null,null], "Opponent: a correct guess trades your 10 for their lowest visible card after the reveal"]],
   four_kind: [["Four visible 4s may be arranged into two columns", ["4H","4S",null,"4D","4C",null]]],
   poisoned_card: [["First player to reveal all six during play: +1 before divisions", ["AH","3S","5D","7C","9H","KC"]]],

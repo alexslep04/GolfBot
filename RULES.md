@@ -94,7 +94,7 @@ A 5 of diamonds cancels one other 5 in the opposite row to zero, along with itse
 ### V2
 <!-- rule: roman_fives -->
 
-A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2, J/Q=10, K=0. Ignore column cancellations and other effects when checking the V. Either orientation counts; apply once.
+A V totaling 10 **base Golf points** earns final score /2, rounded up. A=1, 2=-2, J/Q=10, K=0. Ignore column cancellations and other effects when checking the V. Either orientation counts, and the two stack: with both Vs totaling 10 at once, the final score is halved twice (/4).
 
 ### Beggars Will be Choosers
 <!-- rule: beggars -->

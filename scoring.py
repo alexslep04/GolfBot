@@ -20,13 +20,15 @@ def angel_multiplier(rules, earned):
 
 
 def v_pattern_effects(layout, rules, visible_only=False):
-    """Detect Vs from immutable card values, independently of all score effects."""
+    """Detect Vs from immutable card values, independently of all score effects.
+    V2 stacks: each V that adds up to 10 halves the score, so both at once quarter it.
+    The V10 engine applies once, however many Vs hold it."""
     patterns = [[layout[i] for i in pattern] for pattern in V_PATTERNS]
     cards = [[slot.card for slot in pattern] for pattern in patterns
              if not visible_only or all(slot.visible for slot in pattern)]
     effects = []
-    if rules.roman_fives and any(sum(card.base_points for card in pattern) == 10 for pattern in cards):
-        effects.append(("V2", 2))
+    if rules.roman_fives:
+        effects.extend(("V2", 2) for pattern in cards if sum(card.base_points for card in pattern) == 10)
     if rules.v10 and any({card.rank for card in pattern} == {10, 11, 12} for pattern in cards):
         effects.append(("V10 engine", 5))
     return effects
@@ -207,13 +209,16 @@ def modifier_instance_counts(layout, rules, angels_earned=(), poisoned=False, *,
     """Count optional modifier instances caused by this player's current layout.
 
     Incoming effects and ordinary column cancellations are not optional modifiers.
-    Rows, King-Queen columns and earned Angel numbers stack; V patterns, Hold 'em,
-    color and poison each apply once. Earned Angel numbers survive swaps.
+    Rows, King-Queen columns, V2s and earned Angel numbers stack; the V10 engine,
+    Hold 'em, color and poison each apply once. Earned Angel numbers survive swaps.
     Hidden cards are ignored unless the caller explicitly requests final scoring.
     """
     counts = Counter()
     for name, _ in v_pattern_effects(layout, rules, visible_only):
-        counts['v10' if name == 'V10 engine' else 'roman_fives'] = 1
+        if name == 'V10 engine':
+            counts['v10'] = 1
+        else:
+            counts['roman_fives'] += 1
     cards = [slot.card for slot in layout if slot.visible or not visible_only]
     if rules.holdem and holdem_categories(cards) & {'flush', 'straight', 'full_house', 'four_kind'}:
         counts['holdem'] = 1
@@ -295,11 +300,13 @@ def rule_preview_data(game):
                            and {layout[col].card.rank, layout[col + 3].card.rank} == {12, 13}
                            for i in (col, col + 3)]
             elif key in ('roman_fives', 'v10'):
-                indices = next(list(pattern) for pattern in V_PATTERNS
-                               if all(layout[i].visible for i in pattern)
-                               and (sum(layout[i].card.base_points for i in pattern) == 10
-                                    if key == 'roman_fives' else
-                                    {layout[i].card.rank for i in pattern} == {10, 11, 12}))
+                # (every V that makes a V2, as they stack; the first that holds a V10 engine)
+                found = [list(pattern) for pattern in V_PATTERNS
+                         if all(layout[i].visible for i in pattern)
+                         and (sum(layout[i].card.base_points for i in pattern) == 10
+                              if key == 'roman_fives' else
+                              {layout[i].card.rank for i in pattern} == {10, 11, 12})]
+                indices = [i for pattern in (found if key == 'roman_fives' else found[:1]) for i in pattern]
             elif key in ('tricky_straights', 'suited_rows'):
                 rows = straight_rows if key == 'tricky_straights' else suited_rows
                 indices = [i for row, _, _ in rows(layout, rules, True)

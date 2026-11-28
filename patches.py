@@ -10,6 +10,9 @@ PATCH_NOTES = [{
             "PuzzleBot will judge your moves and give you an accuracy rating after each.",
             "Find puzzles in the \"Start a Game\" menu right now!",
         ]},
+        {"title": "Rules", "notes": [
+            "V2 now stacks: with both Vs totaling 10 at once, your final score is halved twice.",
+        ]},
     ],
     "changes": [],
 }, {

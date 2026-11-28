@@ -1,7 +1,7 @@
 import unittest
 from itertools import permutations
 from game import Card, GolfGame, Rules, Slot, RULE_OPTIONS
-from scoring import holdem_categories, score_adjustments, straight_direction, V_PATTERNS, column_score, active_rule_effects, visible_effect_total
+from scoring import holdem_categories, score_adjustments, straight_direction, V_PATTERNS, column_score, active_rule_effects, visible_effect_total, modifier_instance_counts, rule_preview_data
 from rule_help import load_rule_help
 from dataclasses import FrozenInstanceError
 from itertools import product
@@ -59,22 +59,23 @@ class FeatureTests(unittest.TestCase):
     def test_roman_fives_eligibility_survives_score_changing_effects(self):
         fixtures = [
             # Ripped 5 cancels the 5D in the qualifying 5-4-A V.
-            ([5, 8, 1, 13, 4, 5], "DSHCHS", Rules(roman_fives=True, ripped_five=True), 13, 7),
+            ([5, 8, 1, 13, 4, 5], "DSHCHS", Rules(roman_fives=True, ripped_five=True), 13, 2, 7),
             # King-Queen reduces a column but the qualifying Q-K-K V stays 10-0-0.
-            ([12, 8, 13, 13, 13, 4], "HSHDCH", Rules(roman_fives=True, king_queen=True), 17, 9),
+            ([12, 8, 13, 13, 13, 4], "HSHDCH", Rules(roman_fives=True, king_queen=True), 17, 2, 9),
             # A same-suit hand earns Hold 'em -5; its 6-A-3 V still totals 10.
-            ([6, 8, 3, 5, 1, 13], "HHHHHH", Rules(roman_fives=True, holdem=True), 18, 9),
-            # The A-6-3 V totals 10; the ascending row now adds 3 to the opponent.
-            ([1, 2, 3, 6, 6, 6], "SHDCSH", Rules(roman_fives=True, tricky_straights=True), 20, 10),
+            ([6, 8, 3, 5, 1, 13], "HHHHHH", Rules(roman_fives=True, holdem=True), 18, 2, 9),
+            # The A-6-3 V totals 10, and so does the 6-2-6 one (6 - 2 + 6): the two stack.
+            # The ascending row now adds 3 to the opponent.
+            ([1, 2, 3, 6, 6, 6], "SHDCSH", Rules(roman_fives=True, tricky_straights=True), 20, 4, 5),
         ]
-        for ranks, suits, rules, subtotal, final in fixtures:
+        for ranks, suits, rules, subtotal, divisor, final in fixtures:
             with self.subTest(ranks=ranks, rules=rules):
                 game = GolfGame(rules=rules)
                 hand = [Slot(card, True) for card in cards(ranks, suits)]
                 game.players[0] = hand
                 game.players[1] = [Slot(card, True) for card in cards([3, 5, 8, 10, 12, 13])]
                 self.assertEqual(column_score(hand, rules) + score_adjustments(hand, rules, True)[0], subtotal)
-                self.assertEqual(score_adjustments(hand, rules)[1], 2)
+                self.assertEqual(score_adjustments(hand, rules)[1], divisor)
                 self.assertIn("V2 /2", active_rule_effects(hand, rules))
                 self.assertEqual(visible_effect_total(hand, rules), final)
                 self.assertEqual(game.score(0), final)
@@ -91,14 +92,26 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(game.score(0), 1)
         self.assertEqual(visible_effect_total(hand, game.rules, {7}), 1)
 
-    def test_two_qualifying_vs_apply_roman_fives_only_once(self):
+    def test_two_qualifying_vs_stack_v2_twice(self):
         game = GolfGame(rules=Rules(roman_fives=True))
         hand = [Slot(card, True) for card in cards([6, 4, 1, 5, 3, 1])]
         game.players[0] = hand
-        self.assertEqual(score_adjustments(hand, game.rules)[1], 2)
+        # each V adds up to 10: the score is halved for both, 18 down to 5 (rounded up)
+        self.assertEqual(score_adjustments(hand, game.rules)[1], 4)
+        self.assertEqual(active_rule_effects(hand, game.rules).count("V2 /2"), 2)
+        self.assertEqual(game.score(0), 5)
+        self.assertEqual(visible_effect_total(hand, game.rules), 5)
+        self.assertEqual(modifier_instance_counts(hand, game.rules)["roman_fives"], 2)
+        # (both Vs light up; with one of them face down, only the other counts)
+        self.assertEqual(rule_preview_data(game)[0]["roman_fives"]["indices"], [0, 1, 2, 3, 4, 5])
+        hand[5].visible = False
         self.assertEqual(active_rule_effects(hand, game.rules).count("V2 /2"), 1)
-        self.assertEqual(game.score(0), 9)
-        self.assertEqual(visible_effect_total(hand, game.rules), 9)
+        self.assertEqual(rule_preview_data(game)[0]["roman_fives"]["indices"], [0, 2, 4])
+        # the V10 engine still applies once, whichever Vs hold it
+        game = GolfGame(rules=Rules(v10=True))
+        hand = [Slot(card, True) for card in cards([10, 11, 12, 12, 11, 10])]
+        game.players[0] = hand
+        self.assertEqual(score_adjustments(hand, game.rules)[1], 5)
 
     def test_roman_fives_uses_negative_two_and_does_not_infer_hidden_points(self):
         hand = [Slot(card, True) for card in cards([8, 4, 2, 3, 4, 10])]
