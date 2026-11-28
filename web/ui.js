@@ -347,6 +347,8 @@ const prefs = {
   alerts: false, // notifications at all (the Notifications page's main switch)
   turnAlerts: true, // with it: a notification (and a buzz) when it's your turn while Golf is in the background
   queueAlerts: true, // with it: a notification when someone joins the Ranked queue
+  recordAlerts: true, // with it: a notification when you take a record, or lose one
+  inviteAlerts: true, // with it: a notification when a friend invites you to their table
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
   reduceMotion: false, // no idle drift on the stickers, and screens change without sliding or springing
@@ -431,7 +433,7 @@ function applyPrefs() {
 }
 // Settings that belong to this device alone (notifications need its own
 // permission), so they are never saved to or taken from an account.
-const DEVICE_PREFS = ["alerts", "turnAlerts", "queueAlerts"];
+const DEVICE_PREFS = ["alerts", "turnAlerts", "queueAlerts", "recordAlerts", "inviteAlerts"];
 let onPrefsSaved = null; // app.js: save the change to a signed-in account too
 function storePrefs() {
   try {

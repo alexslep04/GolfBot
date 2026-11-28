@@ -2066,6 +2066,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         subscription: dict | None = None
         turn: bool = True  # "your turn" notifications
         queue: bool = False  # "someone joined the Ranked queue" notifications
+        records: bool = True  # "record broken" and "record lost" notifications
+        invites: bool = True  # a friend's invitation to their table
 
     @app.get('/api/push/key')
     async def push_key(request: Request):
@@ -2084,6 +2086,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             raise HTTPException(422, 'That is not a push subscription.')
         store.push_subscriptions[session.token] = {'endpoint': endpoint, 'keys': subscription['keys'],
                                                    'turn': body.turn, 'queue': body.queue,
+                                                   'records': body.records, 'invites': body.invites,
                                                    # (whose device it is, kept through a restart)
                                                    'player': puzzle_player(session)}
         save_push_subscriptions()
@@ -2925,7 +2928,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         friend = store.accounts.by_unique_name(body.unique_name.lstrip('@').lower())
         if not friend or not store.friends.are_friends(session.account['id'], friend['id']):
             raise HTTPException(404, 'You can only invite your friends this way.')
-        devices = subscriptions_for('account:' + friend['id'])
+        devices = [(token, subscription) for token, subscription in subscriptions_for('account:' + friend['id'])
+                   if subscription.get('invites', True)]
         if not devices:
             raise HTTPException(409, f"{friend.get('display_name') or friend['unique_name']} hasn't turned on notifications.")
         session.invite_times = [stamp for stamp in session.invite_times if stamp > time.time() - 60]

@@ -1241,7 +1241,13 @@ async function subscribeAlerts(ask, wanted = alertsWanted(prefs)) {
   const subscription =
     (await registration.pushManager.getSubscription()) ||
     (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(key) }));
-  await api("/api/push/subscribe", "POST", { subscription: subscription.toJSON(), turn: !!wanted.turn, queue: !!wanted.queue });
+  await api("/api/push/subscribe", "POST", {
+    subscription: subscription.toJSON(),
+    turn: !!wanted.turn,
+    queue: !!wanted.queue,
+    records: !!wanted.records,
+    invites: !!wanted.invites,
+  });
 }
 /**
  * On a phone, your turn also shows a short notification while Golf is open, so
@@ -1268,22 +1274,27 @@ async function buzzTurnNotification() {
   } catch {}
 }
 /** Which notifications these switches send: a kind only while the main switch is on too. */
-const alertsWanted = (choice) => ({ turn: !!(choice.alerts && choice.turnAlerts), queue: !!(choice.alerts && choice.queueAlerts) });
+const ALERT_KINDS = { turnAlerts: "turn", queueAlerts: "queue", recordAlerts: "records", inviteAlerts: "invites" };
+const alertsWanted = (choice) =>
+  Object.fromEntries(Object.entries(ALERT_KINDS).map(([pref, kind]) => [kind, !!(choice.alerts && choice[pref])]));
+const anyAlertWanted = (choice) => Object.values(alertsWanted(choice)).some(Boolean);
 /** Flip one notification switch; the subscription goes once nothing is wanted. */
 async function toggleAlerts(key) {
-  const next = { alerts: prefs.alerts, turnAlerts: prefs.turnAlerts, queueAlerts: prefs.queueAlerts };
+  const names = ["alerts", ...Object.keys(ALERT_KINDS)];
+  const next = Object.fromEntries(names.map((name) => [name, prefs[name]]));
   next[key] = !next[key];
-  // turning everything on with both kinds off means both
-  if (key === "alerts" && next.alerts && !next.turnAlerts && !next.queueAlerts) next.turnAlerts = next.queueAlerts = true;
+  // turning everything on with every kind off means all of them
+  if (key === "alerts" && next.alerts && !Object.keys(ALERT_KINDS).some((name) => next[name]))
+    for (const name of Object.keys(ALERT_KINDS)) next[name] = true;
   const wanted = alertsWanted(next);
   try {
-    if (wanted.turn || wanted.queue) await subscribeAlerts(!!next[key], wanted);
+    if (anyAlertWanted(next)) await subscribeAlerts(!!next[key], wanted);
     else {
       await api("/api/push/unsubscribe", "POST");
       const registration = await navigator.serviceWorker?.getRegistration(appPath("/sw.js"));
       await (await registration?.pushManager.getSubscription())?.unsubscribe();
     }
-    for (const name of ["alerts", "turnAlerts", "queueAlerts"]) setPref(name, next[name]);
+    for (const name of names) setPref(name, next[name]);
     if (key === "alerts" && next.alerts) toast("Notifications are on.");
   } catch (error) {
     setPref("alerts", false);
@@ -1298,6 +1309,8 @@ function alertsHtml() {
     ${prefRow("alerts", "bell.fill", "Notifications", onOff(prefs.alerts), !!prefs.alerts)}
     ${prefRow("turnAlerts", "hand.tap.fill", "Your turn", onOff(prefs.turnAlerts), !!prefs.turnAlerts && !off, undefined, off)}
     ${prefRow("queueAlerts", "sparkles", "Someone joins Ranked", onOff(prefs.queueAlerts), !!prefs.queueAlerts && !off, undefined, off)}
+    ${prefRow("inviteAlerts", "person.fill.badge.plus", "Friend invites", onOff(prefs.inviteAlerts), !!prefs.inviteAlerts && !off, undefined, off)}
+    ${prefRow("recordAlerts", "trophy.fill", "Records won or lost", onOff(prefs.recordAlerts), !!prefs.recordAlerts && !off, undefined, off)}
   </div>`;
 }
 /** Golf opened from the Home Screen (as a web app) rather than in a browser tab. */
@@ -1325,7 +1338,7 @@ function notificationsPage() {
   );
 }
 function togglePref(key) {
-  if (key === "alerts" || key === "turnAlerts" || key === "queueAlerts") return toggleAlerts(key);
+  if (key === "alerts" || key in ALERT_KINDS) return toggleAlerts(key);
   if (key === "padDrag") setPref(key, prefs.padDrag === "toggle" ? "hold" : "toggle");
   else setPref(key, !prefs[key]);
   if (key === "confirm" && !prefs.confirm) cancelStaged();
@@ -4236,7 +4249,7 @@ function bootData() {
       const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       if (zone) api("/api/clock", "POST", { zone }).catch(() => {});
     } catch {}
-    if (alertsWanted(prefs).turn || alertsWanted(prefs).queue) subscribeAlerts(false).catch(() => setPref("alerts", false));
+    if (anyAlertWanted(prefs)) subscribeAlerts(false).catch(() => setPref("alerts", false));
     const firstPoll = pollPresence();
     // while in the queue the server is asked far more often, so a match shows at once
     let lastPoll = performance.now();

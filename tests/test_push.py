@@ -124,6 +124,14 @@ class TurnNotificationTests(unittest.TestCase):
         # and no "your turn" either, once only the queue is asked for
         self.assertEqual([wanted['turn'] for wanted in self.store.push_subscriptions.values()], [False])
 
+    def test_a_subscription_keeps_whether_it_wants_records_and_friend_invites(self):
+        self.host.post('/api/push/subscribe', json={'subscription': real_subscription()}).raise_for_status()
+        wanted = next(iter(self.store.push_subscriptions.values()))
+        self.assertEqual((wanted['records'], wanted['invites']), (True, True))
+        self.host.post('/api/push/subscribe', json={'subscription': real_subscription(), 'records': False, 'invites': False}).raise_for_status()
+        wanted = next(iter(self.store.push_subscriptions.values()))
+        self.assertEqual((wanted['records'], wanted['invites']), (False, False))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -86,6 +86,9 @@ class FriendsServerTests(unittest.TestCase):
         self.assertEqual(ann.post(path, json={'unique_name': 'bobo'}).status_code, 409)
         # Bo's phone is subscribed, and Bo is gone (the server restarted: no session)
         bo_id = 'account:' + self.store.accounts.by_unique_name('bobo')['id']
+        # (a phone that turned friend invites off is not asked)
+        self.store.push_subscriptions['old-token'] = {'endpoint': 'https://push.example/x', 'keys': {}, 'player': bo_id, 'invites': False}
+        self.assertEqual(ann.post(path, json={'unique_name': 'bobo'}).status_code, 409)
         self.store.push_subscriptions['old-token'] = {'endpoint': 'https://push.example/x', 'keys': {}, 'player': bo_id}
         with mock.patch.object(server, 'push_keys', create=True), mock.patch('pywebpush.webpush') as push:
             sent = ann.post(path, json={'unique_name': '@BoBo'})
