@@ -8,7 +8,7 @@ PATCH_NOTES = [{
         {"title": "Puzzles!", "notes": [
             "Get the best possible score (on average) in one move.",
             "PuzzleBot will judge your moves and give you an accuracy rating after each.",
-            "Find puzzles in the \"Start a Game\" menu right now.",
+            "Find puzzles in the \"Start a Game\" menu right now!",
         ]},
     ],
     "changes": [],
