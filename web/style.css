@@ -4074,7 +4074,7 @@ button.tag-rules:active > .tag-in {
   align-items: flex-end;
   padding-top: 0.6rem;
   font: 700 5rem/1 var(--round);
-  letter-spacing: -0.06em;
+  letter-spacing: -0.03em;
   --sw: 1rem;
   --stroke: var(--paper);
 }
@@ -5053,7 +5053,10 @@ button.tag-rules:active > .tag-in {
   font-size: 1.7rem;
 }
 .pref .grow {
+  min-width: 0;
   text-align: left;
+  white-space: normal;
+  line-height: 1.15;
 }
 .pref-value {
   flex: none;
@@ -9181,4 +9184,101 @@ button.deck-card:not(.selected):active {
 /* the friends not on now, under those who are, in the invite sheet */
 .invite-head {
   margin: 1.6rem 0 0.2rem;
+}
+/* before the Daily Puzzle: today's puzzle as the sheet's own text */
+.puzzle-intro-text {
+  color: var(--c-ink, inherit);
+  font: 500 1.8rem/1.35 var(--text);
+}
+.puzzle-intro-text p + p {
+  margin-top: 0.8rem;
+}
+/* today's puzzle: its rules, one to a bullet */
+.rules-in-play {
+  margin: 0.4rem 0 0;
+  padding-left: 2.4rem;
+  list-style: disc;
+}
+.rules-in-play li + li {
+  margin-top: 0.2rem;
+}
+
+/* a rule puzzle's result: the move you made beside the best one, each with the score it
+   gives on average, in the white card a game's points graph comes in */
+.pz-review {
+  padding-bottom: 0.8rem;
+}
+.pz-move {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.6rem 0.2rem;
+  text-align: left;
+}
+.pz-move + .pz-move {
+  border-top: 0.2rem solid color-mix(in srgb, var(--c) 30%, transparent);
+}
+.pz-move-mark {
+  flex: none;
+  display: grid;
+  --fill: var(--p2);
+  --stroke: var(--paper);
+}
+.pz-move.good .pz-move-mark {
+  --fill: var(--bg-stroke, #6fd13f);
+}
+.pz-move .grow {
+  min-width: 0;
+}
+.pz-move small {
+  display: block;
+  font: 600 1.2rem/1.2 var(--text);
+  opacity: 0.7;
+}
+.pz-move b {
+  display: block;
+  font: 700 1.5rem/1.2 var(--text);
+}
+.pz-move-pts {
+  flex: none;
+  font: 700 1.7rem/1.1 var(--round);
+  text-align: right;
+  white-space: nowrap;
+}
+.pz-note {
+  margin-top: 0.6rem;
+  font: 500 1.2rem/1.3 var(--text);
+  opacity: 0.7;
+  text-align: left;
+}
+/* three tiles: this puzzle, the last 7 days, all time */
+.rule-puzzle-result .ready-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.rule-puzzle-result .tile-points {
+  font-size: 3rem;
+}
+.rule-puzzle-result .ready-tile .tile-tally {
+  font: 600 1.2rem/1.2 var(--text);
+  opacity: 0.7;
+}
+.rule-puzzle-result .summary-main {
+  gap: 0.6rem;
+  padding-inline: 1rem;
+  font-size: 2rem;
+}
+.rules-in-play + p {
+  margin-top: 0.8rem;
+}
+/* this puzzle: a check or a cross where the others have their percentage */
+.pz-verdict .tile-points {
+  min-height: 3rem;
+  align-items: center;
+  --fill: var(--c);
+  --stroke: var(--paper);
+}
+/* (what is different at a puzzle's table, in the sheet's accent green) */
+.puzzle-intro-text .puzzle-intro-note {
+  margin-top: 1rem;
+  color: var(--c);
 }

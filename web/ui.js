@@ -352,6 +352,7 @@ const prefs = {
   theme: "golf", // the look of the whole game: see THEMES
   contrastCards: false, // four-color suits: orange diamonds and blue clubs
   reduceMotion: false, // no idle drift on the stickers, and screens change without sliding or springing
+  puzzleIntroHidden: "", // the day ("2026-11-27") the sheet before the Daily Puzzle was hidden for ("Hide for today")
   showOdds: true, // spectating: each player's chance of winning under their points
   patchSeen: "", // the newest patch whose notes this player has been shown
   // the emotes on this player's bar, in order; any of each kind (Settings > Emotes)

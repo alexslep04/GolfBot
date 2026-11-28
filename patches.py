@@ -1,8 +1,19 @@
 """Release labels stored with results; older unlabelled games stay unlabelled."""
-PATCH_VERSION = "1.5.0"
+PATCH_VERSION = "1.5.1"
 
 PATCH_NOTES = [{
     "version": PATCH_VERSION,
+    "rules": {"revisions": [], "additions": []},
+    "sections": [
+        {"title": "Puzzles!", "notes": [
+            "Get the best possible score (on average) in one move.",
+            "PuzzleBot will judge your moves and give you an accuracy rating after each.",
+            "Find puzzles in the \"Start a Game\" menu right now.",
+        ]},
+    ],
+    "changes": [],
+}, {
+    "version": "1.5.0",
     # a line of its own, above the headings
     "intro": "New Home Screen UI! I hope you like it 🫡",
     "rules": {"revisions": [], "additions": []},

@@ -930,7 +930,7 @@ test('the home screen has five tabs, Play in the middle; the one showing is lift
   assert.equal(h.run('tabPath("watch")'),'/watch');h.run('acesView="pvp"');assert.equal(h.run('tabPath("aces")'),'/aces/pvp');
   // Start a Game opens on the four ways to play
   h.run('startOpen=true');const start=h.run('startGameHtml()');
-  for(const way of ['data-nav="friends"','data-queue-toggle','data-nav="solo"','data-nav="rules"']) assert.ok(start.includes(way),way);
+  for(const way of ['data-nav="friends"','data-queue-toggle','data-nav="solo"','data-rule-puzzles']) assert.ok(start.includes(way),way);
   assert.match(start,/aria-expanded="true"/);assert.match(start,/Close/);
 });
 

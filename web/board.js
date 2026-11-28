@@ -1885,7 +1885,7 @@ function renderPuzzle() {
     return;
   }
   // (the last move is left on the table a moment before the result comes up)
-  const holdKey = `${state.id}|puzzle|${info.attempts}`;
+  const holdKey = `${state.id}|puzzle|${info.attempts ?? info.count}`;
   if (board.summaryHold?.key !== holdKey) board.summaryHold = { key: holdKey, until: board.sawPlay ? performance.now() + RESULTS_DELAY : 0 };
   const wait = board.summaryHold.until - performance.now();
   if (wait > 0) {
@@ -1897,6 +1897,7 @@ function renderPuzzle() {
     return;
   }
   settleLifted();
+  if (info.kind === "move") return renderRulePuzzle(holder, info, last);
   // the day's score is the margin over PuzzleBot (its points minus yours): +5 is a win by 5
   const margin = last.margin ?? last.bot - last.score;
   // (the puzzle is scored by margin: what matters is whether this try beat your best)
@@ -1923,6 +1924,51 @@ function renderPuzzle() {
     const heading = resultTitle(mood, title, sub, word).replace(/<span class="word" aria-hidden="true">([^]*?)<\/span>(<small|<\/h2>)/, (_, letters, after) => `<span class="word" aria-hidden="true">${piece("left")}${letters}${piece("right")}</span>${after}`); // (first: it starts the clock the entrance runs on)
     const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
     return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating puzzle-result" role="dialog" aria-label="Puzzle result" style="--t:-${lag}s">${heading}${leaders}<div class="panel c-fw summary-panel"><p class="summary-match">Daily Puzzle #${info.number} · Same deal every try</p><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div></section>`;
+  });
+  fitSummary();
+}
+/**
+ * A rule puzzle's result: whether your move was the best there was (correct, or not),
+ * what you played (and what was better), and your accuracy: the share of puzzles you got
+ * correct, over the last 7 days and over all time.
+ * A move is judged on the score it gives on average, so the luck of a draw is no part of it.
+ */
+function renderRulePuzzle(holder, info, last) {
+  const percent = (value) => (value == null ? null : Math.round(value));
+  const points = (value) => `${Number(value).toFixed(1).replace(/\.0$/, "")} pts`;
+  const stats = last.stats || {};
+  const rule = (catalog.find((item) => item.key === info.rule) || {}).name || "Puzzle";
+  const mood = last.best ? "win" : "lose";
+  const word = last.best ? "Correct!" : "Not Quite";
+  const title = last.best ? "Correct: you found the best move" : "Incorrect: there was a better move";
+  const sub = `You scored ${last.score} pts`;
+  const signature = JSON.stringify([info.count, last, board.summaryHidden]);
+  patch("summary", holder, signature, () => {
+    if (board.summaryHidden)
+      return `<div class="summary mini"><button type="button" class="btn small c-p4" data-summary-toggle>${glyph("chevron.up", 16)} Results</button></div>`;
+    const tile = (color, value, label, note) =>
+      `<div class="ready-tile ${color}"><span class="tile-points">${stickerText(value == null ? "–" : String(value), { split: true, idle: false })}${value == null ? "" : stickerText("%", { cls: "pts", idle: false })}</span><span class="who"><span class="name">${label}</span></span>${note ? `<small class="tile-tally">${note}</small>` : ""}</div>`;
+    const count = (group) => (group?.puzzles ? `${group.puzzles} ${group.puzzles === 1 ? "puzzle" : "puzzles"}` : "");
+    // this puzzle is right or it is not (accuracy is the share of puzzles got right)
+    const verdict = `<div class="ready-tile ${last.best ? "c-p4" : "c-p2"} pz-verdict"><span class="tile-points">${tilted(last.best ? "checkmark.circle.fill" : "xmark.circle.fill", 34, { key: "pz-verdict", idle: false })}</span><span class="who"><span class="name">${last.best ? "Correct" : "Incorrect"}</span></span><small class="tile-tally">This puzzle</small></div>`;
+    const tiles =
+      verdict +
+      tile("c-p1", percent(stats.week?.accuracy), "Last 7 days", count(stats.week)) +
+      tile("c-p3", percent(stats.all?.accuracy), "All time", count(stats.all));
+    const sticker = (attrs, color, symbol, label, size = 30) =>
+      `<button type="button" class="close-btn ${color}" ${attrs}>${icon(symbol, size)}<span>${label}</span></button>`;
+    const action = `<div class="summary-actions">${sticker("data-leave", "c-fw", "rectangle.portrait.and.arrow.right", "Quit")}<button type="button" class="btn c-p4 summary-main" data-rule-puzzle-next>${tilted("arrowshape.backward.fill", 28, { mirror: true })}<span>${padTag("y")}Next puzzle</span></button>${sticker('data-summary-toggle aria-label="View the board"', "c-fw", "binoculars.fill", "View")}</div>`;
+    // where a game's points graph would be: the move you made beside the best one, each
+    // with the score it gives on average
+    const line = (mark, label, text, value) =>
+      `<div class="pz-move ${mark}"><span class="pz-move-mark">${icon(mark === "good" ? "checkmark.circle.fill" : "xmark.circle.fill", 26, { idle: false })}</span><div class="grow"><small>${label}</small><b>${e(text || "")}</b></div><span class="pz-move-pts">${points(value)}<small>on average</small></span></div>`;
+    const review = `<figure class="eval-chart pz-review c-p4"><figcaption><span class="chart-title">${e(rule)}</span> <small>lower is better</small></figcaption>${
+      last.best ? line("good", "Your move · the best", last.played, last.best_expected) : line("bad", "Your move", last.played, last.expected) + line("good", "Best move", last.better, last.best_expected)
+    }<p class="pz-note">Judged on average score: luck doesn't count.</p></figure>`;
+    const piece = (side) => `<span class="result-ico ${side}">${tilted("puzzlepiece.fill", 26, { key: `result-ico:${side}`, sw: 5, tilt: side === "left" ? -8 : 8, mirror: side === "right" })}</span>`;
+    const heading = resultTitle(mood, title, sub, word).replace(/<span class="word" aria-hidden="true">([^]*?)<\/span>(<small|<\/h2>)/, (_, letters, after) => `<span class="word" aria-hidden="true">${piece("left")}${letters}${piece("right")}</span>${after}`);
+    const lag = ((performance.now() - board.resultShown.at) / 1000).toFixed(2);
+    return `<div class="summary-scrim" style="--t:-${lag}s"></div><section class="summary floating puzzle-result rule-puzzle-result" role="dialog" aria-label="Puzzle result" style="--t:-${lag}s">${heading}${review}<div class="panel c-fw summary-panel"><p class="summary-match">Puzzle ${info.count} · Your accuracy</p><div class="ready-tiles">${tiles}</div><div class="stack">${action}</div></div></section>`;
   });
   fitSummary();
 }
@@ -3111,20 +3157,21 @@ function rulesSheet(player) {
 
 /*
  * A player's first Daily Puzzle: a tooltip beside the table menu's gear, pointing at it,
- * asking them to read how puzzles are played (the menu's "How to play puzzles"). A tap
+ * asking them to read how puzzles are played (the menu's "How to play the daily puzzle"). A tap
  * on it opens that straight away. Once they have read it, or finished a puzzle, it is
  * not shown again (on this device).
  */
+const puzzleHelpKey = () => (state?.puzzle?.kind === "move" ? "golf-rule-puzzle-help-seen" : "golf-puzzle-help-seen");
 const puzzleHelpSeen = () => {
   try {
-    return !!localStorage.getItem("golf-puzzle-help-seen");
+    return !!localStorage.getItem(puzzleHelpKey());
   } catch {
     return true;
   }
 };
 function markPuzzleHelpSeen() {
   try {
-    localStorage.setItem("golf-puzzle-help-seen", "1");
+    localStorage.setItem(puzzleHelpKey(), "1");
   } catch {}
   renderPuzzleTip();
 }
@@ -3133,7 +3180,7 @@ function renderPuzzleTip() {
   const over = state?.game?.phase === "over" || state?.status !== "playing";
   if (state?.puzzle && over && !state.spectator) {
     try {
-      localStorage.setItem("golf-puzzle-help-seen", "1");
+      localStorage.setItem(puzzleHelpKey(), "1");
     } catch {}
   }
   const show = page === "room" && state?.puzzle && !state.spectator && !over && !prefs.hideTips && !puzzleHelpSeen() && sheetRoot.hidden;

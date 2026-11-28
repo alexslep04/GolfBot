@@ -368,9 +368,10 @@ class Web111Tests(unittest.TestCase):
     def test_patch_pages_and_stats_preserve_legacy_and_filter_both_columns(self):
         self.assertEqual(self.host.get('/Golfgame/patch-notes').status_code,200)
         notes = self.host.get('/Golfgame/api/patch-notes').json()
-        self.assertEqual(notes['current'], '1.5.0')
-        self.assertEqual([note['version'] for note in notes['patches']], ['1.5.0', '1.4.0', '1.3.0', '1.2.0', '1.1.2', '1.1.1'])
-        self.assertEqual(notes['patches'][0]['intro'], "New Home Screen UI! I hope you like it 🫡")
+        self.assertEqual(notes['current'], '1.5.1')
+        self.assertEqual([note['version'] for note in notes['patches']], ['1.5.1', '1.5.0', '1.4.0', '1.3.0', '1.2.0', '1.1.2', '1.1.1'])
+        self.assertEqual(notes['patches'][0]['sections'][0]['title'], "Puzzles!")
+        self.assertEqual(notes['patches'][1]['intro'], "New Home Screen UI! I hope you like it 🫡")
         room = Room('r','Stats',Rules(),1,'host',True,['a',None],['A','Golfbot'],history_store=self.store.history)
         room.start_round(); room.game.phase='over'; room.record_result()
         current = self.store.history.results()[0]

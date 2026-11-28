@@ -1,5 +1,6 @@
 """Single-process, server-authoritative Golf lobbies served by FastAPI/Uvicorn."""
 import asyncio
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, available_timezones
@@ -46,6 +47,7 @@ from patches import PATCH_VERSION, PATCH_NOTES
 from avatars import AVATARS, BOT_AVATAR, PUZZLE_BOT_AVATAR, DEFAULT_AVATAR, catalog as avatar_catalog, clean_avatar
 from tournament import FORMAT_NAMES, MAX_ENTRANTS, Tournament
 import puzzle as daily_puzzle
+import rule_puzzles
 import flags as achievements
 from friends import Friends
 
@@ -582,20 +584,54 @@ class Room:
         elif not self.timeline or game.turns > self.timeline[-1]["turn"]:
             self.timeline.append({"turn": game.turns, "scores": showing_scores(game), "final": False})
 
-    def start_puzzle(self):
-        """Deal the day's puzzle again: the same cards as every attempt."""
-        self.game = daily_puzzle.new_puzzle(self.puzzle["spec"])
+    @property
+    def rule_puzzle(self):
+        """Whether this is a rule puzzle's table (one move, one rule: see rule_puzzles.py), not the Daily Puzzle's."""
+        return bool(self.puzzle and self.puzzle.get("kind") == "move")
+
+    def start_puzzle(self, spec=None):
+        """Deal the day's puzzle again: the same cards as every attempt. (A rule puzzle's
+        table is dealt the next one, `spec`: each is played once.)"""
+        if self.rule_puzzle:
+            self.puzzle.update(spec=spec, steps=[], last=None, solver=rule_puzzles.solver_for(spec),
+                               count=self.puzzle.get("count", 0) + 1)
+            self.game = rule_puzzles.new_game(spec)
+            self.rules = Rules(**asdict(self.game.rules))
+        else:
+            self.game = daily_puzzle.new_puzzle(self.puzzle["spec"])
         self.status, self.round_recorded, self.timeline = "playing", False, []
         self.puzzle["last"] = None
         self.round_started_at = time.time()
         self.move_seconds, self.move_counts, self.turn_clock = [0.0, 0.0], [0, 0], None
         self.emotes.clear()
+        if self.rule_puzzle:
+            return
         try:
             self.puzzle_store.attempt(self.puzzle["day"], self.puzzle["player"], self.names[0], self.avatars[0])
         except Exception:
             log.exception("Could not count a puzzle attempt at table %s", self.id)
 
+    def record_rule_puzzle(self):
+        """A rule puzzle played: its marks (see rule_puzzles.grade), kept with the player's others."""
+        spec, steps = self.puzzle["spec"], self.puzzle.get("steps") or []
+        self.round_recorded = True
+        self.status = "finished"
+        last = {"score": self.game.score(0), "rule": spec["rule"], **rule_puzzles.grade(spec, steps)}
+        # where the play first left the best line: what was done, and what was best
+        slip = next((made for made in steps if made["loss"] > rule_puzzles.TOLERANCE), None)
+        first = steps[0] if steps else None
+        last["played"] = (slip or first or {}).get("chosen")
+        last["better"] = slip["best"] if slip else None
+        try:
+            self.puzzle_store.record(self.puzzle["player"], spec["rule"], last["accuracy"], last["best"], last["loss"])
+            last["stats"] = self.puzzle_store.stats(self.puzzle["player"])
+        except Exception:
+            log.exception("Could not record the rule puzzle at table %s", self.id)
+        self.puzzle["last"] = last
+
     def record_puzzle(self):
+        if self.rule_puzzle:
+            return self.record_rule_puzzle()
         score, bot = self.game.score(0), self.game.score(1)
         self.round_recorded = True
         self.status = "finished"
@@ -696,6 +732,62 @@ class Room:
         self.save_practice()
 
 
+class RulePuzzleMaker:
+    """Rule puzzles, made and checked a few ahead (see rule_puzzles.generate), so the next
+    one is there when it is asked for. They are made in a process of their own, one at a
+    time; the rules come round in a shuffled order, each once before any comes again.
+    (With none kept ahead, a store in memory as the tests use, each is made as it is asked for.)"""
+    AHEAD = 8
+
+    def __init__(self, ahead=AHEAD):
+        self.ahead, self.ready, self.pool, self.filling, self.bag = ahead, deque(), None, None, []
+
+    def next_rule(self):
+        if not self.bag:
+            self.bag = list(rule_puzzles.RULES)
+            random.shuffle(self.bag)
+        return self.bag.pop()
+
+    async def make(self):
+        rule, seed = self.next_rule(), random.getrandbits(48)
+        if not self.ahead:
+            return await asyncio.to_thread(rule_puzzles.generate, rule, seed)
+        if self.pool is None:
+            self.pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+        return await asyncio.get_running_loop().run_in_executor(self.pool, rule_puzzles.generate, rule, seed)
+
+    async def take(self):
+        """The next puzzle: one made ahead, or made now."""
+        spec = self.ready.popleft() if self.ready else None
+        self.keep_ahead()
+        for _ in range(5):
+            if spec:
+                return spec
+            spec = await self.make()
+        raise HTTPException(503, "Could not make a puzzle just now. Try again.")
+
+    def keep_ahead(self):
+        if self.ahead and len(self.ready) < self.ahead and (self.filling is None or self.filling.done()):
+            self.filling = asyncio.create_task(self.fill())
+
+    async def fill(self):
+        try:
+            while len(self.ready) < self.ahead:
+                spec = await self.make()
+                if spec:
+                    self.ready.append(spec)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Could not make rule puzzles ahead")
+
+    def close(self):
+        if self.filling is not None:
+            self.filling.cancel()
+        if self.pool is not None:
+            self.pool.shutdown(wait=False, cancel_futures=True)
+
+
 class PuzzleMaker:
     """Makes each day's puzzle once (see puzzle.generate) and keeps it.
 
@@ -754,6 +846,8 @@ class Store:
         self.progression.merge_stay()
         self.puzzles = daily_puzzle.PuzzleScores(self.history)
         self.puzzle_maker = PuzzleMaker(self.puzzles, 1 if str(history_path) == ":memory:" else daily_puzzle.CANDIDATES)
+        self.rule_puzzles = rule_puzzles.PuzzleResults(self.history)
+        self.rule_puzzle_maker = RulePuzzleMaker(ahead=0 if str(history_path) == ":memory:" else RulePuzzleMaker.AHEAD)
         self.friends = Friends(self.history)
         self.invitations = {}
         self.tournaments = {}
@@ -986,6 +1080,9 @@ def message(room, viewer):
         return "The other player left. Return to the menu to find a new table."
     if game is None:
         return "The host starts with at least three players." if room.game_type == 'many' else "Waiting for a second player. The game starts when they join."
+    if game.phase == "over" and room.rule_puzzle:
+        last = room.puzzle.get("last") or {}
+        return f"Puzzle done: {game.score(0)} points. " + ("Correct: that was the best move." if last.get("best") else "Incorrect: there was a better move.")
     if game.phase == "over" and room.puzzle:
         margin = game.score(1) - game.score(0)
         return f"Puzzle done: you have {game.score(0)} points, PuzzleBot {game.score(1)}: a margin of {margin:+d}."
@@ -1112,7 +1209,12 @@ def snapshot(room, token, watch=False):
         if room.counts_streak:
             profile = room.progression.profile(room.progression_players[0])
             state['streak'] = {'current': profile['current_streak'], 'best': profile['best_streak'], 'draws': profile['draws_in_row']}
-    if room.puzzle:
+    if room.rule_puzzle:
+        spec = room.puzzle["spec"]
+        state["puzzle"] = {"kind": "move", **rule_puzzles.public(spec), "count": room.puzzle.get("count", 1),
+                           "last": room.puzzle.get("last")}
+        state["round"] = room.puzzle.get("count", 1)
+    elif room.puzzle:
         store = room.puzzle_store
         day = room.puzzle["day"]
         state["puzzle"] = {"number": room.puzzle["number"], "day": day.isoformat(),
@@ -1224,8 +1326,8 @@ def apply_move(room, token, move):
             raise HTTPException(409, "The host can start when the guest is ready.")
         room.start_round()
     elif move.action == "retry":
-        if not room.puzzle:
-            raise HTTPException(409, "Only a puzzle can be tried again.")
+        if not room.puzzle or room.rule_puzzle:
+            raise HTTPException(409, "Only the Daily Puzzle can be tried again.")
         room.start_puzzle()
     elif move.action == "next_round":
         if room.status != "round_over":
@@ -1289,6 +1391,17 @@ def apply_move(room, token, move):
         else:
             if game.decision_player != seat:
                 raise HTTPException(403, "It is not your decision.")
+            # (a rule puzzle: each move is marked against the best there was, before it is made)
+            marked = None
+            if room.rule_puzzle and seat == 0 and room.puzzle.get("solver"):
+                try:
+                    bonus = move.action == "swap" and game.phase == "bonus"
+                    marked = rule_puzzles.step(room.puzzle["solver"], game, move.action, move.index,
+                                               [parse_ref(ref) for ref in move.refs] if bonus and len(move.refs or []) == 2 else None)
+                except HTTPException:
+                    raise
+                except Exception:
+                    log.exception("Could not mark a rule puzzle move at table %s", room.id)
             if move.action == "flip":
                 game.reveal(move.index)
             elif move.action == "draw":
@@ -1309,6 +1422,8 @@ def apply_move(room, token, move):
                     (game.bonus_swap if game.phase == "bonus" else game.guess_trade)(*refs)
                 else:
                     game.swap(move.index)
+            if marked:
+                room.puzzle["steps"].append(marked)
             # (the move went through: it goes in the seat's log for the flags)
             if room.move_log and seat < len(room.move_log) and move.action in achievements.MOVE_CODES:
                 room.move_log[seat].append(achievements.MOVE_CODES[move.action])
@@ -1412,6 +1527,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
             monitor = asyncio.create_task(monitor_tables())
             demos = asyncio.create_task(keep_demo_tables()) if debug_mode() else None
             puzzles = asyncio.create_task(keep_puzzles_made())
+            store.rule_puzzle_maker.keep_ahead()  # (a few rule puzzles made before anyone asks)
             records = asyncio.create_task(watch_records())
             try:
                 yield
@@ -1424,6 +1540,7 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     demos.cancel()
                 await asyncio.gather(monitor, puzzles, records, *([demos] if demos else []), return_exceptions=True)
                 store.puzzle_maker.close()
+                store.rule_puzzle_maker.close()
                 for room in store.rooms.values():
                     room.save_practice()
         finally:
@@ -3103,6 +3220,44 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                     puzzle={"day": day, "number": number, "player": puzzle_player(session), "spec": spec},
                     puzzle_store=store.puzzles)
         room.start_puzzle()
+        store.rooms[room.id] = room
+        session.room_id = room.id
+        return snapshot(room, session.token)
+
+    @app.get("/api/rule-puzzle")
+    async def rule_puzzle_marks(request: Request):
+        """How you have done at rule puzzles: your accuracy over all of them, and over the last seven days."""
+        session = session_for(request)
+        return await asyncio.to_thread(store.rule_puzzles.stats, puzzle_player(session))
+
+    @app.post("/api/rule-puzzle")
+    async def rule_puzzle_start(request: Request):
+        """Start a rule puzzle at a table of your own (still at one: the next is dealt there)."""
+        session = session_for(request)
+        spec = await store.rule_puzzle_maker.take()
+        old = store.rooms.get(session.room_id)
+        if old and old.rule_puzzle and session.token in old.seats and old.status != "closed":
+            async with old.lock:
+                old.start_puzzle(spec)
+                old.version += 1
+                old.touched = time.time()
+                await broadcast(old)
+            return snapshot(old, session.token)
+        leave_old(session, 'starting a puzzle')
+        store.cleanup()
+        if store.table_count() >= 200:
+            raise HTTPException(503, "The server has too many tables.")
+        cancel_queue(session.token)
+        room = Room(secrets.token_urlsafe(9), "Puzzles", rule_puzzles.new_game(spec).rules, None, "host",
+                    True, [session.token, None], [session.username, "PuzzleBot"], ready=[False, True], wins=[0, 0],
+                    participants=[None, {'id': 'bot:puzzlebot', 'kind': 'bot', 'display_name': 'PuzzleBot'}],
+                    departed=[False, False], avatars=[session.avatar, PUZZLE_BOT_AVATAR],
+                    void_offered=[False, False], disconnected=[None, None], house_rules=False, house_version=None,
+                    # the puzzle is to work the score out yourself: no preview before you confirm
+                    score_preview=False, show_odds=False,
+                    puzzle={"kind": "move", "player": puzzle_player(session), "spec": spec, "count": 0},
+                    puzzle_store=store.rule_puzzles)
+        room.start_puzzle(spec)
         store.rooms[room.id] = room
         session.room_id = room.id
         return snapshot(room, session.token)

@@ -130,7 +130,7 @@ PUZZLE_MOVES = 5
 
 class GolfGame:
     def __init__(self, seed=None, rules=None, multiplayer=False, first_player=0, player_count=2, turn_order=None,
-                 puzzle=False, puzzle_moves=PUZZLE_MOVES, puzzle_face_up=2):
+                 puzzle=False, puzzle_moves=PUZZLE_MOVES, puzzle_face_up=2, puzzle_deal=None):
         # a puzzle is one hand against Golfbot from a seeded deck: the player always
         # goes first, each side starts with the same two cards face up, and the deck
         # never reshuffles (should it run out, the hand ends there). It runs a set
@@ -151,6 +151,9 @@ class GolfGame:
         if puzzle and not (1 <= puzzle_moves <= 20 and 0 <= puzzle_face_up <= 6):
             raise ValueError("A puzzle needs 1–20 moves each and 0–6 cards face up.")
         self.puzzle_moves = puzzle_moves if puzzle else None
+        # a rule puzzle (see rule_puzzles.py) is a puzzle of ONE move, yours, at a table
+        # dealt for it (puzzle_deal): PuzzleBot's hand lies face up and it makes no move
+        self.one_move = bool(puzzle and puzzle_deal)
         self.first_player = first_player
         self.rules = replace(rules) if rules else Rules()
         self.rng = random.Random(seed)
@@ -188,11 +191,18 @@ class GolfGame:
         self.last_guess = None
         self.message = "Select one of your cards and Flip. Reveal two to start."
         self.last_move = "Reveal two cards each to start."
-        if puzzle:
+        if self.one_move:
+            card = lambda held: Card(held[0], held[1])
+            self.players = [[Slot(card(held), index in puzzle_deal["up"]) for index, held in enumerate(puzzle_deal["hand"])],
+                            [Slot(card(held), True) for held in puzzle_deal["opp"]]]
+            self.discard_pile = [card(puzzle_deal["discard"])]
+            self.draw_pile = [card(held) for held in puzzle_deal["deck"]]
+        elif puzzle:
             # the opening cards are part of the puzzle: the same two each, every attempt
             for hand in self.players:
                 for index in self.rng.sample(range(6), puzzle_face_up):
                     hand[index].visible = True
+        if puzzle:
             self._record_scoring_effects()
             self.phase = "choose"
             self.message = "Your turn: Flip your card, Draw, or Swap with the discard."
@@ -668,7 +678,7 @@ class GolfGame:
         self.turns += 1
         if getattr(self, "puzzle", False) and self.current == 1:
             self.bot_moves = getattr(self, "bot_moves", 0) + 1
-        if getattr(self, "puzzle", False) and (not self.draw_pile or self.puzzle_moves_left == 0):
+        if getattr(self, "puzzle", False) and (getattr(self, "one_move", False) or not self.draw_pile or self.puzzle_moves_left == 0):
             # Golfbot's last move made, or the deck spent: the puzzle ends here, every card turned up and scored
             self.finisher = None
             self.scoring_reveal = True
@@ -698,7 +708,7 @@ class GolfGame:
     @property
     def puzzle_moves_left(self):
         """A puzzle's moves Golfbot has still to make (None outside a puzzle)."""
-        if not getattr(self, "puzzle", False):
+        if not getattr(self, "puzzle", False) or getattr(self, "one_move", False):
             return None
         return max((getattr(self, "puzzle_moves", None) or PUZZLE_MOVES) - getattr(self, "bot_moves", 0), 0)
 
@@ -713,7 +723,8 @@ class GolfGame:
         if getattr(self, "puzzle", False):
             self._update_combos()
         self._record_scoring_effects()
-        for player in self.players_from(self.current):
+        # (a rule puzzle is one move of yours: PuzzleBot takes no swap of its own)
+        for player in ([0] if getattr(self, "one_move", False) else self.players_from(self.current)):
             self.final_bonus_queue.extend([player] * self._new_bonuses(player))
         if self.final_bonus_queue:
             self.current = self.final_bonus_queue.pop(0)

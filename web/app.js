@@ -1357,7 +1357,7 @@ function settingsBodyHtml({ resume = true, puzzle = false } = {}) {
   return `<div class="menu-list">
       ${resume && session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
       ${puzzle
-        ? `<button type="button" class="btn c-p1" data-puzzle-help>${tilted("puzzlepiece.fill", 26)} How to play puzzles</button>`
+        ? `<button type="button" class="btn c-p1" data-puzzle-help>${tilted("puzzlepiece.fill", 26)} ${puzzle === "move" ? "How puzzles work" : "How to play the daily puzzle"}</button>`
         : `<button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>`}
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p2" data-nav="notifications">${tilted("bell.fill", 26)} Notifications</button>
@@ -1368,8 +1368,33 @@ function settingsBodyHtml({ resume = true, puzzle = false } = {}) {
     ${padHelpHtml()}
     <p class="hint dark sheet-note">This website has been programmed by Claude Fable 5.2. Front-end design was handmade in <a href="https://www.figma.com/design/OtrBljPuG5YggsJYThYGpq/Golf?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma${textSymbol("arrow.up.right", "out-arrow")}</a> by Spencer.</p>`;
 }
+/** The "Today's puzzle" card: today's theme, its face-up cards and its rules. */
+function todaysPuzzleHtml(theme = {}, { card = true } = {}) {
+  const body = (text) => `<p>${text}</p>`;
+  const rules = (theme.rules || []).map((key) => catalog.find((rule) => rule.key === key)).filter(Boolean);
+  const text = `${body(`<b>${e(theme.name || "Daily Puzzle")}</b>${theme.blurb ? `: ${e(theme.blurb)}` : ""}.`)}${body(`${theme.face_up ?? 2} of your cards start face up. Everyone plays the same deal, and a new one comes at midnight.`)}${rules.length ? `${body("Rules in play:")}<ul class="rules-in-play">${rules.map((rule) => `<li><b>${e(rule.name)}</b></li>`).join("")}</ul>` : body("No optional rules: base scoring only.")}`;
+  // (or, without the card, as the sheet's own text: there, with what is different at a puzzle's table)
+  if (!card) return `<div class="puzzle-intro-text">${text}<p class="puzzle-intro-note">Previewing point values before confirming moves is disabled... do the math and figure out the best move!</p></div>`;
+  return card ? `<section class="panel c-p2"><h2>${tilted("calendar", 26)} Today's puzzle</h2>${text}</section>` : `<div class="puzzle-intro-text">${text}</div>`;
+}
+/** How rule puzzles are played and marked, and the rule this one is about: from its own table. */
+function rulePuzzleHelpSheet() {
+  if (typeof markPuzzleHelpSeen === "function") markPuzzleHelpSeen();
+  const body = (text) => `<p>${text}</p>`;
+  const rule = catalog.find((item) => item.key === state?.puzzle?.rule);
+  openSheet(`<section class="sheet c-p4" role="dialog" aria-modal="true" aria-label="How puzzles work">
+    <div class="sheet-head"><h2>How puzzles work</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="stack">
+    <section class="panel c-p1"><h2>${tilted("puzzlepiece.fill", 26)} The goal</h2>${body("You get <b>one move</b>. Then every card is turned up and scored. Find the move that leaves you with the <b>lowest score</b>.")}${body("<b>PuzzleBot</b> makes no move: its hand just lies face up.")}</section>
+    <section class="panel c-p3"><h2>${tilted("hand.tap.fill", 26)} Your one move</h2>${body("Anything a turn allows: swap the discard with one of your cards, flip a face-down card first, or go fish and decide once you see the card.")}${body("You <b>can't preview point values</b> before confirming a move: working out the score is part of the puzzle.")}${body("Each puzzle is about <b>one rule</b>, the only one in play, and the cards are set out so that it matters.")}</section>
+    <section class="panel c-p2"><h2>${tilted("checkmark.seal.fill", 26)} Accuracy</h2>${body("A face-down card or a go-fish draw could be anything, so a move is judged on the score it gives <b>on average</b>, over every card that could have turned up. A lucky draw doesn't make a poor move good, and an unlucky one doesn't spoil the best move.")}${body("A puzzle is <b>correct</b> if you made the best move, and incorrect otherwise. Your <b>accuracy</b> is the share of puzzles you got correct, kept for all time and for the last 7 days.")}</section>
+    ${rule ? `<section class="panel c-fw"><h2>This puzzle's rule</h2>${ruleHelpCard(rule)}</section>` : ""}
+    </div>
+  </section>`);
+}
 /** How the Daily Puzzle is played, and today's: from the puzzle's own table. */
 function puzzleHelpSheet() {
+  if (state?.puzzle?.kind === "move") return rulePuzzleHelpSheet();
   // (read: the first-puzzle tooltip goes)
   if (typeof markPuzzleHelpSeen === "function") markPuzzleHelpSeen();
   const info = state?.puzzle || {};
@@ -1377,12 +1402,12 @@ function puzzleHelpSheet() {
   const body = (text) => `<p>${text}</p>`;
   const rules = (theme.rules || []).map((key) => catalog.find((rule) => rule.key === key)).filter(Boolean);
   const moves = theme.moves ?? 5;
-  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="How to play puzzles">
-    <div class="sheet-head"><h2>How to play puzzles</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="How to play the daily puzzle">
+    <div class="sheet-head"><h2>How to play the daily puzzle</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
     <div class="stack">
     <section class="panel c-p1"><h2>${tilted("puzzlepiece.fill", 26)} The goal</h2>${body("One hand of Golf against <b>PuzzleBot</b>. Finish with the <b>biggest margin</b>: PuzzleBot's points minus yours. A margin of +5 means you won by 5 points; higher is better.")}</section>
-    <section class="panel c-p3"><h2>${tilted("hand.tap.fill", 26)} How it plays</h2>${body(`You go first, then take turns as in any game. Each of you has <b>${moves} moves</b>: the hand ends with PuzzleBot's last one (or when the go-fish pile runs out), and every card is turned up and scored.`)}${body("The deck is the same every attempt, and is never reshuffled, so what you learn about it carries over. Try as often as you like: only your best margin counts.")}</section>
-    <section class="panel c-p2"><h2>${tilted("calendar", 26)} Today's puzzle</h2>${body(`<b>${e(theme.name || "Daily Puzzle")}</b>${theme.blurb ? `: ${e(theme.blurb)}` : ""}.`)}${body(`${theme.face_up ?? 2} of your cards start face up. Everyone plays the same deal, and a new one comes at midnight.`)}${rules.length ? body(`Rules in play: ${rules.map((rule) => `<b>${e(rule.name)}</b>`).join(", ")}.`) : body("No optional rules: base scoring only.")}</section>
+    <section class="panel c-p3"><h2>${tilted("hand.tap.fill", 26)} How it plays</h2>${body(`You go first, then take turns as in any game. Each of you has <b>${moves} moves</b>: the hand ends with PuzzleBot's last one (or when the go-fish pile runs out), and every card is turned up and scored.`)}${body("The deck is the same every attempt, and is never reshuffled, so what you learn about it carries over. Try as often as you like: only your best margin counts.")}${body("You <b>can't preview point values</b> before confirming a move: working out the score is part of the puzzle.")}</section>
+    ${todaysPuzzleHtml(theme)}
     <section class="panel c-p4"><h2>${tilted("trophy.fill", 26)} Best Margins</h2>${body("Your best margin today goes on the Best Margins board on the home screen, beside everyone else's. Ties go to whoever got there first.")}</section>
     ${rules.length ? `<section class="panel c-fw"><h2>Today's rules</h2>${rules.map((rule) => ruleHelpCard(rule)).join("")}</section>` : ""}
     </div>
@@ -1725,7 +1750,9 @@ function watchNextSeat() {
 /** The line under the table menu's title: which game this is and where the match stands. */
 function tableMenuLine() {
   const n = state.best_of;
-  const line = state.puzzle
+  const line = state.puzzle?.kind === "move"
+    ? `Puzzle ${state.puzzle.count} · One move, lowest score`
+    : state.puzzle
     ? `Try ${state.round} · Same deal every try`
     : n === null || n === undefined
       ? `Game ${state.round} · Play until you leave`
@@ -1748,11 +1775,13 @@ function gameMenuSheet() {
       ${state.solo ? "" : `<button type="button" class="btn c-p3" data-copy="${e(link)}">${tilted("link", 26)} Copy invite link</button>`}
       ${voidOfferButton()}
       ${debugMenuHtml()}
-      ${state.puzzle ? `<button type="button" class="btn c-p1" data-puzzle-retry>${tilted("arrow.clockwise", 26)} Restart the puzzle</button>` : ""}
+      ${state.puzzle?.kind === "move"
+        ? `<button type="button" class="btn c-p1" data-rule-puzzle-next>${tilted("arrow.clockwise", 26)} Skip to another puzzle</button>`
+        : state.puzzle ? `<button type="button" class="btn c-p1" data-puzzle-retry>${tilted("arrow.clockwise", 26)} Restart the puzzle</button>` : ""}
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
     </div>`}
     <p class="hint dark debug-label">Settings</p>
-    ${settingsBodyHtml({ resume: false, puzzle: !!state.puzzle })}
+    ${settingsBodyHtml({ resume: false, puzzle: state.puzzle?.kind === "move" ? "move" : !!state.puzzle })}
   </section>`);
 }
 
@@ -2689,11 +2718,17 @@ function seriesTally(player, everyone = false) {
   const heading = state.best_of === null ? `Game ${number}` : `Game ${Math.min(number, state.best_of)} of ${state.best_of}`;
   const on = Object.values(state.rules || {}).filter((value) => value === true).length;
   const rules = state.house_rules ? "House rules" : on ? `${on} ${on === 1 ? "rule" : "rules"} in play` : "Vanilla";
-  const kind = state.puzzle ? `Daily Puzzle #${state.puzzle.number}` : state.tournament ? e(state.tournament.name || "Tournament") : state.rated ? "Ranked" : "";
+  const kind = state.puzzle?.kind === "move" ? "Puzzles" : state.puzzle ? `Daily Puzzle #${state.puzzle.number}` : state.tournament ? e(state.tournament.name || "Tournament") : state.rated ? "Ranked" : "";
   // (the rules chip is a button: it puts this sheet away and brings up that player's rules in play)
   const pills =
     [kind, style, length].filter(Boolean).map((text) => `<span class="pill">${text}</span>`).join("") +
     `<button type="button" class="pill pill-btn" data-rules-player="${player}">${rules}${glyph("chevron.right", 11)}</button>`;
+  if (state.puzzle?.kind === "move") {
+    // (a rule puzzle: one move of yours, and the one rule it is about)
+    const rule = catalog.find((item) => item.key === state.puzzle.rule);
+    const line = player === 1 ? `${e(state.names[1])} makes no move: its hand just lies face up` : "Find the move that gives the lowest score on average";
+    return `<div class="series-info"><h3>${kind}</h3><div class="meta"><span class="pill">1 move</span><span class="pill">${state.puzzle.face_up} face up</span><button type="button" class="pill pill-btn" data-rules-player="${player}">${e(rule?.name || rules)}${glyph("chevron.right", 11)}</button></div><div class="tally plain" data-series-tally><div><span>${line}</span></div></div></div>`;
+  }
   if (state.puzzle) {
     // (the puzzle runs a set number of moves each: PuzzleBot's last one ends the hand)
     const g = state.game || {};

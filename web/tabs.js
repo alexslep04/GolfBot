@@ -1302,6 +1302,21 @@ async function homeClick(button, data, event) {
     await startPuzzle();
     return true;
   }
+  if ("rulePuzzles" in data || "rulePuzzleNext" in data) {
+    closeSheet(); // (the next one is also in the table's menu)
+    await startRulePuzzle();
+    return true;
+  }
+  if ("puzzleIntroSkip" in data) {
+    setPref("puzzleIntroHidden", puzzleIntroHiddenToday() ? "" : homeData.puzzle?.day || "");
+    button.outerHTML = puzzleIntroToggle();
+    return true;
+  }
+  if ("puzzlePlay" in data) {
+    closeSheet();
+    await enterPuzzle();
+    return true;
+  }
   if ("puzzleBoard" in data) {
     await puzzleBoardSheet();
     return true;
@@ -1439,11 +1454,48 @@ function puzzleHtml() {
   return `<section class="home-section puzzle-section">${tabTitle(`Daily Puzzle #${info.number}`, e(mine || tagline), "puzzle")}<div class="puzzle-row"><div class="puzzle-hand">${hand}</div>${board}</div>
     <button type="button" class="btn c-p1 solve-btn" data-puzzle-start>${tilted("puzzlepiece.fill", 30)}<span>Solve Puzzle</span>${tilted("puzzlepiece.fill", 30, { mirror: true })}</button></section>`;
 }
+/**
+ * Before the Daily Puzzle's table: a sheet with today's puzzle (the card from "How to
+ * play the daily puzzle") and a Play button, unless it was hidden for today.
+ * (A fresh attempt from the puzzle's own table goes straight in.)
+ */
 async function startPuzzle() {
+  const atPuzzle = page === "room" && state?.puzzle && !state.spectator;
+  if (atPuzzle) return enterPuzzle();
+  const info = homeData.puzzle || (homeData.puzzle = await api("/api/puzzle"));
+  if (prefs.puzzleIntroHidden && prefs.puzzleIntroHidden === info.day) return enterPuzzle();
+  puzzleIntroSheet(info);
+}
+const puzzleIntroHiddenToday = () => !!homeData.puzzle && prefs.puzzleIntroHidden === homeData.puzzle.day;
+const puzzleIntroToggle = () =>
+  prefRow("puzzleIntroSkip", "eye.fill", "Hide this sheet for today", onOff(puzzleIntroHiddenToday()), puzzleIntroHiddenToday()).replace('data-pref="puzzleIntroSkip"', "data-puzzle-intro-skip");
+function puzzleIntroSheet(info) {
+  openSheet(`<section class="sheet c-fw puzzle-intro" role="dialog" aria-modal="true" aria-label="Daily Puzzle #${info.number}">
+    <div class="sheet-head"><h2>Daily Puzzle #${info.number}</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="stack">
+      ${todaysPuzzleHtml(info.theme, { card: false })}
+      <div class="menu-list">${puzzleIntroToggle()}</div>
+      <button type="button" class="btn c-p1 solve-btn" data-puzzle-play>${tilted("puzzlepiece.fill", 30)}<span>Play puzzle</span>${tilted("puzzlepiece.fill", 30, { mirror: true })}</button>
+    </div>
+  </section>`);
+}
+async function enterPuzzle() {
   const epoch = tableEpoch;
   if (session.room_id && !(await abandonExisting())) return;
   const next = await api("/api/puzzle", "POST", {});
   if (epoch === tableEpoch) enterRoom(next);
+}
+/**
+ * A rule puzzle (one move, one rule: see rule_puzzles.py) at a table of your own. At one
+ * already, the next is dealt there: each is played once.
+ */
+async function startRulePuzzle() {
+  const epoch = tableEpoch;
+  const here = page === "room" && state?.puzzle?.kind === "move" && !state.spectator;
+  if (!here && session.room_id && !(await abandonExisting())) return;
+  const next = await api("/api/rule-puzzle", "POST", {});
+  if (here) accept(next);
+  else if (epoch === tableEpoch) enterRoom(next);
 }
 /** Every best score today (the panel only has room for four). */
 async function puzzleBoardSheet() {
@@ -1616,7 +1668,7 @@ function startGameHtml() {
       ${mode('data-nav="friends"', "c-p1", "figure.2", "Play with Friends", "Host or join a table", `<span id="lobby-count" class="badge" hidden></span>`)}
       ${mode("data-queue-toggle", "c-p3", "sparkles", "Play Ranked", 'id="queue-sub"', `<span id="queue-count" class="badge" hidden></span>`)}
       ${mode('data-nav="solo"', "c-p2", "dumbbell.fill", "Play Solo", "Test your skills vs Golfbot")}
-      ${mode('data-nav="rules"', "c-p4", "brain.fill", "Learn Rules", "See how every rule plays")}
+      ${mode("data-rule-puzzles", "c-p4", "puzzlepiece.fill", "Play Puzzles", "One move: find the best play")}
       ${mode('data-nav="passplay"', "c-s7 c-passplay", "person.2.fill", "Pass &amp; Play", "Share one device")}
       ${document.documentElement.dataset?.debug !== undefined ? mode("data-debug-bots", "c-fw", "ladybug.fill", "Debug Table", "You and seven bots") : ""}
     </div>
