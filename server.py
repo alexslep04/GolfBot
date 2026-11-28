@@ -1675,6 +1675,16 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         return {key: (record['id'], record.get('label') or '') for key, record in records.items()
                 if key in RECORD_PUSH and isinstance(record, dict) and record.get('id')}
 
+    def subscriptions_for(player):
+        """Each device a player has asked for notifications on: [(token, subscription)]."""
+        found = []
+        for token, subscription in list(store.push_subscriptions.items()):
+            other = store.sessions.get(token)
+            whose = puzzle_player(other) if other is not None else subscription.get('player')
+            if whose == player:
+                found.append((token, subscription))
+        return found
+
     def notify_record(player, title, won, taker=''):
         """A push notification to a player whose record has just changed hands."""
         if not str(player).startswith(('account:', 'browser:')):
@@ -1683,9 +1693,8 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
                    {'title': 'Record lost', 'body': f'{taker or "Someone"} took your {title} record.'})
         payload.update(tag=f'golf-record-{title}', url='aces')
         loop = asyncio.get_running_loop()
-        for token, subscription in list(store.push_subscriptions.items()):
-            other = store.sessions.get(token)
-            if other is None or subscription.get('records') is False or puzzle_player(other) != player:
+        for token, subscription in subscriptions_for(player):
+            if subscription.get('records') is False:
                 continue
             loop.run_in_executor(None, send_push, token, subscription, payload)
 
@@ -2074,7 +2083,9 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if not isinstance(endpoint, str) or not endpoint.startswith('https://') or not isinstance(subscription.get('keys'), dict):
             raise HTTPException(422, 'That is not a push subscription.')
         store.push_subscriptions[session.token] = {'endpoint': endpoint, 'keys': subscription['keys'],
-                                                   'turn': body.turn, 'queue': body.queue}
+                                                   'turn': body.turn, 'queue': body.queue,
+                                                   # (whose device it is, kept through a restart)
+                                                   'player': puzzle_player(session)}
         save_push_subscriptions()
         # push services ask who is sending: the site this game is served from, as
         # a bare https://host (the signing library refuses a path or plain http)
@@ -2848,6 +2859,11 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         # does not, so this runs out soon after Golf is put away)
         if body.visible:
             session.looking_until = time.time() + 15
+        # (a device's notifications follow whoever is signed in on it)
+        subscription = store.push_subscriptions.get(session.token)
+        if subscription is not None and subscription.get('player') != puzzle_player(session):
+            subscription['player'] = puzzle_player(session)
+            save_push_subscriptions()
         prune_invites()
         prune_queue()
         invitations = []
@@ -2895,6 +2911,34 @@ def create_app(store=None, google_client_id=None, bot_workers=None):
         if room.solo or room.seats[0] != session.token or not room.has_open_seat:
             raise HTTPException(403, 'Only the host of an open lobby can invite players.')
         return send_invitation(session, body.player_id, 'room', room.id)
+
+    @app.post('/api/lobbies/{room_id}/invite-friend')
+    async def invite_friend(room_id: str, body: FriendRequest, request: Request):
+        """Invite a friend who is not on Golf now: a push notification to their devices
+        that opens the table. (One who is on is invited the usual way.)"""
+        session = session_for(request)
+        room = find_room(room_id)
+        if room.solo or room.seats[0] != session.token or not room.has_open_seat:
+            raise HTTPException(403, 'Only the host of an open lobby can invite players.')
+        if not session.account:
+            raise HTTPException(403, 'Sign in to invite your friends.')
+        friend = store.accounts.by_unique_name(body.unique_name.lstrip('@').lower())
+        if not friend or not store.friends.are_friends(session.account['id'], friend['id']):
+            raise HTTPException(404, 'You can only invite your friends this way.')
+        devices = subscriptions_for('account:' + friend['id'])
+        if not devices:
+            raise HTTPException(409, f"{friend.get('display_name') or friend['unique_name']} hasn't turned on notifications.")
+        session.invite_times = [stamp for stamp in session.invite_times if stamp > time.time() - 60]
+        if len(session.invite_times) >= 10:
+            raise HTTPException(429, 'Please wait before sending more invitations.')
+        session.invite_times.append(time.time())
+        room.friend_invites = {*getattr(room, 'friend_invites', set()), friend['unique_name']}
+        payload = {'title': f'{session.username} invited you to play!',
+                   'body': f'Join them at {room.name}.', 'tag': f'golf-invite-{room.id}', 'url': f'lobby/{room.id}'}
+        loop = asyncio.get_running_loop()
+        for token, subscription in devices:
+            loop.run_in_executor(None, send_push, token, subscription, payload)
+        return {'sent': True}
 
     def send_invitation(session, player_id, where, where_id):
         """Invite someone online to a table ('room') or to a tournament still gathering players."""

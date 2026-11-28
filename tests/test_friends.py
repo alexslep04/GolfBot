@@ -71,6 +71,28 @@ class FriendsServerTests(unittest.TestCase):
         self.assertEqual(ann.delete('/api/friends/bobo').status_code, 200)
         self.assertEqual(ann.get('/api/friends').json()['friends'], [])
 
+    def test_a_host_can_notify_a_friend_who_is_not_on_to_join_their_table(self):
+        from unittest import mock
+        import server
+        ann = self.signed_in('ann-sub', 'ann', 'Ann')
+        bo = self.signed_in('bo-sub', 'bobo', 'Bo')
+        cy = self.signed_in('cy-sub', 'cyrus', 'Cy')
+        ann.post('/api/friends', json={'unique_name': 'bobo'})
+        bo.post('/api/friends/ann/accept')
+        room = ann.post('/api/lobbies', json={'username': 'Ann', 'name': 'Ann table'}).json()['id']
+        path = f'/api/lobbies/{room}/invite-friend'
+        # (not a friend; then a friend with no notifications on)
+        self.assertEqual(ann.post(path, json={'unique_name': 'cyrus'}).status_code, 404)
+        self.assertEqual(ann.post(path, json={'unique_name': 'bobo'}).status_code, 409)
+        # Bo's phone is subscribed, and Bo is gone (the server restarted: no session)
+        bo_id = 'account:' + self.store.accounts.by_unique_name('bobo')['id']
+        self.store.push_subscriptions['old-token'] = {'endpoint': 'https://push.example/x', 'keys': {}, 'player': bo_id}
+        with mock.patch.object(server, 'push_keys', create=True), mock.patch('pywebpush.webpush') as push:
+            sent = ann.post(path, json={'unique_name': '@BoBo'})
+        self.assertEqual(sent.json(), {'sent': True})
+        # only the host may ask
+        self.assertEqual(cy.post(path, json={'unique_name': 'bobo'}).status_code, 403)
+
     def test_a_profile_says_who_a_player_is_and_whether_you_are_friends(self):
         ann = self.signed_in('ann-sub', 'ann', 'Ann')
         bo = self.signed_in('bo-sub', 'bobo', 'Bo')

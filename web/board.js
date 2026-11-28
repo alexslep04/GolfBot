@@ -547,6 +547,23 @@ function mountBoard() {
   const summary = board.el.querySelector("[data-summary]");
   summary.addEventListener("pointermove", evalHover);
   summary.addEventListener("pointerdown", evalHover);
+  // A finger on the graph reads it out as it slides along. Safari hands such a slide to
+  // the results panel to scroll (it can scroll, on a short screen) and cancels the
+  // pointer, so the touch itself is followed here and kept from scrolling anything.
+  const onChart = (event) => event.target.closest?.("[data-eval-chart] .eval-plot");
+  const follow = (event) => {
+    const plot = onChart(event);
+    if (!plot || event.touches.length !== 1) return;
+    if (event.type === "touchmove" && event.cancelable) event.preventDefault();
+    evalHover({ type: "pointermove", target: plot, clientX: event.touches[0].clientX });
+  };
+  summary.addEventListener("touchstart", follow, { passive: true });
+  summary.addEventListener("touchmove", follow, { passive: false });
+  for (const type of ["touchend", "touchcancel"])
+    summary.addEventListener(type, (event) => {
+      const plot = onChart(event);
+      if (plot && !event.touches.length) evalHover({ type: "pointerleave", target: plot });
+    });
   summary.addEventListener("pointerout", (event) => {
     const figure = event.target.closest?.("[data-eval-chart]");
     if (figure && !figure.contains(event.relatedTarget))
@@ -1432,6 +1449,7 @@ function renderChrome() {
   bar.classList.toggle("my-turn", ownTurn()); // it pulses along with your tags
   renderSummary();
   renderEmotes(); // after the results, whose tiles the reactions sit on
+  renderPuzzleTip();
   renderModal();
 }
 
@@ -3090,3 +3108,52 @@ function rulesSheet(player) {
     <p class="hint dark" style="margin-top:1.2rem">${e(g.last_move)}<br>Face-down cards are not counted until the game ends.</p>
   </section>`;
 }
+
+/*
+ * A player's first Daily Puzzle: a tooltip beside the table menu's gear, pointing at it,
+ * asking them to read how puzzles are played (the menu's "How to play puzzles"). A tap
+ * on it opens that straight away. Once they have read it, or finished a puzzle, it is
+ * not shown again (on this device).
+ */
+const puzzleHelpSeen = () => {
+  try {
+    return !!localStorage.getItem("golf-puzzle-help-seen");
+  } catch {
+    return true;
+  }
+};
+function markPuzzleHelpSeen() {
+  try {
+    localStorage.setItem("golf-puzzle-help-seen", "1");
+  } catch {}
+  renderPuzzleTip();
+}
+function renderPuzzleTip() {
+  let tip = document.getElementById("puzzle-tip");
+  const over = state?.game?.phase === "over" || state?.status !== "playing";
+  if (state?.puzzle && over && !state.spectator) {
+    try {
+      localStorage.setItem("golf-puzzle-help-seen", "1");
+    } catch {}
+  }
+  const show = page === "room" && state?.puzzle && !state.spectator && !over && !prefs.hideTips && !puzzleHelpSeen() && sheetRoot.hidden;
+  const gear = show ? board.el?.querySelector("[data-game-menu]") : null;
+  if (!gear) {
+    if (tip) tip.hidden = true;
+    return;
+  }
+  if (!tip) {
+    tip = document.createElement("button");
+    tip.type = "button";
+    tip.id = "puzzle-tip";
+    tip.className = "callout c-p1 puzzle-tip";
+    tip.dataset.puzzleHelp = "";
+    tip.textContent = "New to puzzles? Tap here to read how to play";
+    document.body.append(tip);
+  }
+  const r = gear.getBoundingClientRect();
+  tip.style.left = `${Math.round(r.right + 12)}px`;
+  tip.style.top = `${Math.round(r.top + r.height / 2)}px`;
+  tip.hidden = false;
+}
+window.addEventListener?.("resize", () => renderPuzzleTip());

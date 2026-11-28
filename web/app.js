@@ -372,6 +372,8 @@ function morphChildren(from, to) {
   before.slice(after.length).forEach((node) => node.remove());
 }
 function show(name, html) {
+  // (the first-puzzle tooltip belongs to the puzzle's table only)
+  if (name !== "room") document.getElementById("puzzle-tip")?.setAttribute("hidden", "");
   // the same screen drawn again (a setting changed, a table update) is
   // patched in place; a new screen replaces the page and slides in
   const same = page === name && shownFirstPage && root.firstElementChild && !root.querySelector("[data-board]");
@@ -401,6 +403,7 @@ function show(name, html) {
   if (first) booted();
 }
 function openSheet(html, player = "") {
+  document.getElementById("puzzle-tip")?.setAttribute("hidden", "");
   rememberRulesScroll();
   // `player` marks a rules sheet, which is kept in step with the table
   sheetRoot.dataset.player = String(player);
@@ -501,6 +504,7 @@ document.addEventListener(
   { passive: false },
 );
 function closeSheet() {
+  setTimeout(() => typeof renderPuzzleTip === "function" && renderPuzzleTip(), 0);
   // (a new patch's notes, put away: seen)
   if (sheetRoot.querySelector(".patch-sheet")) {
     markPatchSeen();
@@ -974,7 +978,13 @@ function renderSocial() {
     if (dialog.open) closeSocial();
     return;
   }
-  const signature = JSON.stringify([socialMode, presenceState.players, presenceState.invited]);
+  // (your friends who are not on now: a table's host can still ask them, by a push
+  // notification to their phone; a tournament's invitations are for those on only)
+  const online = new Set(presenceState.players.map((player) => player.unique_name).filter(Boolean));
+  const away = socialMode === "players" && !hostedLobby() && state?.id
+    ? (homeData.friends?.friends || []).filter((friend) => !online.has(friend.unique_name) && friend.status !== "in_game")
+    : [];
+  const signature = JSON.stringify([socialMode, presenceState.players, presenceState.invited, away.map((friend) => friend.unique_name), [...friendsNotified]]);
   if (signature === socialSignature) return;
   socialSignature = signature;
   dialog.innerHTML =
@@ -983,7 +993,10 @@ function renderSocial() {
           const invited = presenceState.invited.includes(player.id);
           // the player's card, and beside it the invite sticker over its label
           return `<div class="invite-row"><div class="list-item c-p1 grow">${avatarBadge(player.avatar, "c-p1")}<div class="grow"><strong>${e(player.display_name)}</strong><small>${player.unique_name ? "@" + e(player.unique_name) : "Guest"}${player.solo ? " · playing Golfbot" : ""}</small></div></div><button type="button" class="close-btn c-p1" data-invite-player="${e(player.id)}" aria-label="${invited ? "Invited" : "Invite"} ${e(player.display_name)}" ${invited ? "disabled" : ""}>${icon(invited ? "checkmark.circle.fill" : "person.fill.badge.plus", 30)}<span>${invited ? "Invited" : "Invite"}</span></button></div>`;
-        }).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div>`
+        }).join("") || `<p>No one else is online right now. Share the invite link instead.</p>`}</div>${away.length ? `<h3 class="invite-head">Your friends</h3><p class="hint">Not on Golf right now: they get a notification on their phone to join you.</p><div class="list invite-list">${away.map((friend) => {
+          const told = friendsNotified.has(friend.unique_name);
+          return `<div class="invite-row"><div class="list-item c-fw grow">${avatarBadge(friend.avatar, "c-fw")}<div class="grow"><strong>${e(friend.display_name)}</strong><small>@${e(friend.unique_name)}</small></div></div><button type="button" class="close-btn c-p1" data-invite-friend="${e(friend.unique_name)}" aria-label="${told ? "Notified" : "Notify"} ${e(friend.display_name)}" ${told ? "disabled" : ""}>${icon(told ? "checkmark.circle.fill" : "bell.fill", 30)}<span>${told ? "Notified" : "Notify"}</span></button></div>`;
+        }).join("")}</div>` : ""}`
       : "";
   // (the invite list's x sits out on the dialog's corner)
   dialog.classList.toggle("invite-dialog", socialMode === "players");
@@ -995,6 +1008,7 @@ function renderSocial() {
  * Accept hanging below. It drops in from the top, and leaves the same way.
  */
 let shownInvite = null;
+const friendsNotified = new Set(); // friends asked to a table by notification, this visit
 let flagDemoAt = -1;
 function renderInvitePill(invitation) {
   const banner = document.getElementById("invite-banner");
@@ -1326,10 +1340,12 @@ function togglePref(key) {
  * the pages, the preferences, the controller's buttons and the note at the end. A table's
  * menu puts its own actions above these (see gameMenuSheet).
  */
-function settingsBodyHtml({ resume = true } = {}) {
+function settingsBodyHtml({ resume = true, puzzle = false } = {}) {
   return `<div class="menu-list">
       ${resume && session.room_id && page !== "room" ? `<button type="button" class="btn c-p1" data-nav="resume">${tilted("play.fill", 26)} Resume your table</button>` : ""}
-      <button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>
+      ${puzzle
+        ? `<button type="button" class="btn c-p1" data-puzzle-help>${tilted("puzzlepiece.fill", 26)} How to play puzzles</button>`
+        : `<button type="button" class="btn c-p1" data-nav="rules">${tilted("list.bullet.clipboard.fill", 26)} How to play</button>`}
       <button type="button" class="btn c-p3" data-nav="history">${tilted("clock.arrow.circlepath", 26)} Match history</button>
       <button type="button" class="btn c-p2" data-nav="notifications">${tilted("bell.fill", 26)} Notifications</button>
       <button type="button" class="btn c-p4" data-nav="patches">${tilted("newspaper.fill", 26)} Patch notes</button>
@@ -1338,6 +1354,26 @@ function settingsBodyHtml({ resume = true } = {}) {
     ${prefsHtml()}
     ${padHelpHtml()}
     <p class="hint dark sheet-note">This website has been programmed by Claude Fable 5.2. Front-end design was handmade in <a href="https://www.figma.com/design/OtrBljPuG5YggsJYThYGpq/Golf?node-id=114-91&amp;t=EDkY7LXjEWflPbP6-0" target="_blank" rel="noopener">Figma${textSymbol("arrow.up.right", "out-arrow")}</a> by Spencer.</p>`;
+}
+/** How the Daily Puzzle is played, and today's: from the puzzle's own table. */
+function puzzleHelpSheet() {
+  // (read: the first-puzzle tooltip goes)
+  if (typeof markPuzzleHelpSeen === "function") markPuzzleHelpSeen();
+  const info = state?.puzzle || {};
+  const theme = info.theme || {};
+  const body = (text) => `<p>${text}</p>`;
+  const rules = (theme.rules || []).map((key) => catalog.find((rule) => rule.key === key)).filter(Boolean);
+  const moves = theme.moves ?? 5;
+  openSheet(`<section class="sheet c-p1" role="dialog" aria-modal="true" aria-label="How to play puzzles">
+    <div class="sheet-head"><h2>How to play puzzles</h2><button type="button" class="close-btn" data-sheet-close>${icon("xmark.circle.fill", 44)}<span>${padTag("b")}Close</span></button></div>
+    <div class="stack">
+    <section class="panel c-p1"><h2>${tilted("puzzlepiece.fill", 26)} The goal</h2>${body("One hand of Golf against <b>PuzzleBot</b>. Finish with the <b>biggest margin</b>: PuzzleBot's points minus yours. A margin of +5 means you won by 5 points; higher is better.")}</section>
+    <section class="panel c-p3"><h2>${tilted("hand.tap.fill", 26)} How it plays</h2>${body(`You go first, then take turns as in any game. Each of you has <b>${moves} moves</b>: the hand ends with PuzzleBot's last one (or when the go-fish pile runs out), and every card is turned up and scored.`)}${body("The deck is the same every attempt, and is never reshuffled, so what you learn about it carries over. Try as often as you like: only your best margin counts.")}</section>
+    <section class="panel c-p2"><h2>${tilted("calendar", 26)} Today's puzzle</h2>${body(`<b>${e(theme.name || "Daily Puzzle")}</b>${theme.blurb ? `: ${e(theme.blurb)}` : ""}.`)}${body(`${theme.face_up ?? 2} of your cards start face up. Everyone plays the same deal, and a new one comes at midnight.`)}${rules.length ? body(`Rules in play: ${rules.map((rule) => `<b>${e(rule.name)}</b>`).join(", ")}.`) : body("No optional rules: base scoring only.")}</section>
+    <section class="panel c-p4"><h2>${tilted("trophy.fill", 26)} Best Margins</h2>${body("Your best margin today goes on the Best Margins board on the home screen, beside everyone else's. Ties go to whoever got there first.")}</section>
+    ${rules.length ? `<section class="panel c-fw"><h2>Today's rules</h2>${rules.map((rule) => ruleHelpCard(rule)).join("")}</section>` : ""}
+    </div>
+  </section>`);
 }
 function settingsSheet() {
   const offer = voidOfferButton();
@@ -1703,7 +1739,7 @@ function gameMenuSheet() {
       <button type="button" class="btn c-p2" data-leave>${tilted("rectangle.portrait.and.arrow.right", 26)} Leave table</button>
     </div>`}
     <p class="hint dark debug-label">Settings</p>
-    ${settingsBodyHtml({ resume: false })}
+    ${settingsBodyHtml({ resume: false, puzzle: !!state.puzzle })}
   </section>`);
 }
 
@@ -3794,6 +3830,7 @@ document.addEventListener("click", async (event) => {
     if ("socialClose" in data) return closeSocial();
     if ("patchClose" in data) return closePatchPopup();
     if ("flagDismiss" in data) return dismissFlagNews();
+    if ("puzzleHelp" in data) return puzzleHelpSheet();
     // (debug: a flag earned, 3 seconds after the sheet closes, a different one each time)
     if ("flagDemo" in data) {
       closeSheet();
@@ -3848,7 +3885,21 @@ document.addEventListener("click", async (event) => {
     if ("inviteOpen" in data) {
       socialMode = "players";
       socialSignature = "";
-      await pollPresence();
+      // (your friends too, to ask those who are not on)
+      const friends = session.account ? api("/api/friends").then((info) => (homeData.friends = info)).catch(() => {}) : null;
+      await Promise.all([pollPresence(), friends]);
+      return renderSocial();
+    }
+    if (data.inviteFriend) {
+      button.disabled = true;
+      try {
+        await api(`/api/lobbies/${state.id}/invite-friend`, "POST", { unique_name: data.inviteFriend });
+        friendsNotified.add(data.inviteFriend);
+        toast("Notification sent.");
+      } catch (error) {
+        toast(error.message);
+        button.disabled = false;
+      }
       return renderSocial();
     }
     if ("signout" in data) {

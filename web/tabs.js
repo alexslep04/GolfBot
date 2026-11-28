@@ -1322,6 +1322,11 @@ async function homeClick(button, data, event) {
     await profileFriend(button, data.profileFriend);
     return true;
   }
+  if ("friendsMore" in data) {
+    friendsExpanded = true;
+    redrawPane("play");
+    return true;
+  }
   if ("friendsSheet" in data) {
     friendsSheet();
     return true;
@@ -1449,6 +1454,8 @@ async function puzzleBoardSheet() {
     <div class="list leader-list">${info.board.map((row, i) => `<div class="list-item board-row ${i === 0 ? "c-p3" : "c-fw"}${row.mine ? " mine" : ""}" style="--i:${i}"><span class="rank">${i === 0 ? tilted("trophy.fill", 30, { key: "pz-first" }) : stickerText(String(i + 1), { key: `pz-rank:${i}` })}</span><span class="pb-ava">${icon(avatarIcon(row.avatar), 26, { idle: false })}</span><div class="grow"><strong>${row.mine ? youStar() : row.friend ? friendMark() : ""}${e(row.name)}</strong><small>${row.attempts} ${row.attempts === 1 ? "attempt" : "attempts"}</small></div><b class="rate">${puzzleMargin(row.score)}</b></div>`).join("") || `<p class="hint dark">No margins yet today.</p>`}</div>
   </section>`);
 }
+const FRIENDS_SHOWN = 10;
+let friendsExpanded = false;
 /** Your friends and what they are up to, busiest first. */
 function friendsHtml() {
   const info = homeData.friends;
@@ -1456,7 +1463,10 @@ function friendsHtml() {
   if (!info) return boxed("c-fw", "Friends", `<div class="loading">Loading friends…</div>`, "friends-box");
   if (!info.signed_in)
     return boxed("c-fw", "Friends", `<p class="friends-empty">Sign in to add friends and see when they're playing.</p>${signInButton("small c-p1", `${tilted("person.crop.circle.fill", 22)}Sign in`)}`, "friends-box");
-  const rows = info.friends.map((friend, i) => {
+  // (the first ten, busiest first; the rest behind "View X more")
+  const shown = friendsExpanded ? info.friends : info.friends.slice(0, FRIENDS_SHOWN);
+  const hidden = info.friends.length - shown.length;
+  const rows = shown.map((friend, i) => {
     const status = friendStatus(friend);
     // (a game, or the Daily Puzzle: either one watched the same way)
     const playing = friend.status === "in_game" || friend.status === "puzzle";
@@ -1467,7 +1477,8 @@ function friendsHtml() {
       : `<span class="friend-status">${status}</span>`;
     return `<div class="friend-row ${friend.status}" style="--i:${i}"><span class="friend-ava">${tilted(avatarIcon(friend.avatar), 34, { key: `fa:${friend.unique_name}` })}</span><button type="button" class="friend-name" data-stats-player="${e(friend.id)}" aria-label="${e(friend.display_name)}'s profile"><b>${e(friend.display_name)}</b>${friend.mmr != null ? `<small>${statNumber(friend.mmr)}</small>` : ""}</button>${points}${watch}</div>`;
   }).join("");
-  return boxed("c-fw", "Friends", `${rows || `<p class="friends-empty">No friends yet. Add someone by their @name.</p>`}${add}`, "friends-box");
+  const more = hidden > 0 ? `<button type="button" class="friends-more" data-friends-more>${glyph("chevron.down", 14)}<span>View ${hidden} more</span></button>` : "";
+  return boxed("c-fw", "Friends", `${rows || `<p class="friends-empty">No friends yet. Add someone by their @name.</p>`}${more}${add}`, "friends-box");
 }
 function friendStatus(friend) {
   if (friend.status === "in_game") return friend.solo ? "Playing Golfbot" : "In-game";
